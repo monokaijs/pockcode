@@ -1,6 +1,5 @@
 import { FilePlus2, FileSymlink, GitBranch, Minus, Plus, RefreshCcw, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { GitChange, Project } from "@/types/ide"
 
@@ -10,7 +9,7 @@ export function GitPanel({ project }: { project: Project }) {
   const deletions = project.gitChanges.reduce((sum, change) => sum + change.deletions, 0)
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden border-r bg-background">
+    <section className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden border-r bg-[#111215]">
       <div className="border-b px-3 py-2">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Source Control
@@ -25,9 +24,9 @@ export function GitPanel({ project }: { project: Project }) {
           <Badge variant={changedCount ? "warning" : "success"}>
             {changedCount} changes
           </Badge>
-          <Button size="icon-xs" title="Refresh" variant="ghost">
+          <button size="icon-xs" title="Refresh" variant="ghost">
             <RefreshCcw className="size-3.5" />
-          </Button>
+          </button>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1 text-emerald-300">
@@ -50,7 +49,7 @@ export function GitPanel({ project }: { project: Project }) {
 function GitChangeRow({ change }: { change: GitChange }) {
   const Icon = changeIcon(change.status)
   return (
-    <Button
+    <button
       className="group flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"
       title={change.path}
       type="button"
@@ -64,7 +63,7 @@ function GitChangeRow({ change }: { change: GitChange }) {
       <span className="shrink-0 rounded border px-1 py-0.5 text-[10px] uppercase text-muted-foreground">
         {statusLabel(change.status)}
       </span>
-    </Button>
+    </button>
   )
 }
 

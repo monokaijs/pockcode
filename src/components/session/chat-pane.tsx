@@ -82,9 +82,6 @@ import {
 } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import type {
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
   ChatComposerAccessMode,
   ChatComposerAttachment,
   ChatComposerReasoningEffort,
@@ -145,7 +142,7 @@ export function ChatPane(props: ChatPaneProps) {
   return (
     <ChatPaneStateContext.Provider value={pane}>
       <ChatFileLinkContext.Provider value={pane.fileLinkContext}>
-        <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border border-border bg-card">
+        <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border border-[#2a2c2f] bg-[#171818]">
           <ChatPaneHeader />
           <ChatMessageList />
           <ChatComposer />
@@ -578,8 +575,8 @@ function ChatPaneHeader() {
   const pane = useChatPane()
 
   return (
-    <header className="flex h-10 min-w-0 items-center gap-2 border-b border-border px-3">
-      <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+    <header className="flex h-10 min-w-0 items-center gap-2 border-b border-[#25272a] px-3">
+      <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#ededed]">
         {pane.chat?.title ?? pane.workspace.name}
       </div>
       {pane.selectableAccounts.length ? <ChatAccountSelect /> : <ChatProvidersButton />}
@@ -592,13 +589,13 @@ function ChatProvidersButton() {
   const pane = useChatPane()
 
   return (
-    <Button
-      className="h-7 rounded-md border border-border px-2 text-[12px] font-medium text-foreground hover:bg-muted"
+    <button
+      className="h-7 rounded-md border border-[#34363a] px-2 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#252729]"
       type="button"
       onClick={pane.onOpenProviders}
     >
       Providers
-    </Button>
+    </button>
   )
 }
 
@@ -608,7 +605,7 @@ function ChatAccountSelect() {
   return (
     <>
       {pane.accountQuota ? (
-        <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground sm:inline">
+        <span className="hidden shrink-0 text-[11px] font-medium text-[#858585] sm:inline">
           {pane.accountQuota}
         </span>
       ) : null}
@@ -620,29 +617,29 @@ function ChatAccountSelect() {
       >
         <SelectTrigger
           aria-label="Provider account"
-          className="h-7 w-[min(42vw,11rem)] border-border bg-muted px-2 text-[12px] font-medium text-foreground hover:bg-muted"
+          className="h-7 w-[min(42vw,11rem)] border-[#34363a] bg-[#1d1e1f] px-2 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#252729]"
           title={pane.account ? pane.account.displayName + " · " + pane.account.providerId : undefined}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <ProviderMark icon={pane.providerDefinition?.icon} className="size-3.5 shrink-0 text-muted-foreground" />
+            <ProviderMark icon={pane.providerDefinition?.icon} className="size-3.5 shrink-0 text-[#9a9a9a]" />
             <span className="min-w-0 truncate">{pane.account?.displayName ?? "Provider"}</span>
           </span>
         </SelectTrigger>
-        <SelectContent align="end" className="border-border bg-muted text-foreground">
+        <SelectContent align="end" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
           {pane.selectableAccounts.map((entry) => {
             const quota = formatProviderQuota(pane.accountLimits[entry.id])
             return (
               <SelectItem
-                className="text-[12px] text-foreground hover:bg-accent focus-visible:bg-accent"
+                className="text-[12px] text-[#d6d6d6] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]"
                 key={entry.id}
                 label={entry.displayName + " · " + (quota ?? entry.providerId)}
                 value={entry.id}
               >
                 <span className="flex min-w-0 items-center gap-2">
-                  <ProviderMark icon={pane.providerIconById.get(entry.providerId)} className="size-3.5 shrink-0 text-muted-foreground" />
+                  <ProviderMark icon={pane.providerIconById.get(entry.providerId)} className="size-3.5 shrink-0 text-[#9a9a9a]" />
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span className="min-w-0 truncate">{entry.displayName}</span>
-                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                    <span className="min-w-0 truncate text-[11px] text-[#858585]">
                       {entry.providerId}
                       {quota ? " · " + quota : ""}
                     </span>
@@ -663,7 +660,7 @@ function ChatMessageList() {
   return (
     <div className="min-h-0 overflow-auto px-4 py-4 ide-scrollbar" ref={pane.scrollRef}>
       {pane.error ? (
-        <div className="mb-3 rounded-md border border-destructive/50 bg-muted px-3 py-2 text-[12px] text-destructive">
+        <div className="mb-3 rounded-md border border-[#5a3030] bg-[#241817] px-3 py-2 text-[12px] text-[#ff9f9f]">
           {pane.error}
         </div>
       ) : null}
@@ -674,7 +671,7 @@ function ChatMessageList() {
           {pane.renderEntries.map((entry) => <ChatRenderEntryView entry={entry} key={chatRenderEntryId(entry)} />)}
         </div>
       ) : (
-        <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
+        <div className="grid h-full place-items-center text-[13px] text-[#858585]">
           {pane.accounts.length ? "New chat" : "Connect a provider"}
         </div>
       )}
@@ -684,9 +681,9 @@ function ChatMessageList() {
 
 function ChatMessageLoadingIndicator() {
   return (
-    <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
+    <div className="grid h-full place-items-center text-[13px] text-[#858585]">
       <span className="flex items-center gap-2">
-        <LoaderCircle className="size-4 animate-spin text-primary" />
+        <LoaderCircle className="size-4 animate-spin text-[#5e9eff]" />
         Loading
       </span>
     </div>
@@ -738,11 +735,11 @@ function ChatComposer() {
 
   return (
     <footer className="px-3 pb-3">
-      <div className="mx-auto rounded-lg border border-border bg-muted p-3 shadow-inner">
+      <div className="mx-auto rounded-lg border border-[#34363a] bg-[#202121] p-3 shadow-inner">
         <PendingUserInputPrompt />
         <ChatAttachmentList attachments={pane.attachments} onRemove={pane.removeAttachment} />
-        <Textarea
-          className="min-h-8 w-full resize-none bg-transparent text-[13px] font-medium leading-5 text-foreground outline-none placeholder:text-muted-foreground"
+        <textarea
+          className="min-h-8 w-full resize-none bg-transparent text-[13px] font-medium leading-5 text-[#d0d0d0] outline-none placeholder:text-[#7f7f7f]"
           placeholder="Describe the outcome you want"
           ref={pane.textareaRef}
           value={pane.draft}
@@ -767,19 +764,19 @@ function PendingUserInputPrompt() {
     return null
   }
   return (
-    <div className="mb-3 grid gap-2 rounded-md border border-border bg-card p-2.5 text-[12px] text-foreground">
+    <div className="mb-3 grid gap-2 rounded-md border border-[#3c3f46] bg-[#191a1c] p-2.5 text-[12px] text-[#d6d6d6]">
       {pane.pendingUserInputQuestions.map((question) => (
         <PendingUserInputQuestion key={question.id} question={question} />
       ))}
       <div className="flex justify-end">
-        <Button
-          className="h-7 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        <button
+          className="h-7 rounded-md bg-[#5e9eff] px-2.5 text-[11px] font-semibold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-45"
           disabled={pane.userInputSubmitting}
           type="button"
           onClick={() => void pane.submitUserInput()}
         >
           {pane.userInputSubmitting ? "Sending" : "Submit"}
-        </Button>
+        </button>
       </div>
     </div>
   )
@@ -790,18 +787,18 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
 
   return (
     <div className="grid gap-1.5">
-      <div className="font-medium text-foreground">{question.question}</div>
+      <div className="font-medium text-[#ededed]">{question.question}</div>
       {question.options.length ? (
         <div className="flex flex-wrap gap-1">
           {question.options.map((option) => {
             const selected = pane.userInputAnswerValue(question) === option.label
             return (
-              <Button
+              <button
                 className={cn(
                   "h-7 rounded-md border px-2 text-[11px] font-medium",
                   selected
-                    ? "border-ring bg-primary/20 text-primary"
-                    : "border-border bg-muted text-foreground hover:bg-muted",
+                    ? "border-[#5e9eff] bg-[#1d314f] text-[#dbeafe]"
+                    : "border-[#34363a] bg-[#202121] text-[#b8b8b8] hover:bg-[#282a2d]",
                 )}
                 key={option.label}
                 title={option.description}
@@ -809,13 +806,13 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
                 onClick={() => pane.updateUserInputAnswer(question.id, option.label)}
               >
                 {option.label}
-              </Button>
+              </button>
             )
           })}
         </div>
       ) : (
-        <Input
-          className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-ring"
+        <input
+          className="h-8 min-w-0 rounded-md border border-[#34363a] bg-[#111213] px-2 text-[12px] text-[#d6d6d6] outline-none focus:border-[#5e9eff]"
           type={question.isSecret ? "password" : "text"}
           value={pane.userInputAnswerValue(question)}
           onChange={(event) => pane.updateUserInputAnswer(question.id, event.target.value)}
@@ -830,10 +827,10 @@ function ChatAttachmentList({ attachments, onRemove }: { attachments: ChatCompos
     return null
   }
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+    <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-[#9a9a9a]">
       {attachments.map((attachment) => (
-        <Button
-          className="flex max-w-[12rem] items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 hover:bg-muted"
+        <button
+          className="flex max-w-[12rem] items-center gap-1 rounded-md border border-[#34363a] bg-[#1d1e1f] px-1.5 py-1 hover:bg-[#282a2d]"
           key={attachment.id}
           title={attachment.path ?? attachment.name}
           type="button"
@@ -842,7 +839,7 @@ function ChatAttachmentList({ attachments, onRemove }: { attachments: ChatCompos
           {attachment.kind === "folder" ? <Folder className="size-3.5 shrink-0" /> : <FileText className="size-3.5 shrink-0" />}
           <span className="min-w-0 truncate">{attachment.name}</span>
           <X className="size-3 shrink-0" />
-        </Button>
+        </button>
       ))}
     </div>
   )
@@ -852,7 +849,7 @@ function ComposerControls() {
   const pane = useChatPane()
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-muted-foreground -mb-2 -mx-2">
+    <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-[#8c8c8c] -mb-2 -mx-2">
       <ComposerContextMenu />
       {pane.supportsAccessMode ? <ComposerAccessModeSelect /> : null}
       <ComposerGoalChip />
@@ -870,18 +867,18 @@ function ComposerContextMenu() {
 
   return (
     <div className="relative">
-      <Button
+      <button
         aria-expanded={pane.composerMenuOpen}
         aria-label="Add context"
-        className="grid size-7 place-items-center rounded-md text-foreground hover:bg-accent"
+        className="grid size-7 place-items-center rounded-md text-[#dcdcdc] hover:bg-[#303236]"
         type="button"
         onClick={() => pane.setComposerMenuOpen((current) => !current)}
       >
         <Plus className="size-4" />
-      </Button>
+      </button>
       {pane.composerMenuOpen ? <ComposerContextMenuItems /> : null}
-      <Input className="hidden" multiple ref={pane.fileInputRef} type="file" onChange={(event) => void pane.attachFiles(event)} />
-      <Input
+      <input className="hidden" multiple ref={pane.fileInputRef} type="file" onChange={(event) => void pane.attachFiles(event)} />
+      <input
         className="hidden"
         multiple
         ref={pane.folderInputRef}
@@ -897,7 +894,7 @@ function ComposerContextMenuItems() {
   const pane = useChatPane()
 
   return (
-    <div className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-md border border-border bg-muted p-1 text-foreground shadow-lg">
+    <div className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-md border border-[#34363a] bg-[#1f2022] p-1 text-[#d6d6d6] shadow-lg">
       <ComposerMenuButton disabled={!pane.supportsFiles} icon={<FileText className="size-3.5" />} label="Attach files" onClick={() => {
         pane.setComposerMenuOpen(false)
         pane.fileInputRef.current?.click()
@@ -929,16 +926,16 @@ function ComposerMenuButton({
   onClick: () => void
 }) {
   return (
-    <Button
-      className="flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-[12px] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+    <button
+      className="flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-[12px] hover:bg-[#2b2d31] disabled:cursor-not-allowed disabled:opacity-45"
       disabled={disabled}
       type="button"
       onClick={onClick}
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {suffix ? <span className="text-[11px] text-primary">{suffix}</span> : null}
-    </Button>
+      {suffix ? <span className="text-[11px] text-[#9bbcff]">{suffix}</span> : null}
+    </button>
   )
 }
 
@@ -947,15 +944,15 @@ function ComposerAccessModeSelect() {
 
   return (
     <Select className="min-w-0" disabled={pane.sending || pane.isSwitchingAccount} value={pane.accessMode} onValueChange={pane.changeAccessMode}>
-      <SelectTrigger aria-label="Access mode" className="h-7 w-auto border-transparent bg-transparent px-2 text-[12px] font-medium text-foreground shadow-none hover:bg-accent">
+      <SelectTrigger aria-label="Access mode" className="h-7 w-auto border-transparent bg-transparent px-2 text-[12px] font-medium text-[#d6d6d6] shadow-none hover:bg-[#303236]">
         <span className="flex min-w-0 items-center gap-1.5">
-          <Shield className="size-3.5 shrink-0 text-muted-foreground" />
+          <Shield className="size-3.5 shrink-0 text-[#9a9a9a]" />
           <span className="min-w-0 truncate">{accessModeLabel(pane.accessMode)}</span>
         </span>
       </SelectTrigger>
-      <SelectContent align="start" className="border-border bg-muted text-foreground">
-        <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="askForApproval">Ask for approval</SelectItem>
-        <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="fullAccess">Full access</SelectItem>
+      <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
+        <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="askForApproval">Ask for approval</SelectItem>
+        <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="fullAccess">Full access</SelectItem>
       </SelectContent>
     </Select>
   )
@@ -972,22 +969,22 @@ function ComposerRuntimeSettingsMenu() {
 
   return (
     <div className="relative min-w-0" ref={pane.runtimeSettingsRef}>
-      <Button
+      <button
         aria-expanded={pane.runtimeSettingsOpen}
         aria-label="Runtime settings"
-        className="flex h-7 max-w-[16rem] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55"
+        className="flex h-7 max-w-[16rem] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#303236] disabled:cursor-not-allowed disabled:opacity-55"
         disabled={disabled}
         type="button"
         onClick={() => pane.setRuntimeSettingsOpen((open) => !open)}
       >
-        <SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
+        <SlidersHorizontal className="size-3.5 shrink-0 text-[#9a9a9a]" />
         <span className="min-w-0 truncate">{runtimeLabel}</span>
-        <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", pane.runtimeSettingsOpen && "rotate-180")} />
-      </Button>
+        <ChevronDown className={cn("size-3.5 shrink-0 text-[#8f8f8f] transition-transform", pane.runtimeSettingsOpen && "rotate-180")} />
+      </button>
       {pane.runtimeSettingsOpen ? (
-        <div className="absolute bottom-9 right-0 z-40 w-64 overflow-hidden rounded-md border border-border bg-muted py-1 text-foreground shadow-xl">
+        <div className="absolute bottom-9 right-0 z-40 w-64 overflow-hidden rounded-md border border-[#34363a] bg-[#1f2022] py-1 text-[#d6d6d6] shadow-xl">
           {pane.supportsReasoningEffort ? (
-            <ComposerRuntimeMenuSection icon={<Brain className="size-3.5 text-muted-foreground" />} label="Reasoning">
+            <ComposerRuntimeMenuSection icon={<Brain className="size-3.5 text-[#9a9a9a]" />} label="Reasoning">
               {composerReasoningEffortOptions.map((option) => (
                 <ComposerRuntimeMenuItem
                   key={option.value}
@@ -999,7 +996,7 @@ function ComposerRuntimeSettingsMenu() {
             </ComposerRuntimeMenuSection>
           ) : null}
           {pane.supportsModels ? (
-            <ComposerRuntimeMenuSection icon={<Cpu className="size-3.5 text-muted-foreground" />} label="Model">
+            <ComposerRuntimeMenuSection icon={<Cpu className="size-3.5 text-[#9a9a9a]" />} label="Model">
               {pane.visibleModelOptions.map((option) => (
                 <ComposerRuntimeMenuItem
                   key={option.id}
@@ -1011,7 +1008,7 @@ function ComposerRuntimeSettingsMenu() {
             </ComposerRuntimeMenuSection>
           ) : null}
           {pane.supportsServiceTier ? (
-            <ComposerRuntimeMenuSection icon={<Zap className="size-3.5 text-muted-foreground" />} label="Speed">
+            <ComposerRuntimeMenuSection icon={<Zap className="size-3.5 text-[#9a9a9a]" />} label="Speed">
               {composerServiceTierOptions.map((option) => (
                 <ComposerRuntimeMenuItem
                   description={option.description}
@@ -1031,8 +1028,8 @@ function ComposerRuntimeSettingsMenu() {
 
 function ComposerRuntimeMenuSection({ children, icon, label }: { children: ReactNode; icon: ReactNode; label: string }) {
   return (
-    <div className="border-t border-border first:border-t-0">
-      <div className="flex h-7 items-center gap-2 px-2 text-[11px] font-medium text-muted-foreground">
+    <div className="border-t border-[#2b2d31] first:border-t-0">
+      <div className="flex h-7 items-center gap-2 px-2 text-[11px] font-medium text-[#8f8f8f]">
         {icon}
         <span>{label}</span>
       </div>
@@ -1053,17 +1050,17 @@ function ComposerRuntimeMenuItem({
   onClick: () => void
 }) {
   return (
-    <Button
-      className="flex min-h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-[12px] hover:bg-accent"
+    <button
+      className="flex min-h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-[12px] hover:bg-[#2b2d31]"
       type="button"
       onClick={onClick}
     >
       <span className="grid min-w-0 flex-1">
         <span className="truncate">{title}</span>
-        {description ? <span className="truncate text-[11px] font-normal text-muted-foreground">{description}</span> : null}
+        {description ? <span className="truncate text-[11px] font-normal text-[#8f8f8f]">{description}</span> : null}
       </span>
-      <Check className={cn("size-3.5 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
-    </Button>
+      <Check className={cn("size-3.5 shrink-0 text-[#9bbcff]", selected ? "opacity-100" : "opacity-0")} />
+    </button>
   )
 }
 
@@ -1074,8 +1071,8 @@ function ComposerGoalChip() {
     return null
   }
   return (
-    <Button
-      className="flex h-7 max-w-[14rem] items-center gap-1 rounded-md border border-border bg-muted px-2 text-[11px] text-foreground hover:bg-muted"
+    <button
+      className="flex h-7 max-w-[14rem] items-center gap-1 rounded-md border border-[#34363a] bg-[#1d1e1f] px-2 text-[11px] text-[#cfcfcf] hover:bg-[#282a2d]"
       title={pane.goalObjective}
       type="button"
       onClick={() => pane.setGoalObjective(null)}
@@ -1083,7 +1080,7 @@ function ComposerGoalChip() {
       <Shield className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate">Goal: {pane.goalObjective}</span>
       <X className="size-3 shrink-0" />
-    </Button>
+    </button>
   )
 }
 
@@ -1094,15 +1091,15 @@ function ComposerPlanChip() {
     return null
   }
   return (
-    <Button
-      className="flex h-7 items-center gap-1 rounded-md border border-ring bg-muted px-2 text-[11px] text-primary hover:bg-primary/20"
+    <button
+      className="flex h-7 items-center gap-1 rounded-md border border-[#3c3750] bg-[#272232] px-2 text-[11px] text-[#d6c8ff] hover:bg-[#30283e]"
       type="button"
       onClick={() => pane.setPlanMode(false)}
     >
       <ListFilter className="size-3.5 shrink-0" />
       <span>Plan mode</span>
       <X className="size-3 shrink-0" />
-    </Button>
+    </button>
   )
 }
 
@@ -1110,12 +1107,12 @@ function ComposerSendButton() {
   const pane = useChatPane()
 
   return (
-    <Button
+    <button
       className={cn(
         "grid size-7 shrink-0 place-items-center text-lg disabled:cursor-not-allowed disabled:opacity-45",
         pane.showStopAction
           ? "rounded-full bg-foreground text-background hover:bg-foreground/90"
-          : "rounded-md text-foreground hover:bg-accent",
+          : "rounded-md text-[#dcdcdc] hover:bg-[#303236]",
       )}
       aria-label={pane.showStopAction ? "Stop chat" : "Send message"}
       disabled={pane.showStopAction ? false : !pane.canSend}
@@ -1123,7 +1120,7 @@ function ComposerSendButton() {
       onClick={() => pane.showStopAction ? void pane.onStopChat() : void pane.submit()}
     >
       {pane.showStopAction ? <Square className="size-3 fill-current" /> : "↵"}
-    </Button>
+    </button>
   )
 }
 
@@ -1206,40 +1203,40 @@ function ChatMessageRow({
         className={cn(
           "min-w-0 text-[13px] leading-6",
           user
-            ? "max-w-[min(680px,100%)] rounded-md border border-ring bg-primary/20 px-3 py-2 text-primary"
+            ? "max-w-[min(680px,100%)] rounded-md border border-[#315070] bg-[#192536] px-3 py-2 text-[#dbeafe]"
             : error
-              ? "w-full text-destructive"
-              : "w-full text-foreground",
+              ? "w-full text-[#ffb3b3]"
+              : "w-full text-[#d6d6d6]",
         )}
       >
         <MarkdownContent animateChanges={!user} compact={user} content={content} scopeKey={message.id} />
       </div>
       {queued && message.runId ? (
-        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          <span className="grid size-5 cursor-grab place-items-center rounded text-muted-foreground" title="Drag to reorder">
+        <div className="flex items-center gap-1 text-[11px] text-[#8f8f8f]">
+          <span className="grid size-5 cursor-grab place-items-center rounded text-[#777b82]" title="Drag to reorder">
             <GripVertical className="size-3.5" />
           </span>
-          <Button
-            className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+          <button
+            className="rounded px-1.5 py-0.5 hover:bg-[#303236] hover:text-[#d6d6d6]"
             type="button"
             onClick={() => void onSteerQueuedMessage?.(message.chatId, message.runId!)}
           >
             Steer
-          </Button>
-          <Button
-            className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
+          </button>
+          <button
+            className="rounded px-1.5 py-0.5 hover:bg-[#303236] hover:text-[#d6d6d6]"
             type="button"
             onClick={() => void onEditQueuedMessage?.(message.chatId, message.runId!, message.content)}
           >
             Edit
-          </Button>
-          <Button
-            className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-destructive"
+          </button>
+          <button
+            className="rounded px-1.5 py-0.5 hover:bg-[#303236] hover:text-[#ffb3b3]"
             type="button"
             onClick={() => void onDeleteQueuedMessage?.(message.chatId, message.runId!)}
           >
             Delete
-          </Button>
+          </button>
         </div>
       ) : null}
     </article>
@@ -1270,12 +1267,12 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
   }
 
   return (
-    <article className={cn("min-w-0 text-[13px] text-muted-foreground", animateIn && "chat-append-enter")}>
+    <article className={cn("min-w-0 text-[13px] text-[#898989]", animateIn && "chat-append-enter")}>
       <div className="flex min-h-7 max-w-full items-center gap-2">
-        <Button
+        <button
           className={cn(
             "flex min-w-0 flex-1 items-center gap-2 text-left",
-            hasDetail && "hover:text-foreground",
+            hasDetail && "hover:text-[#c7c7c7]",
             !hasDetail && "cursor-default",
           )}
           disabled={!hasDetail}
@@ -1291,30 +1288,30 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
           {hasDetail ? (
             <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
           ) : null}
-        </Button>
+        </button>
         {canRespond ? (
           <div className="flex shrink-0 items-center gap-1">
-            <Button
-              className="rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            <button
+              className="rounded px-1.5 py-0.5 text-[11px] text-[#9bd49b] hover:bg-[#243424] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={Boolean(responding)}
               type="button"
               onClick={() => void respond(true)}
             >
               {responding === "approve" ? "Approving" : "Approve"}
-            </Button>
-            <Button
-              className="rounded px-1.5 py-0.5 text-[11px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+            </button>
+            <button
+              className="rounded px-1.5 py-0.5 text-[11px] text-[#ffadad] hover:bg-[#3a2525] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={Boolean(responding)}
               type="button"
               onClick={() => void respond(false)}
             >
               {responding === "deny" ? "Denying" : "Deny"}
-            </Button>
+            </button>
           </div>
         ) : null}
       </div>
       {expanded && hasDetail ? (
-        <div className="ml-5 mt-1 min-w-0 border-l border-border pl-3 text-foreground">
+        <div className="ml-5 mt-1 min-w-0 border-l border-[#303236] pl-3 text-[#d6d6d6]">
           {message.kind === "FILE_CHANGE" ? (
             <FileChangeStatsList changes={fileChanges} fallbackCount={1} />
           ) : (
@@ -1458,16 +1455,16 @@ function FileChangeStatsList({
   fallbackCount: number
 }) {
   if (!changes.length) {
-    return <div className="text-[12px] text-muted-foreground">Edited {fallbackCount} files</div>
+    return <div className="text-[12px] text-[#9a9a9a]">Edited {fallbackCount} files</div>
   }
 
   return (
     <div className="grid gap-1.5">
       {changes.map((change, index) => (
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-[12px]" key={`${change.path}:${index}`}>
-          <span className="truncate text-foreground">{change.path}</span>
-          <span className="text-primary">
-            +{change.additions} <span className="text-destructive">-{change.deletions}</span>
+          <span className="truncate text-[#c7c7c7]">{change.path}</span>
+          <span className="text-[#74d48a]">
+            +{change.additions} <span className="text-[#ef7f7f]">-{change.deletions}</span>
           </span>
         </div>
       ))}
@@ -1556,7 +1553,7 @@ function WorkActivityStatus({ messages }: { messages: ChatMessageResponse[] }) {
   const label = activeAction ? toolCallTitle(activeAction) : "Thinking"
 
   return (
-    <div className="chat-append-enter flex min-h-7 max-w-full items-center gap-2 text-[13px] text-muted-foreground">
+    <div className="chat-append-enter flex min-h-7 max-w-full items-center gap-2 text-[13px] text-[#9a9a9a]">
       <Icon className={cn("size-3.5 shrink-0", activeAction ? "" : "animate-spin")} />
       <span className="min-w-0 truncate">
         {label}
@@ -1620,9 +1617,9 @@ function ChatWorkBlock({
   }, [finished])
 
   return (
-    <section className={cn("min-w-0 text-[13px] text-muted-foreground", animateIn && "chat-append-enter")}>
-      <Button
-        className="flex h-6 max-w-full items-center gap-1.5 text-left font-medium hover:text-foreground"
+    <section className={cn("min-w-0 text-[13px] text-[#858585]", animateIn && "chat-append-enter")}>
+      <button
+        className="flex h-6 max-w-full items-center gap-1.5 text-left font-medium hover:text-[#c7c7c7]"
         type="button"
         onClick={() => {
           if (finished) {
@@ -1632,7 +1629,7 @@ function ChatWorkBlock({
       >
         <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
         <span className="truncate">{duration ? `Worked for ${duration}` : "Worked"}</span>
-      </Button>
+      </button>
       {expanded ? (
         <div className="mt-2 grid gap-3">
           {workEntries.map((entry) => entry.type === "actionGroup" ? (
@@ -1694,18 +1691,18 @@ function CompactActionGroup({
   const Icon = workSummaryIcon(messages)
 
   return (
-    <article className={cn("min-w-0 text-[13px] text-muted-foreground", animateIn && "chat-append-enter")}>
-      <Button
-        className="flex min-h-7 max-w-full items-center gap-2 text-left hover:text-foreground"
+    <article className={cn("min-w-0 text-[13px] text-[#898989]", animateIn && "chat-append-enter")}>
+      <button
+        className="flex min-h-7 max-w-full items-center gap-2 text-left hover:text-[#c7c7c7]"
         type="button"
         onClick={() => setExpanded((current) => !current)}
       >
         <Icon className="size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{workSummaryLabel(messages)}</span>
         <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
-      </Button>
+      </button>
       {expanded ? (
-        <div className="ml-5 mt-1 grid gap-2 border-l border-border pl-3">
+        <div className="ml-5 mt-1 grid gap-2 border-l border-[#303236] pl-3">
           {messages.map((message) => (
             <ChatMessageRow
               dragOverQueuedRunId={dragOverQueuedRunId}
@@ -1750,35 +1747,35 @@ function ChatFileChangeBlock({
   )
 
   return (
-    <section className={cn("min-w-0 rounded-lg border border-border bg-card p-3 text-[13px]", animateIn && "chat-append-enter")}>
+    <section className={cn("min-w-0 rounded-lg border border-[#303236] bg-[#1b1c1d] p-3 text-[13px]", animateIn && "chat-append-enter")}>
       <div className="flex min-w-0 items-center gap-3">
-        <FileText className="size-4 shrink-0 text-muted-foreground" />
+        <FileText className="size-4 shrink-0 text-[#8f8f8f]" />
         <div className="min-w-0 flex-1">
-          <div className="font-semibold text-foreground">{editedFilesTitle(changes, messages.length)}</div>
-          <div className="mt-0.5 text-[12px] text-primary">
-            +{totals.additions} <span className="text-destructive">-{totals.deletions}</span>
+          <div className="font-semibold text-[#d6d6d6]">{editedFilesTitle(changes, messages.length)}</div>
+          <div className="mt-0.5 text-[12px] text-[#74d48a]">
+            +{totals.additions} <span className="text-[#ef7f7f]">-{totals.deletions}</span>
           </div>
         </div>
       </div>
       {changes.length > 1 ? (
-        <div className="mt-3 grid gap-2 border-t border-border pt-3">
+        <div className="mt-3 grid gap-2 border-t border-[#303236] pt-3">
           {visibleChanges.map((change, index) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-[12px]" key={`${change.path}:${index}`}>
-              <span className="truncate text-foreground">{change.path}</span>
-              <span className="text-primary">
-                +{change.additions} <span className="text-destructive">-{change.deletions}</span>
+              <span className="truncate text-[#c7c7c7]">{change.path}</span>
+              <span className="text-[#74d48a]">
+                +{change.additions} <span className="text-[#ef7f7f]">-{change.deletions}</span>
               </span>
             </div>
           ))}
           {changes.length > 3 ? (
-            <Button
-              className="mt-1 flex h-6 w-fit items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground"
+            <button
+              className="mt-1 flex h-6 w-fit items-center gap-1 text-[12px] font-medium text-[#9a9a9a] hover:text-[#d0d0d0]"
               type="button"
               onClick={() => setExpanded((current) => !current)}
             >
               <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
               {expanded ? "Collapse files" : `Show ${hiddenCount} more ${hiddenCount === 1 ? "file" : "files"}`}
-            </Button>
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -1869,7 +1866,7 @@ function renderMarkdownBlock(
   if (block.type === "code") {
     return (
       <pre
-        className="max-w-full overflow-auto rounded-md border border-border bg-background p-3 font-mono text-[12px] leading-5 text-foreground ide-scrollbar"
+        className="max-w-full overflow-auto rounded-md border border-[#303236] bg-[#111213] p-3 font-mono text-[12px] leading-5 text-[#d8d8d8] ide-scrollbar"
         key={index}
       >
         <code>{block.value}</code>
@@ -1880,7 +1877,7 @@ function renderMarkdownBlock(
   if (block.type === "heading") {
     const Tag = (`h${Math.min(block.level, 4)}`) as "h1" | "h2" | "h3" | "h4"
     return (
-      <Tag className={cn("font-semibold text-foreground", block.level <= 2 ? "text-[15px]" : "text-[14px]")} key={index}>
+      <Tag className={cn("font-semibold text-[#ededed]", block.level <= 2 ? "text-[15px]" : "text-[14px]")} key={index}>
         {renderInlineMarkdown(block.text, `heading-${index}`, fileLinks)}
       </Tag>
     )
@@ -1899,7 +1896,7 @@ function renderMarkdownBlock(
 
   if (block.type === "blockquote") {
     return (
-      <blockquote className="border-l-2 border-ring pl-3 text-foreground" key={index}>
+      <blockquote className="border-l-2 border-[#4b5563] pl-3 text-[#b8c0cc]" key={index}>
         {renderInlineLines(block.lines, `quote-${index}`, fileLinks)}
       </blockquote>
     )
@@ -1912,7 +1909,7 @@ function renderMarkdownBlock(
           <thead>
             <tr>
               {block.headers.map((header, headerIndex) => (
-                <th className="border border-border bg-muted px-2 py-1 font-semibold text-foreground" key={headerIndex}>
+                <th className="border border-[#34363a] bg-[#202223] px-2 py-1 font-semibold text-[#ededed]" key={headerIndex}>
                   {renderInlineMarkdown(header, `table-${index}-header-${headerIndex}`, fileLinks)}
                 </th>
               ))}
@@ -1922,7 +1919,7 @@ function renderMarkdownBlock(
             {block.rows.map((row, rowIndex) => (
               <tr key={rowIndex}>
                 {row.map((cell, cellIndex) => (
-                  <td className="border border-border px-2 py-1 align-top" key={cellIndex}>
+                  <td className="border border-[#34363a] px-2 py-1 align-top" key={cellIndex}>
                     {renderInlineMarkdown(cell, `table-${index}-${rowIndex}-${cellIndex}`, fileLinks)}
                   </td>
                 ))}
@@ -1935,7 +1932,7 @@ function renderMarkdownBlock(
   }
 
   if (block.type === "hr") {
-    return <hr className="border-border" key={index} />
+    return <hr className="border-[#303236]" key={index} />
   }
 
   return (
@@ -1974,7 +1971,7 @@ function renderInlineMarkdown(
     const key = `${keyPrefix}-${nodes.length}`
     if (token.startsWith("`")) {
       nodes.push(
-        <code className="rounded bg-background px-1 py-0.5 font-mono text-[12px] text-foreground" key={key}>
+        <code className="rounded bg-[#111213] px-1 py-0.5 font-mono text-[12px] text-[#e5e5e5]" key={key}>
           {token.slice(1, -1)}
         </code>,
       )
@@ -1988,7 +1985,7 @@ function renderInlineMarkdown(
       const safeHref = safeMarkdownHref(href)
       nodes.push(
         <a
-          className="text-primary underline decoration-[#496b9a] underline-offset-2 hover:text-primary"
+          className="text-[#8ab4ff] underline decoration-[#496b9a] underline-offset-2 hover:text-[#b7d1ff]"
           href={safeHref}
           key={key}
           rel={safeHref === "#" ? undefined : "noreferrer"}

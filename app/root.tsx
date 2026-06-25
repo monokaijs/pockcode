@@ -36,10 +36,10 @@ export function ErrorBoundary({ error }: { error: unknown }) {
       : "Unexpected application error."
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background p-6 text-foreground">
-      <section className="max-w-md rounded-xl border border-border bg-card p-5 shadow-sm">
+    <main className="flex min-h-svh items-center justify-center bg-[#0f1011] p-6 text-[#d7d7d7]">
+      <section className="max-w-md rounded-xl border border-[#2a2c2f] bg-[#171818] p-5 shadow-sm">
         <h1 className="text-lg font-semibold">pockcode</h1>
-        <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{message}</p>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-[#9a9a9a]">{message}</p>
       </section>
     </main>
   )

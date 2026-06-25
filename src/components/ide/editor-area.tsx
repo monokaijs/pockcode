@@ -1,6 +1,5 @@
 import Editor, { type OnMount } from "@monaco-editor/react"
 import { Circle, FileCode, PanelRightClose, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { FileNode, Project } from "@/types/ide"
 
@@ -36,7 +35,7 @@ export function EditorArea({
 
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-      <div className="flex h-9 min-w-0 items-stretch border-b border-border bg-card">
+      <div className="flex h-9 min-w-0 items-stretch border-b border-[#2b2b2b] bg-[#181818]">
         <div className="flex min-w-0 flex-1 overflow-x-auto ide-scrollbar">
           {openFiles.map((file) => {
             const active = file.id === activeFile?.id
@@ -44,13 +43,13 @@ export function EditorArea({
             return (
               <div
                 className={cn(
-                  "group relative flex h-9 min-w-36 max-w-56 shrink-0 items-center border-r border-border text-xs",
-                  active ? "bg-background text-foreground" : "bg-card text-muted-foreground hover:bg-muted",
+                  "group relative flex h-9 min-w-36 max-w-56 shrink-0 items-center border-r border-[#2b2b2b] text-xs",
+                  active ? "bg-background text-foreground" : "bg-[#181818] text-[#969696] hover:bg-[#1f1f1f]",
                 )}
                 key={file.id}
               >
-                {active ? <span className="absolute inset-x-0 top-0 h-0.5 bg-primary/20" /> : null}
-                <Button
+                {active ? <span className="absolute inset-x-0 top-0 h-0.5 bg-[#007acc]" /> : null}
+                <button
                   className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 pt-0.5 text-left"
                   title={file.path}
                   type="button"
@@ -59,8 +58,8 @@ export function EditorArea({
                   <FileCode className={cn("size-3.5 shrink-0", fileIconColor(file.name))} />
                   <span className="min-w-0 flex-1 truncate">{file.name}</span>
                   {dirty ? <Circle className="size-2 shrink-0 fill-primary text-primary" /> : null}
-                </Button>
-                <Button
+                </button>
+                <button
                   aria-label={`Close ${file.name}`}
                   className={cn(
                     "mr-1 grid size-5 shrink-0 place-items-center rounded-sm hover:bg-muted",
@@ -70,14 +69,14 @@ export function EditorArea({
                   onClick={() => onCloseFile(file.id)}
                 >
                   <X className="size-3" />
-                </Button>
+                </button>
               </div>
             )
           })}
         </div>
-        <Button className="mr-1 self-center" size="icon-xs" title="Split editor" variant="ghost">
+        <button className="mr-1 self-center" size="icon-xs" title="Split editor" variant="ghost">
           <PanelRightClose className="size-3.5" />
-        </Button>
+        </button>
       </div>
 
       <div className="min-h-0 min-w-0">
@@ -119,16 +118,16 @@ export function EditorArea({
 
 function fileIconColor(name: string): string {
   if (name.endsWith(".ts") || name.endsWith(".tsx")) {
-    return "text-primary"
+    return "text-[#4fc1ff]"
   }
   if (name.endsWith(".json")) {
-    return "text-destructive"
+    return "text-[#f2c94c]"
   }
   if (name.endsWith(".md")) {
-    return "text-primary"
+    return "text-[#7aa2f7]"
   }
   if (name.endsWith(".css")) {
-    return "text-muted-foreground"
+    return "text-[#c586c0]"
   }
   return "text-muted-foreground"
 }

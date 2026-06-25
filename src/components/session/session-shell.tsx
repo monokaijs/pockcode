@@ -35,12 +35,9 @@ import { ChatPane } from "@/components/session/chat-pane"
 import { ModeToggleButton } from "@/components/session/mode-toggle-button"
 import { ProviderGlyph, ProviderMark, ProviderStatusBadge } from "@/components/session/provider-icons"
 import { ProviderQuotaProvider, useProviderQuotas } from "@/components/session/provider-quota-context"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import {
   SessionTerminalPanel,
   type HostedTerminalSession,
@@ -1549,8 +1546,8 @@ function SessionShellView() {
   const shell = useSessionShellState()
 
   return (
-    <div className="h-svh overflow-hidden bg-background text-foreground">
-      <main className="grid h-full overflow-hidden bg-background" style={{ gridTemplateRows: "40px minmax(0, 1fr)" }}>
+    <div className="h-svh overflow-hidden bg-[#0f1011] text-[#c9c9c9]">
+      <main className="grid h-full overflow-hidden bg-[#0f1011]" style={{ gridTemplateRows: "40px minmax(0, 1fr)" }}>
         <TopBar
           activeWorkspaceId={shell.activeWorkspace?.id ?? null}
           isFilesPanelOpen={shell.isFilesPanelOpen}
@@ -1601,7 +1598,7 @@ function SessionDesktopWorkspace() {
 
   return (
     <div
-      className="hidden min-h-0 gap-2 overflow-hidden bg-background p-2 md:grid"
+      className="hidden min-h-0 gap-2 overflow-hidden bg-[#0f1011] p-2 md:grid"
       style={{
         gridTemplateColumns: shell.desktopGridColumns,
         gridTemplateRows: shell.isTerminalPanelOpen
@@ -1813,8 +1810,8 @@ function EmptyWorkspacePane({
   if (isLoading) {
     return (
       <section className="grid min-h-0 place-items-center p-4">
-        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin text-primary" />
+        <div className="flex items-center gap-2 text-[13px] text-[#a8adb3]">
+          <LoaderCircle className="size-4 animate-spin text-[#5e9eff]" />
           Loading workspace data
         </div>
       </section>
@@ -1823,36 +1820,36 @@ function EmptyWorkspacePane({
 
   return (
     <section className="grid min-h-0 place-items-center p-4">
-      <div className="grid w-full max-w-md gap-3 rounded-lg border border-border bg-card p-4">
-        <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
-          <FolderOpen className="size-4 text-muted-foreground" />
+      <div className="grid w-full max-w-md gap-3 rounded-lg border border-[#2a2c2f] bg-[#171818] p-4">
+        <div className="flex items-center gap-2 text-[13px] font-semibold text-[#ededed]">
+          <FolderOpen className="size-4 text-[#dcb67a]" />
           Open a workspace
         </div>
-        {error ? <div className="text-[12px] text-destructive">{error}</div> : null}
-        <Button
-          className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground"
+        {error ? <div className="text-[12px] text-[#ff9f9f]">{error}</div> : null}
+        <button
+          className="h-8 rounded-md bg-[#5e9eff] px-3 text-[12px] font-semibold text-[#07111f]"
           type="button"
           onClick={onOpenFolder}
         >
           Open Folder
-        </Button>
+        </button>
         {recentWorkspaces.length ? (
-          <div className="mt-1 border-t border-border pt-3">
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Recent</div>
+          <div className="mt-1 border-t border-[#25272a] pt-3">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#858585]">Recent</div>
             <div className="grid gap-1">
               {recentWorkspaces.slice(0, 8).map((workspace) => (
-                <Button
-                  className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-muted"
+                <button
+                  className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-[#252729]"
                   key={workspace.id}
                   type="button"
                   onClick={() => onOpenRecent(workspace)}
                 >
-                  <Folder className="size-4 text-muted-foreground" />
+                  <Folder className="size-4 text-[#9a9a9a]" />
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-medium text-foreground">{workspace.name}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">{workspace.path}</span>
+                    <span className="block truncate text-[13px] font-medium text-[#d6d6d6]">{workspace.name}</span>
+                    <span className="block truncate text-[11px] text-[#858585]">{workspace.path}</span>
                   </span>
-                </Button>
+                </button>
               ))}
             </div>
           </div>
@@ -1888,7 +1885,7 @@ function TopBar({
   onToggleTerminalPanel: () => void
 }) {
   return (
-    <header className="flex min-w-0 items-center bg-background">
+    <header className="flex min-w-0 items-center bg-[#0b0c0d]">
       <WorkspaceTabs
         activeWorkspaceId={activeWorkspaceId}
         workspaces={workspaces}
@@ -1898,47 +1895,47 @@ function TopBar({
       />
 
       <div className="ml-auto flex items-center justify-end gap-2 px-3">
-        <Button
+        <button
           aria-label="Open chats panel"
-          className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+          className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0] md:hidden"
           type="button"
           onClick={onOpenSessionsDrawer}
         >
           <PanelLeft className="size-4" />
-        </Button>
-        <Button
+        </button>
+        <button
           aria-label={isTerminalPanelOpen ? "Hide terminal panel" : "Show terminal panel"}
           aria-pressed={isTerminalPanelOpen}
           className={cn(
-            "grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
-            isTerminalPanelOpen && "bg-muted text-foreground",
+            "grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]",
+            isTerminalPanelOpen && "bg-[#242629] text-[#d8d8d8]",
           )}
           type="button"
           onClick={onToggleTerminalPanel}
         >
           <Terminal className="size-4" />
-        </Button>
-        <Button
+        </button>
+        <button
           aria-label="Open files panel"
-          className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
+          className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0] md:hidden"
           type="button"
           onClick={onOpenFilesDrawer}
         >
           <PanelRight className="size-4" />
-        </Button>
-        <Button
+        </button>
+        <button
           aria-label={isFilesPanelOpen ? "Hide files panel" : "Show files panel"}
           aria-pressed={isFilesPanelOpen}
           className={cn(
-            "hidden size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground md:grid",
-            isFilesPanelOpen && "bg-muted text-foreground",
+            "hidden size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0] md:grid",
+            isFilesPanelOpen && "bg-[#242629] text-[#d8d8d8]",
           )}
           type="button"
           onClick={onToggleFilesPanel}
         >
           <PanelRight className="size-4" />
-        </Button>
-        <div className="grid size-7 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-accent to-accent text-xs font-bold text-primary-foreground">
+        </button>
+        <div className="grid size-7 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-[#f3c06c] to-[#52311c] text-xs font-bold text-[#141414]">
           M
         </div>
       </div>
@@ -1970,14 +1967,14 @@ function WorkspaceTabs({
           onSelect={() => onSelectWorkspace(workspace.id)}
         />
       ))}
-      <Button
+      <button
         aria-label="Open workspace"
-        className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="grid size-6 shrink-0 place-items-center rounded-md text-[#8f8f8f] hover:bg-[#252729] hover:text-[#d0d0d0]"
         type="button"
         onClick={onAddWorkspace}
       >
         <Plus className="size-4" />
-      </Button>
+      </button>
     </div>
   )
 }
@@ -1998,18 +1995,18 @@ function WorkspaceTab({
       className={cn(
         "group relative flex h-6 min-w-0 max-w-34 shrink-0 items-center rounded-md border border-transparent text-[11px] font-medium transition-colors",
         active
-          ? "border-border bg-muted text-foreground"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          ? "border-[#383b40] bg-[#242629] text-[#d0d0d0]"
+          : "text-[#8f8f8f] hover:bg-[#202123] hover:text-[#d0d0d0]",
       )}
       title={label}
     >
-      <Button className="min-w-0 flex-1 px-1.5 text-left" type="button" onClick={onSelect}>
+      <button className="min-w-0 flex-1 px-1.5 text-left" type="button" onClick={onSelect}>
         <span className="block truncate">{label}</span>
-      </Button>
-      <Button
+      </button>
+      <button
         aria-label={`Close ${label}`}
         className={cn(
-          "mr-1 grid size-3 shrink-0 place-items-center rounded-sm text-muted-foreground hover:text-foreground",
+          "mr-1 grid size-3 shrink-0 place-items-center rounded-sm text-[#8f8f8f] hover:text-[#e6e6e6]",
           active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
         )}
         type="button"
@@ -2019,7 +2016,7 @@ function WorkspaceTab({
         }}
       >
         <X className="size-2" />
-      </Button>
+      </button>
     </div>
   )
 }
@@ -2043,7 +2040,7 @@ function MobilePanelDrawer({
 
   return (
     <div className="fixed inset-0 z-40 md:hidden">
-      <Button
+      <button
         aria-label={`Close ${title.toLowerCase()} drawer`}
         className="absolute inset-0 bg-black/55"
         type="button"
@@ -2051,20 +2048,20 @@ function MobilePanelDrawer({
       />
       <aside
         className={cn(
-          "absolute bottom-0 top-0 grid w-[min(88vw,380px)] grid-rows-[40px_minmax(0,1fr)] border-border bg-background shadow-2xl",
+          "absolute bottom-0 top-0 grid w-[min(88vw,380px)] grid-rows-[40px_minmax(0,1fr)] border-[#2a2c2f] bg-[#0f1011] shadow-2xl",
           side === "left" ? "left-0 border-r" : "right-0 border-l",
         )}
       >
         <div className="flex items-center gap-2 px-3">
-          <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{title}</div>
-          <Button
+          <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#d6d6d6]">{title}</div>
+          <button
             aria-label={`Close ${title.toLowerCase()} drawer`}
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#9a9a9a] hover:bg-[#252729] hover:text-[#e6e6e6]"
             type="button"
             onClick={onClose}
           >
             <X className="size-3" />
-          </Button>
+          </button>
         </div>
         <div className="min-h-0 overflow-hidden">{children}</div>
       </aside>
@@ -2106,13 +2103,13 @@ function WorkspaceFolderBrowserDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
-      <Button
+      <button
         aria-label="Close folder browser"
         className="absolute inset-0 cursor-default"
         type="button"
         onClick={onClose}
       />
-      <section className="relative grid h-[80vh] min-h-[560px] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+      <section className="relative grid h-[80vh] min-h-[560px] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border border-[#35383d] bg-[#171818] shadow-2xl">
         <WorkspaceFolderBrowserHeader onClose={onClose} />
         <WorkspaceFolderBrowserBody browser={browser} />
         <WorkspaceFolderBrowserFooter browser={browser} onClose={onClose} />
@@ -2298,17 +2295,17 @@ type WorkspaceFolderBrowserState = ReturnType<typeof useWorkspaceFolderBrowserDi
 
 function WorkspaceFolderBrowserHeader({ onClose }: { onClose: () => void }) {
   return (
-    <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
-      <Folder className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 truncate text-[13px] font-semibold text-foreground">Open Folder</span>
-      <Button
+    <header className="flex h-11 min-w-0 items-center gap-2 border-b border-[#25272a] px-3">
+      <Folder className="size-4 shrink-0 text-[#dcb67a]" />
+      <span className="min-w-0 truncate text-[13px] font-semibold text-[#f0f0f0]">Open Folder</span>
+      <button
         aria-label="Close folder browser"
-        className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-white"
+        className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-[#9a9a9a] hover:bg-[#252729] hover:text-white"
         type="button"
         onClick={onClose}
       >
         <X className="size-3.5" />
-      </Button>
+      </button>
     </header>
   )
 }
@@ -2319,7 +2316,7 @@ function WorkspaceFolderBrowserBody({ browser }: { browser: WorkspaceFolderBrows
       <WorkspaceFolderBrowserToolbar browser={browser} />
       <div className="min-h-0 overflow-auto px-1.5 py-2 ide-scrollbar">
         {browser.isLoading && !browser.rootEntry ? (
-          <div className="grid h-full place-items-center text-[12px] text-muted-foreground">Loading</div>
+          <div className="grid h-full place-items-center text-[12px] text-[#858585]">Loading</div>
         ) : browser.rootEntry ? (
           <FolderBrowserTreeNode
             entry={browser.rootEntry}
@@ -2332,7 +2329,7 @@ function WorkspaceFolderBrowserBody({ browser }: { browser: WorkspaceFolderBrows
             onToggle={browser.toggleDirectory}
           />
         ) : (
-          <div className="grid h-full place-items-center text-[12px] text-muted-foreground">No folder</div>
+          <div className="grid h-full place-items-center text-[12px] text-[#858585]">No folder</div>
         )}
       </div>
     </div>
@@ -2341,7 +2338,7 @@ function WorkspaceFolderBrowserBody({ browser }: { browser: WorkspaceFolderBrows
 
 function WorkspaceFolderBrowserToolbar({ browser }: { browser: WorkspaceFolderBrowserState }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 border-b border-border px-2 py-2">
+    <div className="flex min-w-0 items-center gap-1.5 border-b border-[#25272a] px-2 py-2">
       <FolderBrowserIconButton label="Back" onClick={browser.moveParent}>
         <ArrowLeft className="size-4" />
       </FolderBrowserIconButton>
@@ -2351,9 +2348,9 @@ function WorkspaceFolderBrowserToolbar({ browser }: { browser: WorkspaceFolderBr
       <FolderBrowserIconButton label="Refresh" onClick={browser.refreshBrowser}>
         <RefreshCw className={cn("size-4", browser.isLoading && "animate-spin")} />
       </FolderBrowserIconButton>
-      <Input
+      <input
         autoCapitalize="none"
-        className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+        className="h-8 min-w-0 flex-1 rounded-md border border-[#33363a] bg-[#111213] px-2 font-mono text-[12px] text-[#d6d6d6] outline-none placeholder:text-[#747474] focus:border-[#5e9eff]"
         placeholder="~"
         spellCheck={false}
         value={browser.pathInput}
@@ -2376,9 +2373,9 @@ function WorkspaceFolderBrowserFooter({
   onClose: () => void
 }) {
   return (
-    <footer className="flex h-11 min-w-0 items-center gap-2 border-t border-border bg-card px-2">
-      <label className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
-        <Input
+    <footer className="flex h-11 min-w-0 items-center gap-2 border-t border-[#25272a] bg-[#141515] px-2">
+      <label className="flex min-w-0 items-center gap-2 text-[12px] text-[#9a9a9a]">
+        <input
           checked={browser.showHidden}
           className="size-3.5 accent-[#5e9eff]"
           type="checkbox"
@@ -2386,26 +2383,26 @@ function WorkspaceFolderBrowserFooter({
         />
         Hidden
       </label>
-      <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground" title={browser.selectedEntry?.path}>
+      <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#858585]" title={browser.selectedEntry?.path}>
         {browser.selectedEntry?.path ?? "No folder selected"}
       </div>
       <WorkspaceFolderBrowserNotice browser={browser} />
       <div className="flex shrink-0 justify-end gap-2">
-        <Button
-          className="h-8 rounded-md border border-border px-3 text-[12px] font-medium text-foreground hover:bg-muted"
+        <button
+          className="h-8 rounded-md border border-[#34363a] px-3 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#252729]"
           type="button"
           onClick={onClose}
         >
           Cancel
-        </Button>
-        <Button
-          className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        </button>
+        <button
+          className="h-8 rounded-md bg-[#5e9eff] px-3 text-[12px] font-semibold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-45"
           disabled={!browser.canOpen}
           type="button"
           onClick={browser.chooseSelectedFolder}
         >
           {browser.selectedAlreadyOpen ? "Focus" : "Open"}
-        </Button>
+        </button>
       </div>
     </footer>
   )
@@ -2417,7 +2414,7 @@ function WorkspaceFolderBrowserNotice({ browser }: { browser: WorkspaceFolderBro
       <div
         className={cn(
           "max-w-64 shrink-0 truncate text-[11px]",
-          browser.notice.kind === "error" ? "text-destructive" : "text-muted-foreground",
+          browser.notice.kind === "error" ? "text-[#ff8585]" : "text-[#858585]",
         )}
         title={browser.notice.text}
       >
@@ -2426,7 +2423,7 @@ function WorkspaceFolderBrowserNotice({ browser }: { browser: WorkspaceFolderBro
     )
   }
   return browser.selectedAlreadyOpen ? (
-    <div className="max-w-64 shrink-0 truncate text-[11px] text-muted-foreground">Already open</div>
+    <div className="max-w-64 shrink-0 truncate text-[11px] text-[#858585]">Already open</div>
   ) : null
 }
 
@@ -2475,7 +2472,7 @@ function FolderBrowserTreeNode({
         <div className="min-w-0">
           {entry.error ? (
             <div
-              className="h-7 truncate px-2 text-[12px] leading-7 text-destructive"
+              className="h-7 truncate px-2 text-[12px] leading-7 text-[#ff8585]"
               style={{ paddingLeft: 24 + level * 16 }}
             >
               {entry.error}
@@ -2502,7 +2499,7 @@ function FolderBrowserTreeNode({
 
           {!entry.error && !children.length ? (
             <div
-              className="h-7 truncate px-2 text-[12px] leading-7 text-muted-foreground"
+              className="h-7 truncate px-2 text-[12px] leading-7 text-[#858585]"
               style={{ paddingLeft: 24 + level * 16 }}
             >
               {filter.trim() ? "No match" : "Empty"}
@@ -2538,14 +2535,14 @@ function FolderBrowserDirectoryRow({
       aria-busy={loading || undefined}
       className={cn(
         "group grid h-7 min-w-0 grid-cols-[1.5rem_1rem_minmax(0,1fr)_auto] items-center gap-1 rounded-sm px-1 text-[13px] font-medium",
-        selected ? "bg-accent text-white" : "text-foreground hover:bg-muted",
+        selected ? "bg-[#303236] text-white" : "text-[#d0d0d0] hover:bg-[#252729]",
       )}
       style={{ paddingLeft: 4 + (level - 1) * 16 }}
     >
-      <Button
+      <button
         aria-label={expanded ? `Collapse ${entry.name}` : `Expand ${entry.name}`}
         className={cn(
-          "grid size-6 place-items-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+          "grid size-6 place-items-center rounded-sm text-[#a3a3a3] hover:bg-[#33363a] hover:text-[#d6d6d6]",
           !canExpand && "pointer-events-none opacity-35",
           loading && "cursor-wait opacity-70",
         )}
@@ -2554,15 +2551,15 @@ function FolderBrowserDirectoryRow({
         onClick={() => onToggle(entry)}
       >
         <ChevronRight className={cn("size-4 transition-transform", expanded && "rotate-90")} />
-      </Button>
+      </button>
       {loading ? (
-        <LoaderCircle className="size-4 shrink-0 animate-spin text-primary" />
+        <LoaderCircle className="size-4 shrink-0 animate-spin text-[#5e9eff]" />
       ) : expanded ? (
-        <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+        <FolderOpen className="size-4 shrink-0 text-[#dcb67a]" />
       ) : (
-        <Folder className="size-4 shrink-0 text-muted-foreground" />
+        <Folder className="size-4 shrink-0 text-[#dcb67a]" />
       )}
-      <Button
+      <button
         className="min-w-0 truncate text-left"
         title={entry.path}
         type="button"
@@ -2570,9 +2567,9 @@ function FolderBrowserDirectoryRow({
         onDoubleClick={() => onToggle(entry)}
       >
         {entry.name}
-      </Button>
+      </button>
       {entry.error ? (
-        <span className="grid size-5 shrink-0 place-items-center rounded bg-destructive/10 text-destructive" title="Blocked">
+        <span className="grid size-5 shrink-0 place-items-center rounded bg-[#3b2323] text-[#ffadad]" title="Blocked">
           <X className="size-3" />
         </span>
       ) : null}
@@ -2589,7 +2586,7 @@ function FolderBrowserNonDirectoryRow({
 }) {
   return (
     <div
-      className="grid h-7 min-w-0 grid-cols-[1.5rem_1rem_minmax(0,1fr)_auto] items-center gap-1 rounded-sm px-1 text-[13px] text-muted-foreground"
+      className="grid h-7 min-w-0 grid-cols-[1.5rem_1rem_minmax(0,1fr)_auto] items-center gap-1 rounded-sm px-1 text-[13px] text-[#777b82]"
       style={{ paddingLeft: 4 + (level - 1) * 16 }}
       title={`${entry.path} is not a folder`}
     >
@@ -2613,19 +2610,19 @@ function FolderBrowserIconButton({
   pressed?: boolean
 }) {
   return (
-    <Button
+    <button
       aria-label={label}
       aria-pressed={pressed}
       className={cn(
-        "grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
-        pressed && "bg-muted text-foreground",
+        "grid size-7 shrink-0 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]",
+        pressed && "bg-[#242629] text-[#d8d8d8]",
       )}
       title={label}
       type="button"
       onClick={onClick}
     >
       {children}
-    </Button>
+    </button>
   )
 }
 
@@ -2639,10 +2636,10 @@ function ResizeHandle({
   onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void
 }) {
   return (
-    <Button
+    <button
       aria-label={`Resize ${label}`}
       className={cn(
-        "absolute top-0 z-20 h-full w-2 cursor-col-resize bg-transparent outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-accent focus-visible:after:bg-primary",
+        "absolute top-0 z-20 h-full w-2 cursor-col-resize bg-transparent outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-[#3a3d42] focus-visible:after:bg-[#5e9eff]",
         edge === "right" && "right-[-4px]",
       )}
       type="button"
@@ -2799,14 +2796,14 @@ function SessionSidebar() {
   const activeTab = shell.sidebarTab
 
   return (
-    <aside className="chat-list-panel flex h-full min-h-0 flex-col overflow-hidden bg-background px-2 py-2">
+    <aside className="chat-list-panel flex h-full min-h-0 flex-col overflow-hidden bg-[#0f1011] px-2 py-2">
       {chatSearchOpen && activeTab === "chats" ? (
-        <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-card px-2">
-          <Search className="size-4 shrink-0 text-muted-foreground" />
-          <Input
+        <div className="flex h-9 items-center gap-2 rounded-md border border-[#34363a] bg-[#151617] px-2">
+          <Search className="size-4 shrink-0 text-[#8f8f8f]" />
+          <input
             aria-label="Search chats"
             autoFocus
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-[#dcdcdc] outline-none placeholder:text-[#777]"
             placeholder="Search chats"
             ref={chatSearchRef}
             value={chatSearch}
@@ -2818,9 +2815,9 @@ function SessionSidebar() {
             onChange={(event) => setChatSearch(event.target.value)}
           />
           {chatSearch ? (
-            <Button
+            <button
               aria-label="Clear chat search"
-              className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="grid size-6 place-items-center rounded-md text-[#9a9a9a] hover:bg-[#252729] hover:text-[#ededed]"
               type="button"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
@@ -2829,32 +2826,32 @@ function SessionSidebar() {
               }}
             >
               <X className="size-3.5" />
-            </Button>
+            </button>
           ) : null}
         </div>
       ) : (
         <div className="flex h-9 items-center gap-3">
           <div className="flex gap-1 text-[12px] font-semibold">
-            <Button
-              className={cn("rounded-md px-1.5 py-0.5", activeTab === "chats" ? "bg-accent text-foreground" : "text-muted-foreground")}
+            <button
+              className={cn("rounded-md px-1.5 py-0.5", activeTab === "chats" ? "bg-[#303236] text-[#d5d5d5]" : "text-[#8c8c8c]")}
               type="button"
               onClick={() => shell.setSidebarTab("chats")}
             >
               Chats
-            </Button>
-            <Button
-              className={cn("rounded-md px-1.5 py-0.5", activeTab === "scheduler" ? "bg-accent text-foreground" : "text-muted-foreground")}
+            </button>
+            <button
+              className={cn("rounded-md px-1.5 py-0.5", activeTab === "scheduler" ? "bg-[#303236] text-[#d5d5d5]" : "text-[#8c8c8c]")}
               type="button"
               onClick={() => shell.setSidebarTab("scheduler")}
             >
               Scheduler
-            </Button>
+            </button>
           </div>
           <div className="ml-auto flex items-center gap-1">
             {activeTab === "chats" ? (
               <>
-                <Button
-                  className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[13px] text-foreground shadow-sm"
+                <button
+                  className="flex h-7 items-center gap-1.5 rounded-md border border-[#34363a] bg-[#0f1011] px-2.5 text-[13px] text-[#dcdcdc] shadow-sm"
                   type="button"
                   onClick={() => {
                     shell.setActiveChatId(null)
@@ -2862,7 +2859,7 @@ function SessionSidebar() {
                   }}
                 >
                   New
-                </Button>
+                </button>
                 <PanelActionButton label="Search chats" onClick={() => {
                   setChatSearchOpen(true)
                   window.requestAnimationFrame(() => chatSearchRef.current?.focus())
@@ -2882,19 +2879,19 @@ function SessionSidebar() {
       {activeTab === "chats" ? (
         <ChatListScrollArea>
           {isLoading ? (
-            <div className="py-3 text-[12px] text-muted-foreground">Loading</div>
+            <div className="py-3 text-[12px] text-[#858585]">Loading</div>
           ) : sortedChats.length ? (
             <div className="space-y-1">
               {sortedChats.map((chat) => {
                 const active = chat.id === shell.activeChatId && shell.mainMode === "chat"
                 const running = isChatRunning(chat.id)
                 return (
-                  <Button
+                  <button
                     aria-busy={running || undefined}
                     aria-pressed={active || undefined}
                     className={cn(
-                      "block w-full rounded-md px-2 py-2 text-left hover:bg-muted",
-                      active && "bg-muted",
+                      "block w-full rounded-md px-2 py-2 text-left hover:bg-[#252729]",
+                      active && "bg-[#252729]",
                     )}
                     key={chat.id}
                     type="button"
@@ -2903,37 +2900,37 @@ function SessionSidebar() {
                       shell.switchToChat()
                     }}
                   >
-                    <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
+                    <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-[#d2d2d2]">
                       <ProviderMark
                         icon={providerIconById.get(chat.providerId) ?? chat.providerId}
-                        className={cn("size-4 shrink-0 text-muted-foreground", running && "text-foreground")}
+                        className={cn("size-4 shrink-0 text-[#9a9a9a]", running && "text-foreground")}
                       />
                       <span className="min-w-0 flex-1 truncate">{chat.title}</span>
                       {running ? (
-                        <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" />
+                        <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[#5e9eff]" aria-hidden="true" />
                       ) : null}
                     </div>
-                    <div className="ml-6 mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <div className="ml-6 mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-[#8d8d8d]">
                       <span className="truncate">{relativeTimeLabel(chat.lastActivityAt)}</span>
                       {hasChatStats(chat.stats) ? (
                         <span className="flex shrink-0 items-center gap-1 font-medium">
-                          <span className="text-primary">+{chat.stats.additions}</span>
-                          <span className="text-destructive">-{chat.stats.deletions}</span>
+                          <span className="text-[#5fc878]">+{chat.stats.additions}</span>
+                          <span className="text-[#e06c75]">-{chat.stats.deletions}</span>
                         </span>
                       ) : null}
                     </div>
-                  </Button>
+                  </button>
                 )
               })}
             </div>
           ) : (
-            <div className="py-3 text-[12px] text-muted-foreground">{chatSearch.trim() ? "No matching chats" : "No chats"}</div>
+            <div className="py-3 text-[12px] text-[#858585]">{chatSearch.trim() ? "No matching chats" : "No chats"}</div>
           )}
         </ChatListScrollArea>
       ) : (
         <ChatListScrollArea>
           {shell.isSchedulesLoading ? (
-            <div className="py-3 text-[12px] text-muted-foreground">Loading</div>
+            <div className="py-3 text-[12px] text-[#858585]">Loading</div>
           ) : sortedSchedules.length ? (
             <div className="space-y-1">
               {sortedSchedules.map((schedule) => (
@@ -2946,43 +2943,43 @@ function SessionSidebar() {
               ))}
             </div>
           ) : (
-            <div className="py-3 text-[12px] text-muted-foreground">No schedules</div>
+            <div className="py-3 text-[12px] text-[#858585]">No schedules</div>
           )}
         </ChatListScrollArea>
       )}
 
-      <div className="mt-3 border-t border-border pt-4">
-        <h3 className="mb-3 text-[13px] font-semibold text-foreground">Managements</h3>
+      <div className="mt-3 border-t border-[#2a2c2f] pt-4">
+        <h3 className="mb-3 text-[13px] font-semibold text-[#d2d2d2]">Managements</h3>
         <div className="space-y-1">
           {managementItems.map((item) => {
             const itemId = item.id
             const active = itemId === activeManagementView
             return (
-              <Button
+              <button
                 aria-pressed={active || undefined}
                 className={cn(
-                  "flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-left text-[13px] font-medium text-foreground hover:bg-muted hover:text-foreground",
-                  active && "bg-muted text-foreground",
+                  "flex h-7 w-full items-center gap-2 rounded-md px-1.5 text-left text-[13px] font-medium text-[#c9c9c9] hover:bg-[#252729] hover:text-[#f0f0f0]",
+                  active && "bg-[#252729] text-[#f0f0f0]",
                 )}
                 key={item.label}
                 type="button"
                 onClick={itemId ? () => shell.selectManagementView(itemId) : undefined}
               >
                 {item.providerIcon ? (
-                  <ProviderMark icon={item.providerIcon} className={cn("size-4 text-muted-foreground", active && "text-foreground")} />
+                  <ProviderMark icon={item.providerIcon} className={cn("size-4 text-[#a4a4a4]", active && "text-[#d0d0d0]")} />
                 ) : item.icon ? (
-                  <item.icon className={cn("size-4 text-muted-foreground", active && "text-foreground")} />
+                  <item.icon className={cn("size-4 text-[#a4a4a4]", active && "text-[#d0d0d0]")} />
                 ) : null}
                 <span>{item.label}</span>
                 {item.count !== undefined ? (
                   <span
-                    className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground"
+                    className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-[#8b8b8b]"
                     title={item.id === "providers" ? "Connected providers" : undefined}
                   >
                     {item.count}
                   </span>
                 ) : null}
-              </Button>
+              </button>
             )
           })}
         </div>
@@ -3001,36 +2998,36 @@ function ScheduleListItem({
   onSelect: () => void
 }) {
   return (
-    <Button
+    <button
       aria-pressed={active || undefined}
       className={cn(
-        "block w-full rounded-md px-2 py-2 text-left hover:bg-muted",
-        active && "bg-muted",
+        "block w-full rounded-md px-2 py-2 text-left hover:bg-[#252729]",
+        active && "bg-[#252729]",
       )}
       type="button"
       onClick={onSelect}
     >
-      <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-foreground">
+      <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-[#d2d2d2]">
         <span className="min-w-0 flex-1 truncate">{schedule.title}</span>
         <span className={cn(
           "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold",
-          schedule.status === "ACTIVE" && "bg-primary/20 text-primary",
-          schedule.status === "PAUSED" && "bg-accent text-destructive",
-          schedule.status === "COMPLETED" && "bg-primary/20 text-primary",
+          schedule.status === "ACTIVE" && "bg-[#14351f] text-[#72d987]",
+          schedule.status === "PAUSED" && "bg-[#35301b] text-[#e2c766]",
+          schedule.status === "COMPLETED" && "bg-[#26313d] text-[#9bbcff]",
         )}>
           {schedule.status.toLowerCase()}
         </span>
       </div>
-      <div className="mt-1 min-w-0 truncate text-[11px] text-muted-foreground">
+      <div className="mt-1 min-w-0 truncate text-[11px] text-[#8d8d8d]">
         {schedule.nextRunAt ? `Next ${dateTimeLabel(schedule.nextRunAt)}` : "No upcoming run"}
       </div>
-      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-[#8d8d8d]">
         <span className="truncate">{recurrenceLabel(schedule.recurrence)}</span>
         {schedule.lastRunStatus ? (
-          <span className="shrink-0 text-muted-foreground">Last {schedule.lastRunStatus.toLowerCase()}</span>
+          <span className="shrink-0 text-[#a7a7a7]">Last {schedule.lastRunStatus.toLowerCase()}</span>
         ) : null}
       </div>
-    </Button>
+    </button>
   )
 }
 
@@ -3170,27 +3167,27 @@ function ScheduleDetailPane() {
 
   if (!schedule || !draft) {
     return (
-      <section className="grid h-full min-h-0 place-items-center rounded-xl border border-border bg-card p-6 text-center">
+      <section className="grid h-full min-h-0 place-items-center rounded-xl border border-[#2a2c2f] bg-[#171818] p-6 text-center">
         <div>
-          <h2 className="text-[15px] font-semibold text-foreground">Scheduler</h2>
-          <p className="mt-2 max-w-sm text-[13px] text-muted-foreground">Select a schedule or create one from the scheduler tab.</p>
-          <Button
-            className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border bg-muted px-3 text-[13px] text-foreground hover:bg-accent"
+          <h2 className="text-[15px] font-semibold text-[#ededed]">Scheduler</h2>
+          <p className="mt-2 max-w-sm text-[13px] text-[#9a9a9a]">Select a schedule or create one from the scheduler tab.</p>
+          <button
+            className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-[#34363a] bg-[#202124] px-3 text-[13px] text-[#ededed] hover:bg-[#292b2f]"
             type="button"
             onClick={() => void shell.createSchedule()}
           >
             <Plus className="size-4" />
             New schedule
-          </Button>
+          </button>
         </div>
       </section>
     )
   }
 
   const canSave = Boolean(draft.title.trim() && draft.message.trim() && draft.firstRunAt && draft.accountId)
-  const scheduleControlClass = "border-border bg-background text-foreground shadow-none focus-visible:border-ring focus-visible:ring-[#4a78c2]/35"
-  const scheduleLabelClass = "mb-1 block text-[11px] font-medium leading-none text-muted-foreground"
-  const scheduleSelectTriggerClass = "h-8 w-full border-border bg-background px-2 text-[12px] text-foreground shadow-none hover:bg-card focus-visible:border-ring focus-visible:ring-[#4a78c2]/35"
+  const scheduleControlClass = "border-[#33363a] bg-[#111213] text-[#dcdcdc] shadow-none focus-visible:border-[#4a78c2] focus-visible:ring-[#4a78c2]/35"
+  const scheduleLabelClass = "mb-1 block text-[11px] font-medium leading-none text-[#8f8f8f]"
+  const scheduleSelectTriggerClass = "h-8 w-full border-[#33363a] bg-[#111213] px-2 text-[12px] text-[#d6d6d6] shadow-none hover:bg-[#181a1b] focus-visible:border-[#4a78c2] focus-visible:ring-[#4a78c2]/35"
 
   const save = async () => {
     if (!canSave) {
@@ -3222,17 +3219,17 @@ function ScheduleDetailPane() {
   }
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex min-h-11 items-center gap-3 border-b border-border px-3">
+    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-[#2a2c2f] bg-[#171818]">
+      <div className="flex min-h-11 items-center gap-3 border-b border-[#242629] px-3">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[13px] font-semibold text-foreground">{draft.title.trim() || schedule.title}</h2>
+          <h2 className="truncate text-[13px] font-semibold text-[#ededed]">{draft.title.trim() || schedule.title}</h2>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[12px] font-medium text-muted-foreground">{draft.active ? "On" : "Off"}</span>
+          <span className="text-[12px] font-medium text-[#a7a7a7]">{draft.active ? "On" : "Off"}</span>
           <Switch
             aria-label={draft.active ? "Turn schedule off" : "Turn schedule on"}
             className={cn(
-              "h-5 w-9 border-border bg-accent data-[state=checked]:border-border data-[state=checked]:bg-primary/20",
+              "h-5 w-9 border-[#34363a] bg-[#303236] data-[state=checked]:border-[#255d35] data-[state=checked]:bg-[#2d7b42]",
             )}
             checked={draft.active}
             title={draft.active ? "Schedule is on" : "Schedule is off"}
@@ -3243,13 +3240,13 @@ function ScheduleDetailPane() {
       <div className="grid min-h-0 gap-4 overflow-auto p-3 ide-scrollbar lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.85fr)]">
         <div className="min-w-0 space-y-5">
           {shell.scheduleError ? (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{shell.scheduleError}</div>
+            <div className="rounded-md border border-[#5a2f34] bg-[#2a171a] px-3 py-2 text-[12px] text-[#ffb3b8]">{shell.scheduleError}</div>
           ) : null}
           <div className="space-y-3">
-            <h3 className="text-[12px] font-semibold text-foreground">Details</h3>
+            <h3 className="text-[12px] font-semibold text-[#dcdcdc]">Details</h3>
             <Label className="block">
               <span className={scheduleLabelClass}>Title</span>
-              <Input
+              <input
                 className={cn("h-8 px-2 text-[13px]", scheduleControlClass)}
                 value={draft.title}
                 onChange={(event) => setDraft({ ...draft, title: event.target.value })}
@@ -3257,19 +3254,19 @@ function ScheduleDetailPane() {
             </Label>
             <Label className="block">
               <span className={scheduleLabelClass}>Message</span>
-              <Textarea
+              <textarea
                 className={cn("min-h-36 resize-none px-2 py-2 text-[13px] leading-5", scheduleControlClass)}
                 value={draft.message}
                 onChange={(event) => setDraft({ ...draft, message: event.target.value })}
               />
             </Label>
           </div>
-          <div className="space-y-3 border-t border-border pt-4">
-            <h3 className="text-[12px] font-semibold text-foreground">Timing</h3>
+          <div className="space-y-3 border-t border-[#2a2c2f] pt-4">
+            <h3 className="text-[12px] font-semibold text-[#dcdcdc]">Timing</h3>
             <div className="grid gap-3 sm:grid-cols-3">
               <Label className="block min-w-0">
                 <span className={scheduleLabelClass}>First run</span>
-                <Input
+                <input
                   className={cn("h-8 px-2 text-[12px]", scheduleControlClass)}
                   type="datetime-local"
                   value={draft.firstRunAt}
@@ -3282,9 +3279,9 @@ function ScheduleDetailPane() {
                   <SelectTrigger aria-label="Repeat" className={scheduleSelectTriggerClass}>
                     <span className="truncate">{recurrenceFrequencyLabel(draft.recurrenceFrequency)}</span>
                   </SelectTrigger>
-                  <SelectContent align="start" className="border-border bg-muted text-foreground">
+                  <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                     {(["none", "daily", "weekly", "monthly"] as const).map((frequency) => (
-                      <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={frequency} value={frequency}>
+                      <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={frequency} value={frequency}>
                         {recurrenceFrequencyLabel(frequency)}
                       </SelectItem>
                     ))}
@@ -3293,7 +3290,7 @@ function ScheduleDetailPane() {
               </Label>
               <Label className="block min-w-0">
                 <span className={scheduleLabelClass}>Interval</span>
-                <Input
+                <input
                   className={cn("h-8 px-2 text-[12px]", scheduleControlClass)}
                   disabled={draft.recurrenceFrequency === "none"}
                   min={1}
@@ -3306,7 +3303,7 @@ function ScheduleDetailPane() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Label className="block min-w-0">
                 <span className={scheduleLabelClass}>End after</span>
-                <Input
+                <input
                   className={cn("h-8 px-2 text-[12px]", scheduleControlClass)}
                   disabled={draft.recurrenceFrequency === "none"}
                   min={1}
@@ -3318,7 +3315,7 @@ function ScheduleDetailPane() {
               </Label>
               <Label className="block min-w-0">
                 <span className={scheduleLabelClass}>End date</span>
-                <Input
+                <input
                   className={cn("h-8 px-2 text-[12px]", scheduleControlClass)}
                   disabled={draft.recurrenceFrequency === "none"}
                   type="datetime-local"
@@ -3328,8 +3325,8 @@ function ScheduleDetailPane() {
               </Label>
             </div>
           </div>
-          <div className="space-y-3 border-t border-border pt-4">
-            <h3 className="text-[12px] font-semibold text-foreground">Execution</h3>
+          <div className="space-y-3 border-t border-[#2a2c2f] pt-4">
+            <h3 className="text-[12px] font-semibold text-[#dcdcdc]">Execution</h3>
             <div className="grid gap-3 sm:grid-cols-3">
               <Label className="block min-w-0">
                 <span className={scheduleLabelClass}>Provider account</span>
@@ -3337,9 +3334,9 @@ function ScheduleDetailPane() {
                   <SelectTrigger aria-label="Provider account" className={scheduleSelectTriggerClass}>
                     <span className="truncate">{availableAccounts.find((entry) => entry.id === draft.accountId)?.displayName ?? "Choose account"}</span>
                   </SelectTrigger>
-                  <SelectContent align="start" className="border-border bg-muted text-foreground">
+                  <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                     {availableAccounts.map((entry) => (
-                      <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={entry.id} value={entry.id}>
+                      <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={entry.id} value={entry.id}>
                         {entry.displayName}
                       </SelectItem>
                     ))}
@@ -3352,9 +3349,9 @@ function ScheduleDetailPane() {
                   <SelectTrigger aria-label="Access mode" className={scheduleSelectTriggerClass}>
                     <span className="truncate">{draft.permissionMode === "fullAccess" ? "Full access" : "Ask for approval"}</span>
                   </SelectTrigger>
-                  <SelectContent align="start" className="border-border bg-muted text-foreground">
-                    <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="askForApproval">Ask for approval</SelectItem>
-                    <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="fullAccess">Full access</SelectItem>
+                  <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
+                    <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="askForApproval">Ask for approval</SelectItem>
+                    <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="fullAccess">Full access</SelectItem>
                   </SelectContent>
                 </Select>
               </Label>
@@ -3364,17 +3361,17 @@ function ScheduleDetailPane() {
                   <SelectTrigger aria-label="Mode" className={scheduleSelectTriggerClass}>
                     <span className="truncate">{draft.collaborationMode === "plan" ? "Plan" : "Default"}</span>
                   </SelectTrigger>
-                  <SelectContent align="start" className="border-border bg-muted text-foreground">
-                    <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="default">Default</SelectItem>
-                    <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="plan">Plan</SelectItem>
+                  <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
+                    <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="default">Default</SelectItem>
+                    <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="plan">Plan</SelectItem>
                   </SelectContent>
                 </Select>
               </Label>
             </div>
           </div>
           {supportsModels || supportsReasoningEffort || supportsServiceTier ? (
-            <div className="space-y-3 border-t border-border pt-4">
-              <h3 className="text-[12px] font-semibold text-foreground">Runtime</h3>
+            <div className="space-y-3 border-t border-[#2a2c2f] pt-4">
+              <h3 className="text-[12px] font-semibold text-[#dcdcdc]">Runtime</h3>
               <div className="grid gap-3 sm:grid-cols-3">
                 {supportsModels ? (
                   <Label className="block min-w-0">
@@ -3383,9 +3380,9 @@ function ScheduleDetailPane() {
                       <SelectTrigger aria-label="Model" className={scheduleSelectTriggerClass}>
                         <span className="truncate">{selectedModelLabel}</span>
                       </SelectTrigger>
-                      <SelectContent align="start" className="max-h-72 border-border bg-muted text-foreground">
+                      <SelectContent align="start" className="max-h-72 border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                         {visibleModelOptions.map((option) => (
-                          <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={option.id} value={option.model}>
+                          <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={option.id} value={option.model}>
                             {option.displayName}
                           </SelectItem>
                         ))}
@@ -3400,9 +3397,9 @@ function ScheduleDetailPane() {
                       <SelectTrigger aria-label="Reasoning" className={scheduleSelectTriggerClass}>
                         <span className="truncate">{composerReasoningEffortLabel(draft.reasoningEffort)}</span>
                       </SelectTrigger>
-                      <SelectContent align="start" className="border-border bg-muted text-foreground">
+                      <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                         {composerReasoningEffortOptions.map((option) => (
-                          <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={option.value} value={option.value}>
+                          <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
                         ))}
@@ -3417,9 +3414,9 @@ function ScheduleDetailPane() {
                       <SelectTrigger aria-label="Speed" className={scheduleSelectTriggerClass}>
                         <span className="truncate">{composerServiceTierLabel(draft.serviceTier)}</span>
                       </SelectTrigger>
-                      <SelectContent align="start" className="border-border bg-muted text-foreground">
+                      <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                         {composerServiceTierOptions.map((option) => (
-                          <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={option.value} value={option.value}>
+                          <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
                         ))}
@@ -3430,48 +3427,48 @@ function ScheduleDetailPane() {
               </div>
             </div>
           ) : null}
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-            <Button
-              className="h-8 gap-2 rounded-md border-destructive/50 bg-card px-3 text-[12px] text-destructive hover:bg-destructive/10"
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#2a2c2f] pt-4">
+            <button
+              className="h-8 gap-2 rounded-md border-[#493036] bg-[#1f1416] px-3 text-[12px] text-[#ffb3b8] hover:bg-[#2a171a]"
               variant="destructive"
               onClick={() => void shell.deleteSchedule(schedule.id)}
             >
               <Trash2 className="size-3.5" />
               Delete
-            </Button>
-            <Button
-              className="h-8 gap-2 rounded-md border-border bg-muted px-3 text-[12px] text-foreground hover:bg-accent"
+            </button>
+            <button
+              className="h-8 gap-2 rounded-md border-[#34363a] bg-[#202124] px-3 text-[12px] text-[#ededed] hover:bg-[#292b2f]"
               disabled={!canSave || saving}
               variant="outline"
               onClick={() => void save()}
             >
               <Check className="size-3.5" />
               {saving ? "Saving" : "Save"}
-            </Button>
+            </button>
           </div>
         </div>
-        <div className="min-w-0 border-t border-border pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-          <h3 className="text-[13px] font-semibold text-foreground">Execution History</h3>
+        <div className="min-w-0 border-t border-[#2a2c2f] pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+          <h3 className="text-[13px] font-semibold text-[#ededed]">Execution History</h3>
           <div className="mt-3 space-y-2">
             {runs.length ? runs.map((run) => (
-              <Button
-                className="block w-full rounded-md border border-border bg-card px-3 py-2 text-left hover:bg-muted"
+              <button
+                className="block w-full rounded-md border border-[#2a2c2f] bg-[#151617] px-3 py-2 text-left hover:bg-[#1f2022]"
                 key={run.id}
                 type="button"
                 onClick={() => void shell.openScheduleRunChat(run)}
               >
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">{dateTimeLabel(run.scheduledFor)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[#dcdcdc]">{dateTimeLabel(run.scheduledFor)}</span>
                   <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", scheduleRunStatusClass(run.status))}>{run.status.toLowerCase()}</span>
                 </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">
+                <div className="mt-1 text-[11px] text-[#8f8f8f]">
                   {run.startedAt ? `Started ${relativeTimeLabel(run.startedAt)}` : "Waiting"}
                   {run.endedAt ? ` / Ended ${relativeTimeLabel(run.endedAt)}` : ""}
                 </div>
-                {run.error ? <div className="mt-1 line-clamp-2 text-[11px] text-destructive">{run.error}</div> : null}
-              </Button>
+                {run.error ? <div className="mt-1 line-clamp-2 text-[11px] text-[#ff9ca3]">{run.error}</div> : null}
+              </button>
             )) : (
-              <div className="rounded-md border border-border bg-card px-3 py-3 text-[12px] text-muted-foreground">No runs yet</div>
+              <div className="rounded-md border border-[#2a2c2f] bg-[#151617] px-3 py-3 text-[12px] text-[#8f8f8f]">No runs yet</div>
             )}
           </div>
         </div>
@@ -3536,28 +3533,28 @@ function CodexInstructionsDialog({ open, onClose }: { open: boolean; onClose: ()
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
-      <Button aria-label="Close instructions" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
-      <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
-        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
-          <FileText className="size-4 shrink-0 text-primary" />
-          <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">Instructions</h1>
-          <Button
+      <button aria-label="Close instructions" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-[#35383d] bg-[#171818] shadow-2xl">
+        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-[#25272a] px-3">
+          <FileText className="size-4 shrink-0 text-[#9bbcff]" />
+          <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#ededed]">Instructions</h1>
+          <button
             aria-label="Reload instructions"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             title="Refresh"
             type="button"
             onClick={() => void loadInstructions()}
           >
             <RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
-          </Button>
-          <Button
+          </button>
+          <button
             aria-label="Close instructions"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             type="button"
             onClick={onClose}
           >
             <X className="size-4" />
-          </Button>
+          </button>
         </header>
 
         <div className="min-h-0 overflow-auto p-3 ide-scrollbar">
@@ -3566,17 +3563,17 @@ function CodexInstructionsDialog({ open, onClose }: { open: boolean; onClose: ()
               className={cn(
                 "mb-3 rounded-md border px-3 py-2 text-[12px]",
                 notice.kind === "error"
-                  ? "border-destructive/50 bg-muted text-destructive"
-                  : "border-border bg-muted text-primary",
+                  ? "border-[#5a3030] bg-[#241817] text-[#ff9f9f]"
+                  : "border-[#30383f] bg-[#1b2228] text-[#a9c7e8]",
               )}
             >
               {notice.text}
             </div>
           ) : null}
           <label className="block">
-            <span className="mb-1 block text-[11px] font-medium text-muted-foreground">AGENTS.md</span>
-            <Textarea
-              className="h-[min(52vh,28rem)] w-full resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-[12px] leading-5 text-foreground outline-none focus:border-ring disabled:opacity-65"
+            <span className="mb-1 block text-[11px] font-medium text-[#8f8f8f]">AGENTS.md</span>
+            <textarea
+              className="h-[min(52vh,28rem)] w-full resize-none rounded-md border border-[#33363a] bg-[#111213] px-3 py-2 font-mono text-[12px] leading-5 text-[#d6d6d6] outline-none focus:border-[#5e9eff] disabled:opacity-65"
               disabled={isLoading}
               spellCheck={false}
               value={draft}
@@ -3585,22 +3582,22 @@ function CodexInstructionsDialog({ open, onClose }: { open: boolean; onClose: ()
           </label>
         </div>
 
-        <footer className="flex h-11 items-center justify-end gap-2 border-t border-border px-3">
-          <Button
-            className="h-8 rounded-md border border-border px-3 text-[12px] font-medium text-foreground hover:bg-muted"
+        <footer className="flex h-11 items-center justify-end gap-2 border-t border-[#25272a] px-3">
+          <button
+            className="h-8 rounded-md border border-[#34363a] px-3 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#252729]"
             type="button"
             onClick={onClose}
           >
             Close
-          </Button>
-          <Button
-            className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          </button>
+          <button
+            className="h-8 rounded-md bg-[#5e9eff] px-3 text-[12px] font-semibold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-45"
             disabled={isLoading || saving}
             type="button"
             onClick={() => void saveInstructions()}
           >
             {saving ? "Saving" : "Save"}
-          </Button>
+          </button>
         </footer>
       </section>
     </div>
@@ -3817,78 +3814,78 @@ function McpServersManagementDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
-      <Button aria-label="Close MCP servers" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
-      <section className="relative grid max-h-[86vh] w-full max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
-        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
-          <Server className="size-4 shrink-0 text-primary" />
-          <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">MCP Servers</h1>
-          <Button
+      <button aria-label="Close MCP servers" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative grid max-h-[86vh] w-full max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-[#35383d] bg-[#171818] shadow-2xl">
+        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-[#25272a] px-3">
+          <Server className="size-4 shrink-0 text-[#9bbcff]" />
+          <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#ededed]">MCP Servers</h1>
+          <button
             aria-label="Add MCP server"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             title="Add"
             type="button"
             onClick={createNewServer}
           >
             <Plus className="size-4" />
-          </Button>
-          <Button
+          </button>
+          <button
             aria-label="Refresh MCP servers"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             title="Refresh"
             type="button"
             onClick={() => void loadMcpData()}
           >
             <RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
-          </Button>
-          <Button
+          </button>
+          <button
             aria-label="Close MCP servers"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             type="button"
             onClick={onClose}
           >
             <X className="size-4" />
-          </Button>
+          </button>
         </header>
 
         <div className="grid min-h-0 grid-cols-[260px_minmax(0,1fr)] overflow-hidden">
-          <aside className="min-h-0 overflow-auto border-r border-border p-2 ide-scrollbar">
+          <aside className="min-h-0 overflow-auto border-r border-[#25272a] p-2 ide-scrollbar">
             {isLoading ? (
-              <div className="grid min-h-44 place-items-center text-[13px] text-muted-foreground">Loading</div>
+              <div className="grid min-h-44 place-items-center text-[13px] text-[#858585]">Loading</div>
             ) : servers.length ? (
               <div className="space-y-1">
                 {servers.map((server) => {
                   const active = server.id === selectedId
                   const lastError = server.installations.find((installation) => installation.lastError)?.lastError
                   return (
-                    <Button
+                    <button
                       aria-pressed={active || undefined}
                       className={cn(
-                        "grid w-full gap-1 rounded-md px-2 py-2 text-left hover:bg-muted",
-                        active && "bg-muted",
+                        "grid w-full gap-1 rounded-md px-2 py-2 text-left hover:bg-[#252729]",
+                        active && "bg-[#252729]",
                       )}
                       key={server.id}
                       type="button"
                       onClick={() => selectServer(server)}
                     >
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#dcdcdc]">
                           {server.displayName || server.name}
                         </span>
-                        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                        <span className="shrink-0 rounded border border-[#34363a] px-1.5 py-0.5 text-[10px] uppercase text-[#8f949b]">
                           {server.transport.type === "stdio" ? "stdio" : "http"}
                         </span>
                       </span>
-                      <span className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+                      <span className="flex min-w-0 items-center gap-2 text-[11px] text-[#858585]">
                         <span className="truncate">{server.name}</span>
                         <span className="ml-auto shrink-0">{server.installations.length}</span>
                       </span>
-                      {lastError ? <span className="truncate text-[11px] text-destructive">{lastError}</span> : null}
-                    </Button>
+                      {lastError ? <span className="truncate text-[11px] text-[#ff9f9f]">{lastError}</span> : null}
+                    </button>
                   )
                 })}
               </div>
             ) : (
-              <div className="grid min-h-44 place-items-center text-[13px] text-muted-foreground">No MCP servers</div>
+              <div className="grid min-h-44 place-items-center text-[13px] text-[#858585]">No MCP servers</div>
             )}
           </aside>
 
@@ -3898,8 +3895,8 @@ function McpServersManagementDialog({
                 className={cn(
                   "mb-3 rounded-md border px-3 py-2 text-[12px]",
                   notice.kind === "error"
-                    ? "border-destructive/50 bg-muted text-destructive"
-                    : "border-border bg-card text-primary",
+                    ? "border-[#5a3030] bg-[#241817] text-[#ff9f9f]"
+                    : "border-[#2f5136] bg-[#172118] text-[#9ee7ac]",
                 )}
               >
                 {notice.text}
@@ -3913,23 +3910,23 @@ function McpServersManagementDialog({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex overflow-hidden rounded-md border border-border">
+                <div className="flex overflow-hidden rounded-md border border-[#34363a]">
                   {(["stdio", "streamable_http"] as const).map((type) => (
-                    <Button
+                    <button
                       className={cn(
                         "h-8 px-3 text-[12px] font-medium",
-                        draft.transportType === type ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted",
+                        draft.transportType === type ? "bg-[#303236] text-[#ededed]" : "text-[#9a9a9a] hover:bg-[#252729]",
                       )}
                       key={type}
                       type="button"
                       onClick={() => updateDraft("transportType", type)}
                     >
                       {type === "stdio" ? "stdio" : "HTTP"}
-                    </Button>
+                    </button>
                   ))}
                 </div>
-                <label className="flex h-8 items-center gap-2 rounded-md border border-border px-2 text-[12px] text-foreground">
-                  <Input
+                <label className="flex h-8 items-center gap-2 rounded-md border border-[#34363a] px-2 text-[12px] text-[#d6d6d6]">
+                  <input
                     checked={draft.enabled}
                     className="accent-[#5e9eff]"
                     type="checkbox"
@@ -3937,8 +3934,8 @@ function McpServersManagementDialog({
                   />
                   Enabled
                 </label>
-                <label className="flex h-8 items-center gap-2 rounded-md border border-border px-2 text-[12px] text-foreground">
-                  <Input
+                <label className="flex h-8 items-center gap-2 rounded-md border border-[#34363a] px-2 text-[12px] text-[#d6d6d6]">
+                  <input
                     checked={draft.required}
                     className="accent-[#5e9eff]"
                     type="checkbox"
@@ -3971,10 +3968,10 @@ function McpServersManagementDialog({
               <div className="grid gap-3 md:grid-cols-3">
                 <McpTextField label="Startup timeout" value={draft.startupTimeoutSec} onChange={(value) => updateDraft("startupTimeoutSec", value)} />
                 <McpTextField label="Tool timeout" value={draft.toolTimeoutSec} onChange={(value) => updateDraft("toolTimeoutSec", value)} />
-                <label className="grid gap-1 text-[12px] text-muted-foreground">
+                <label className="grid gap-1 text-[12px] text-[#a8adb3]">
                   Approval
                   <select
-                    className="h-8 rounded-md border border-border bg-background px-2 text-[13px] text-foreground outline-none focus:border-ring"
+                    className="h-8 rounded-md border border-[#34363a] bg-[#111213] px-2 text-[13px] text-[#dcdcdc] outline-none focus:border-[#5e9eff]"
                     value={draft.defaultToolsApprovalMode}
                     onChange={(event) => updateDraft("defaultToolsApprovalMode", event.currentTarget.value as McpServerDraft["defaultToolsApprovalMode"])}
                   >
@@ -3990,15 +3987,15 @@ function McpServersManagementDialog({
               </div>
 
               <div className="grid gap-2">
-                <div className="text-[12px] font-medium text-foreground">Accounts</div>
+                <div className="text-[12px] font-medium text-[#d6d6d6]">Accounts</div>
                 {codexAccounts.length ? (
                   <div className="grid gap-1 md:grid-cols-2">
                     {codexAccounts.map((account) => (
                       <label
-                        className="flex min-w-0 items-center gap-2 rounded-md border border-border px-2 py-1.5 text-[12px] text-foreground"
+                        className="flex min-w-0 items-center gap-2 rounded-md border border-[#2a2c2f] px-2 py-1.5 text-[12px] text-[#d6d6d6]"
                         key={account.id}
                       >
-                        <Input
+                        <input
                           checked={draft.accountIds.includes(account.id)}
                           className="accent-[#5e9eff]"
                           type="checkbox"
@@ -4011,21 +4008,21 @@ function McpServersManagementDialog({
                             )
                           }}
                         />
-                        <ProviderMark icon="codex" className="size-3.5 shrink-0 text-primary" />
+                        <ProviderMark icon="codex" className="size-3.5 shrink-0 text-[#9bbcff]" />
                         <span className="min-w-0 flex-1 truncate">{account.displayName}</span>
                         <ProviderStatusBadge status={account.status} />
                       </label>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-[12px] text-muted-foreground">No Codex accounts</div>
+                  <div className="text-[12px] text-[#858585]">No Codex accounts</div>
                 )}
               </div>
 
-              <div className="grid gap-2 border-t border-border pt-3">
+              <div className="grid gap-2 border-t border-[#25272a] pt-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <select
-                    className="h-8 min-w-56 rounded-md border border-border bg-background px-2 text-[13px] text-foreground outline-none focus:border-ring"
+                    className="h-8 min-w-56 rounded-md border border-[#34363a] bg-[#111213] px-2 text-[13px] text-[#dcdcdc] outline-none focus:border-[#5e9eff]"
                     value={statusAccountId}
                     onChange={(event) => setStatusAccountId(event.currentTarget.value)}
                   >
@@ -4034,26 +4031,26 @@ function McpServersManagementDialog({
                       <option key={account.id} value={account.id}>{account.displayName}</option>
                     ))}
                   </select>
-                  <Button
-                    className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-[12px] text-foreground hover:bg-muted"
+                  <button
+                    className="flex h-8 items-center gap-1.5 rounded-md border border-[#34363a] px-2 text-[12px] text-[#dcdcdc] hover:bg-[#252729]"
                     type="button"
                     onClick={() => void refreshStatus()}
                   >
                     <RefreshCw className={cn("size-3.5", refreshingStatus && "animate-spin")} />
                     Refresh
-                  </Button>
+                  </button>
                   {selectedStatus ? (
-                    <span className="text-[12px] text-muted-foreground">
+                    <span className="text-[12px] text-[#a8adb3]">
                       {selectedStatus.authStatus} · {selectedStatus.toolCount} tools
                     </span>
                   ) : null}
                 </div>
                 {selectedStatus?.error || selectedStatus?.lastError ? (
-                  <div className="rounded-md border border-destructive/50 bg-muted px-3 py-2 text-[12px] text-destructive">
+                  <div className="rounded-md border border-[#5a3030] bg-[#241817] px-3 py-2 text-[12px] text-[#ff9f9f]">
                     {selectedStatus.error || selectedStatus.lastError}
                   </div>
                 ) : selectedStatus ? (
-                  <div className="text-[12px] text-muted-foreground">
+                  <div className="text-[12px] text-[#858585]">
                     {selectedStatus.tools.slice(0, 12).join(", ") || "No tools reported"}
                   </div>
                 ) : null}
@@ -4062,44 +4059,44 @@ function McpServersManagementDialog({
           </div>
         </div>
 
-        <footer className="flex min-h-12 flex-wrap items-center gap-2 border-t border-border px-3 py-2">
-          <Button
-            className="flex h-8 items-center gap-1.5 rounded-md border border-destructive/50 px-2 text-[12px] text-destructive hover:bg-destructive/10 disabled:opacity-50"
+        <footer className="flex min-h-12 flex-wrap items-center gap-2 border-t border-[#25272a] px-3 py-2">
+          <button
+            className="flex h-8 items-center gap-1.5 rounded-md border border-[#5a3030] px-2 text-[12px] text-[#ffb0b0] hover:bg-[#2a1717] disabled:opacity-50"
             disabled={!selectedServer || saving}
             type="button"
             onClick={() => void deleteServer()}
           >
             <Trash2 className="size-3.5" />
             Delete
-          </Button>
+          </button>
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-[12px] text-foreground hover:bg-muted disabled:opacity-50"
+            <button
+              className="flex h-8 items-center gap-1.5 rounded-md border border-[#34363a] px-2 text-[12px] text-[#dcdcdc] hover:bg-[#252729] disabled:opacity-50"
               disabled={!selectedServer || syncing}
               type="button"
               onClick={() => void syncServer()}
             >
               <RefreshCw className={cn("size-3.5", syncing && "animate-spin")} />
               Sync
-            </Button>
-            <Button
-              className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-[12px] text-foreground hover:bg-muted disabled:opacity-50"
+            </button>
+            <button
+              className="flex h-8 items-center gap-1.5 rounded-md border border-[#34363a] px-2 text-[12px] text-[#dcdcdc] hover:bg-[#252729] disabled:opacity-50"
               disabled={!selectedServer || draft.transportType !== "streamable_http" || oauthing}
               type="button"
               onClick={() => void startOauthLogin()}
             >
               <ExternalLink className="size-3.5" />
               OAuth
-            </Button>
-            <Button
-              className="flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-semibold text-primary-foreground hover:bg-white disabled:opacity-60"
+            </button>
+            <button
+              className="flex h-8 items-center gap-1.5 rounded-md bg-[#d7d7d7] px-3 text-[12px] font-semibold text-[#151617] hover:bg-white disabled:opacity-60"
               disabled={saving}
               type="button"
               onClick={() => void saveServer()}
             >
               {saving ? <LoaderCircle className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
               Save
-            </Button>
+            </button>
           </div>
         </footer>
       </section>
@@ -4117,10 +4114,10 @@ function McpTextField({
   onChange: (value: string) => void
 }) {
   return (
-    <label className="grid gap-1 text-[12px] text-muted-foreground">
+    <label className="grid gap-1 text-[12px] text-[#a8adb3]">
       {label}
-      <Input
-        className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+      <input
+        className="h-8 min-w-0 rounded-md border border-[#34363a] bg-[#111213] px-2 text-[13px] text-[#dcdcdc] outline-none placeholder:text-[#686d74] focus:border-[#5e9eff]"
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
@@ -4138,10 +4135,10 @@ function McpTextArea({
   onChange: (value: string) => void
 }) {
   return (
-    <label className="grid gap-1 text-[12px] text-muted-foreground">
+    <label className="grid gap-1 text-[12px] text-[#a8adb3]">
       {label}
-      <Textarea
-        className="min-h-20 resize-y rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+      <textarea
+        className="min-h-20 resize-y rounded-md border border-[#34363a] bg-[#111213] px-2 py-1.5 font-mono text-[12px] text-[#dcdcdc] outline-none placeholder:text-[#686d74] focus:border-[#5e9eff]"
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
@@ -4407,76 +4404,76 @@ function ProvidersManagementDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
-      <Button aria-label="Close providers" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
-      <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-lg grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
-        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
-          <ProviderMark icon={providers[0]?.icon ?? "codex"} className="size-4 shrink-0 text-primary" />
-          <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">Providers</h1>
-          <Button
+      <button aria-label="Close providers" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-lg grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-[#35383d] bg-[#171818] shadow-2xl">
+        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-[#25272a] px-3">
+          <ProviderMark icon={providers[0]?.icon ?? "codex"} className="size-4 shrink-0 text-[#9bbcff]" />
+          <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#ededed]">Providers</h1>
+          <button
             aria-label="Add provider account"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             title="Add"
             type="button"
             onClick={() => setPickerOpen(true)}
           >
             <Plus className="size-4" />
-          </Button>
-          <Button
+          </button>
+          <button
             aria-label="Refresh providers"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             title="Refresh"
             type="button"
             onClick={() => void loadProviderData()}
           >
             <RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
-          </Button>
-          <Button
+          </button>
+          <button
             aria-label="Close providers"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             type="button"
             onClick={onClose}
           >
             <X className="size-4" />
-          </Button>
+          </button>
         </header>
 
         <div className="min-h-0 overflow-auto p-3 ide-scrollbar">
           {loadError ? (
-            <div className="mb-2 rounded-md border border-destructive/50 bg-muted px-3 py-2 text-[12px] text-destructive">
+            <div className="mb-2 rounded-md border border-[#5a3030] bg-[#241817] px-3 py-2 text-[12px] text-[#ff9f9f]">
               {loadError}
             </div>
           ) : null}
 
           {isLoading ? (
-            <div className="grid h-full min-h-44 place-items-center text-[13px] text-muted-foreground">Loading</div>
+            <div className="grid h-full min-h-44 place-items-center text-[13px] text-[#858585]">Loading</div>
           ) : accounts.length ? (
             <div className="space-y-1.5">
               {accounts.map((account) => {
                 const provider = providers.find((entry) => entry.id === account.providerId)
                 const quota = formatProviderQuota(accountLimits[account.id])
                 return (
-                  <Button
-                    className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-muted"
+                  <button
+                    className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-[#252729]"
                     key={account.id}
                     type="button"
                     onClick={() => setAccountDialogId(account.id)}
                   >
                     <ProviderGlyph icon={provider?.icon ?? "bot"} />
                     <span className="min-w-0">
-                      <span className="block truncate text-[13px] font-medium text-foreground">{account.displayName}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
+                      <span className="block truncate text-[13px] font-medium text-[#dcdcdc]">{account.displayName}</span>
+                      <span className="block truncate text-[11px] text-[#858585]">
                         {provider?.label ?? account.providerId}
                         {quota ? ` · ${quota}` : ""}
                       </span>
                     </span>
                     <ProviderStatusBadge status={account.status} />
-                    <Wrench className="size-4 text-muted-foreground" />
-                  </Button>
+                    <Wrench className="size-4 text-[#8f8f8f]" />
+                  </button>
                 )
               })}
             </div>
           ) : (
-            <div className="grid h-full min-h-44 place-items-center text-[13px] text-muted-foreground">No accounts</div>
+            <div className="grid h-full min-h-44 place-items-center text-[13px] text-[#858585]">No accounts</div>
           )}
         </div>
       </section>
@@ -4516,34 +4513,34 @@ function ProviderPickerDialog({
 
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
-      <Button aria-label="Close provider picker" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
-      <section className="relative w-full max-w-sm overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
-        <header className="flex h-11 items-center gap-2 border-b border-border px-3">
-          <Plus className="size-4 text-primary" />
-          <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">Add provider</h2>
-          <Button
+      <button aria-label="Close provider picker" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative w-full max-w-sm overflow-hidden rounded-lg border border-[#35383d] bg-[#171818] shadow-2xl">
+        <header className="flex h-11 items-center gap-2 border-b border-[#25272a] px-3">
+          <Plus className="size-4 text-[#9bbcff]" />
+          <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#ededed]">Add provider</h2>
+          <button
             aria-label="Close provider picker"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             type="button"
             onClick={onClose}
           >
             <X className="size-4" />
-          </Button>
+          </button>
         </header>
         <div className="p-2">
           {providers.map((provider) => (
-            <Button
-              className="flex h-12 w-full min-w-0 items-center gap-3 rounded-md px-2 text-left hover:bg-muted"
+            <button
+              className="flex h-12 w-full min-w-0 items-center gap-3 rounded-md px-2 text-left hover:bg-[#252729]"
               key={provider.id}
               type="button"
               onClick={() => onSelect(provider.id)}
             >
               <ProviderGlyph icon={provider.icon} />
               <span className="min-w-0">
-                <span className="block truncate text-[13px] font-medium text-foreground">{provider.label}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{provider.id}</span>
+                <span className="block truncate text-[13px] font-medium text-[#dcdcdc]">{provider.label}</span>
+                <span className="block truncate text-[11px] text-[#858585]">{provider.id}</span>
               </span>
-            </Button>
+            </button>
           ))}
         </div>
       </section>
@@ -4574,8 +4571,8 @@ function ProviderAccountDialog({
 
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
-      <Button aria-label="Close provider account" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
-      <section className="relative grid max-h-[84vh] w-full max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+      <button aria-label="Close provider account" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative grid max-h-[84vh] w-full max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-[#35383d] bg-[#171818] shadow-2xl">
         <ProviderAccountDialogHeader account={account} provider={provider} onClose={onClose} />
         <ProviderAccountDialogBody account={account} dialog={dialog} provider={provider} />
         <ProviderAccountDialogFooter connected={dialog.connected} deleting={dialog.deleting} saving={dialog.saving} onClose={onClose} onDelete={dialog.deleteProviderAccount} onSave={dialog.saveConfig} />
@@ -4854,18 +4851,18 @@ function ProviderAccountDialogHeader({
   onClose: () => void
 }) {
   return (
-    <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
+    <header className="flex h-11 min-w-0 items-center gap-2 border-b border-[#25272a] px-3">
       <ProviderGlyph icon={provider.icon} />
-      <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{provider.label}</h2>
+      <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#ededed]">{provider.label}</h2>
       <ProviderStatusBadge status={account.status} />
-      <Button
+      <button
         aria-label="Close provider account"
-        className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
         type="button"
         onClick={onClose}
       >
         <X className="size-4" />
-      </Button>
+      </button>
     </header>
   )
 }
@@ -4904,8 +4901,8 @@ function ProviderAccountNotice({ notice }: { notice: ProviderAccountDialogState[
       className={cn(
         "mb-3 rounded-md border px-3 py-2 text-[12px]",
         notice.kind === "error"
-          ? "border-destructive/50 bg-muted text-destructive"
-          : "border-border bg-muted text-primary",
+          ? "border-[#5a3030] bg-[#241817] text-[#ff9f9f]"
+          : "border-[#30383f] bg-[#1b2228] text-[#a9c7e8]",
       )}
     >
       {notice.text}
@@ -4917,9 +4914,9 @@ function ProviderAccountNameAuth({ dialog }: { dialog: ProviderAccountDialogStat
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
       <label className="block">
-        <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Name</span>
-        <Input
-          className="h-8 w-full rounded-md border border-border bg-background px-2 text-[13px] text-foreground outline-none focus:border-ring"
+        <span className="mb-1 block text-[11px] font-medium text-[#8f8f8f]">Name</span>
+        <input
+          className="h-8 w-full rounded-md border border-[#33363a] bg-[#111213] px-2 text-[13px] text-[#d6d6d6] outline-none focus:border-[#5e9eff]"
           value={dialog.displayName}
           onChange={(event) => dialog.setDisplayName(event.target.value)}
         />
@@ -4932,8 +4929,8 @@ function ProviderAccountNameAuth({ dialog }: { dialog: ProviderAccountDialogStat
 function ProviderAccountAuthMenu({ dialog }: { dialog: ProviderAccountDialogState }) {
   return (
     <div className="relative">
-      <Button
-        className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[12px] font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-55"
+      <button
+        className="flex h-8 items-center gap-1.5 rounded-md border border-[#363a40] px-2.5 text-[12px] font-medium text-[#dcdcdc] hover:bg-[#252729] disabled:cursor-not-allowed disabled:opacity-55"
         disabled={dialog.authenticating}
         type="button"
         onClick={() => dialog.setAuthMenuOpen((open) => !open)}
@@ -4942,8 +4939,8 @@ function ProviderAccountAuthMenu({ dialog }: { dialog: ProviderAccountDialogStat
         <span className="whitespace-nowrap">
           {dialog.connected ? "Re-authenticate" : dialog.authenticating ? "Authenticating" : "Authenticate"}
         </span>
-        <ChevronDown className="size-3.5 text-muted-foreground" />
-      </Button>
+        <ChevronDown className="size-3.5 text-[#8f8f8f]" />
+      </button>
       {dialog.authMenuOpen ? <ProviderAccountAuthOptions dialog={dialog} /> : null}
     </div>
   )
@@ -4951,23 +4948,23 @@ function ProviderAccountAuthMenu({ dialog }: { dialog: ProviderAccountDialogStat
 
 function ProviderAccountAuthOptions({ dialog }: { dialog: ProviderAccountDialogState }) {
   return (
-    <div className="absolute right-0 top-9 z-10 w-40 overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl">
-      <Button
-        className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-foreground hover:bg-muted"
+    <div className="absolute right-0 top-9 z-10 w-40 overflow-hidden rounded-md border border-[#34363a] bg-[#1b1c1e] py-1 shadow-xl">
+      <button
+        className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-[#dcdcdc] hover:bg-[#252729]"
         type="button"
         onClick={() => void dialog.authenticate("browser")}
       >
-        <ExternalLink className="size-3.5 text-primary" />
+        <ExternalLink className="size-3.5 text-[#9bbcff]" />
         Browser
-      </Button>
-      <Button
-        className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-foreground hover:bg-muted"
+      </button>
+      <button
+        className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-[#dcdcdc] hover:bg-[#252729]"
         type="button"
         onClick={() => void dialog.authenticate("local")}
       >
-        <HardDrive className="size-3.5 text-primary" />
+        <HardDrive className="size-3.5 text-[#9bbcff]" />
         Local account
-      </Button>
+      </button>
     </div>
   )
 }
@@ -4975,22 +4972,22 @@ function ProviderAccountAuthOptions({ dialog }: { dialog: ProviderAccountDialogS
 function ProviderPersonalityField({ dialog }: { dialog: ProviderAccountDialogState }) {
   return (
     <div>
-      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Personality</span>
-      <div className="inline-flex rounded-md border border-border bg-background p-0.5">
+      <span className="mb-1 block text-[11px] font-medium text-[#8f8f8f]">Personality</span>
+      <div className="inline-flex rounded-md border border-[#33363a] bg-[#111213] p-0.5">
         {(["pragmatic", "friendly"] as const).map((option) => (
-          <Button
+          <button
             className={cn(
               "h-7 rounded px-2.5 text-[12px] font-medium",
               dialog.personality === option
-                ? "bg-primary/20 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                ? "bg-[#2b3b50] text-[#dbeafe]"
+                : "text-[#a7a7a7] hover:bg-[#252729] hover:text-[#d6d6d6]",
             )}
             key={option}
             type="button"
             onClick={() => dialog.setPersonality(option)}
           >
             {option === "pragmatic" ? "Pragmatic" : "Friendly"}
-          </Button>
+          </button>
         ))}
       </div>
     </div>
@@ -5000,9 +4997,9 @@ function ProviderPersonalityField({ dialog }: { dialog: ProviderAccountDialogSta
 function ProviderCodexHomeField({ dialog }: { dialog: ProviderAccountDialogState }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Codex home</span>
-      <Input
-        className="h-8 w-full rounded-md border border-border bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-ring disabled:opacity-65"
+      <span className="mb-1 block text-[11px] font-medium text-[#8f8f8f]">Codex home</span>
+      <input
+        className="h-8 w-full rounded-md border border-[#33363a] bg-[#111213] px-2 font-mono text-[12px] text-[#d6d6d6] outline-none focus:border-[#5e9eff] disabled:opacity-65"
         disabled={dialog.usingSharedCodexHome}
         value={dialog.codexHome}
         onChange={(event) => dialog.setCodexHome(event.target.value)}
@@ -5026,22 +5023,22 @@ function ProviderRuntimeDefaultsField({ dialog }: { dialog: ProviderAccountDialo
 
   return (
     <div className="grid gap-2">
-      <span className="block text-[11px] font-medium text-muted-foreground">Defaults</span>
+      <span className="block text-[11px] font-medium text-[#8f8f8f]">Defaults</span>
       <div className="grid gap-2 sm:grid-cols-3">
         {dialog.hasDefaultModelField ? (
           <label className="block min-w-0">
-            <span className="mb-1 block text-[11px] text-muted-foreground">Model</span>
+            <span className="mb-1 block text-[11px] text-[#777]">Model</span>
             <Select className="w-full min-w-0" value={dialog.defaultModel || (dialog.selectedDefaultModelOption?.model ?? "")} onValueChange={dialog.setDefaultModel}>
-              <SelectTrigger aria-label="Default model" className="h-8 w-full border-border bg-background px-2 text-[12px] text-foreground shadow-none hover:bg-card">
+              <SelectTrigger aria-label="Default model" className="h-8 w-full border-[#33363a] bg-[#111213] px-2 text-[12px] text-[#d6d6d6] shadow-none hover:bg-[#181a1b]">
                 <span className="min-w-0 truncate">
                   {hasExactDefaultModel || !dialog.defaultModel
                     ? dialog.selectedDefaultModelOption?.displayName ?? dialog.defaultModel
                     : dialog.defaultModel}
                 </span>
               </SelectTrigger>
-              <SelectContent align="start" className="max-h-72 border-border bg-muted text-foreground">
+              <SelectContent align="start" className="max-h-72 border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                 {modelOptions.map((option) => (
-                  <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={option.id} value={option.model}>
+                  <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={option.id} value={option.model}>
                     {option.displayName}
                   </SelectItem>
                 ))}
@@ -5051,14 +5048,14 @@ function ProviderRuntimeDefaultsField({ dialog }: { dialog: ProviderAccountDialo
         ) : null}
         {dialog.hasDefaultReasoningField ? (
           <label className="block min-w-0">
-            <span className="mb-1 block text-[11px] text-muted-foreground">Reasoning</span>
+            <span className="mb-1 block text-[11px] text-[#777]">Reasoning</span>
             <Select className="w-full min-w-0" value={dialog.defaultReasoningEffort} onValueChange={(value) => dialog.setDefaultReasoningEffort(readComposerReasoningEffort(value))}>
-              <SelectTrigger aria-label="Default reasoning" className="h-8 w-full border-border bg-background px-2 text-[12px] text-foreground shadow-none hover:bg-card">
+              <SelectTrigger aria-label="Default reasoning" className="h-8 w-full border-[#33363a] bg-[#111213] px-2 text-[12px] text-[#d6d6d6] shadow-none hover:bg-[#181a1b]">
                 <span className="min-w-0 truncate">{composerReasoningEffortLabel(dialog.defaultReasoningEffort)}</span>
               </SelectTrigger>
-              <SelectContent align="start" className="border-border bg-muted text-foreground">
+              <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                 {composerReasoningEffortOptions.map((option) => (
-                  <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={option.value} value={option.value}>
+                  <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
                 ))}
@@ -5068,17 +5065,17 @@ function ProviderRuntimeDefaultsField({ dialog }: { dialog: ProviderAccountDialo
         ) : null}
         {dialog.hasDefaultServiceTierField ? (
           <label className="block min-w-0">
-            <span className="mb-1 block text-[11px] text-muted-foreground">Speed</span>
+            <span className="mb-1 block text-[11px] text-[#777]">Speed</span>
             <Select className="w-full min-w-0" value={dialog.defaultServiceTier} onValueChange={(value) => dialog.setDefaultServiceTier(readComposerServiceTier(value))}>
-              <SelectTrigger aria-label="Default speed" className="h-8 w-full border-border bg-background px-2 text-[12px] text-foreground shadow-none hover:bg-card">
+              <SelectTrigger aria-label="Default speed" className="h-8 w-full border-[#33363a] bg-[#111213] px-2 text-[12px] text-[#d6d6d6] shadow-none hover:bg-[#181a1b]">
                 <span className="min-w-0 truncate">{composerServiceTierLabel(dialog.defaultServiceTier)}</span>
               </SelectTrigger>
-              <SelectContent align="start" className="border-border bg-muted text-foreground">
+              <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
                 {composerServiceTierOptions.map((option) => (
-                  <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={option.value} value={option.value}>
+                  <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" key={option.value} value={option.value}>
                     <span className="grid min-w-0">
                       <span className="truncate">{option.label}</span>
-                      <span className="truncate text-[11px] font-normal text-muted-foreground">{option.description}</span>
+                      <span className="truncate text-[11px] font-normal text-[#8f8f8f]">{option.description}</span>
                     </span>
                   </SelectItem>
                 ))}
@@ -5095,18 +5092,18 @@ function ProviderConfigEditors({ dialog }: { dialog: ProviderAccountDialogState 
   return (
     <div className="grid gap-3">
       <label className="block">
-        <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Settings</span>
-        <Textarea
-          className="h-28 w-full resize-none rounded-md border border-border bg-background px-2 py-2 font-mono text-[12px] text-foreground outline-none focus:border-ring"
+        <span className="mb-1 block text-[11px] font-medium text-[#8f8f8f]">Settings</span>
+        <textarea
+          className="h-28 w-full resize-none rounded-md border border-[#33363a] bg-[#111213] px-2 py-2 font-mono text-[12px] text-[#d6d6d6] outline-none focus:border-[#5e9eff]"
           spellCheck={false}
           value={dialog.settingsJson}
           onChange={(event) => dialog.setSettingsJson(event.target.value)}
         />
       </label>
       <label className="block">
-        <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Runtime defaults</span>
-        <Textarea
-          className="h-28 w-full resize-none rounded-md border border-border bg-background px-2 py-2 font-mono text-[12px] text-foreground outline-none focus:border-ring"
+        <span className="mb-1 block text-[11px] font-medium text-[#8f8f8f]">Runtime defaults</span>
+        <textarea
+          className="h-28 w-full resize-none rounded-md border border-[#33363a] bg-[#111213] px-2 py-2 font-mono text-[12px] text-[#d6d6d6] outline-none focus:border-[#5e9eff]"
           spellCheck={false}
           value={dialog.runtimeDefaultsJson}
           onChange={(event) => dialog.setRuntimeDefaultsJson(event.target.value)}
@@ -5132,31 +5129,31 @@ function ProviderAccountDialogFooter({
   onSave: () => Promise<void>
 }) {
   return (
-    <footer className="flex h-11 items-center justify-between gap-2 border-t border-border px-3">
-      <Button
-        className="h-8 rounded-md border border-destructive/50 px-3 text-[12px] font-medium text-destructive hover:bg-muted disabled:cursor-not-allowed disabled:opacity-55"
+    <footer className="flex h-11 items-center justify-between gap-2 border-t border-[#25272a] px-3">
+      <button
+        className="h-8 rounded-md border border-[#5a3030] px-3 text-[12px] font-medium text-[#ff9f9f] hover:bg-[#241817] disabled:cursor-not-allowed disabled:opacity-55"
         disabled={deleting}
         type="button"
         onClick={() => void onDelete()}
       >
         {deleting ? "Deleting" : "Delete"}
-      </Button>
+      </button>
       <div className="flex items-center justify-end gap-2">
-        <Button
-          className="h-8 rounded-md border border-border px-3 text-[12px] font-medium text-foreground hover:bg-muted"
+        <button
+          className="h-8 rounded-md border border-[#34363a] px-3 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#252729]"
           type="button"
           onClick={onClose}
         >
           Close
-        </Button>
-        <Button
-          className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        </button>
+        <button
+          className="h-8 rounded-md bg-[#5e9eff] px-3 text-[12px] font-semibold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-45"
           disabled={!connected || saving}
           type="button"
           onClick={() => void onSave()}
         >
           {saving ? "Saving" : "Save"}
-        </Button>
+        </button>
       </div>
     </footer>
   )
@@ -5193,8 +5190,8 @@ function FileEditorPane({
   onToggleMode: () => void
 }) {
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex h-10 min-w-0 items-stretch border-b border-border bg-card text-[12px] font-medium text-muted-foreground">
+    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-[#2a2c2f] bg-[#171818]">
+      <div className="flex h-10 min-w-0 items-stretch border-b border-[#25272a] bg-[#151616] text-[12px] font-medium text-[#9f9f9f]">
         <div className="flex min-w-0 flex-1 overflow-x-auto ide-scrollbar">
           {openFiles.map((openFile) => {
             const active = openFile.id === file.id
@@ -5203,37 +5200,37 @@ function FileEditorPane({
             return (
               <div
                 className={cn(
-                  "group relative flex h-full min-w-32 max-w-48 shrink-0 items-center border-l border-border",
-                  active ? "bg-muted text-foreground" : "bg-card text-muted-foreground hover:bg-muted",
+                  "group relative flex h-full min-w-32 max-w-48 shrink-0 items-center border-l border-[#25272a]",
+                  active ? "bg-[#202223] text-[#f0f0f0]" : "bg-[#151616] text-[#9f9f9f] hover:bg-[#1d1f20]",
                 )}
                 key={openFile.id}
                 title={path}
               >
-                {active ? <span className="absolute inset-x-0 top-0 h-0.5 bg-primary" /> : null}
-                <Button
+                {active ? <span className="absolute inset-x-0 top-0 h-0.5 bg-[#5e9eff]" /> : null}
+                <button
                   className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-left"
                   type="button"
                   onClick={() => onFileSelect(openFile.id)}
                 >
                   <FileGlyph icon={openFile.icon} />
                   <span className="min-w-0 truncate">{openFile.name}</span>
-                </Button>
-                <Button
+                </button>
+                <button
                   aria-label={`Close ${openFile.name}`}
                   className={cn(
-                    "mr-1 grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-accent hover:text-white",
+                    "mr-1 grid size-5 shrink-0 place-items-center rounded-sm text-[#9f9f9f] hover:bg-[#303236] hover:text-white",
                     active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                   )}
                   type="button"
                   onClick={() => onFileClose(openFile.id)}
                 >
                   <X className="size-3" />
-                </Button>
+                </button>
               </div>
             )
           })}
         </div>
-        <div className="flex shrink-0 items-center gap-1 border-l border-border px-2">
+        <div className="flex shrink-0 items-center gap-1 border-l border-[#25272a] px-2">
           <ModeToggleButton mode="editor" onClick={onToggleMode} />
         </div>
       </div>
@@ -5247,15 +5244,15 @@ function FileEditorPane({
         onOpenLocation={onOpenLocation}
         onContentChange={onContentChange}
         footerAction={
-          <Button
+          <button
             aria-label="Open current file in dialog"
-            className="grid size-6 place-items-center rounded-md text-foreground hover:bg-muted hover:text-white"
+            className="grid size-6 place-items-center rounded-md text-[#bdbdbd] hover:bg-[#27292c] hover:text-white"
             title="Open current file in dialog"
             type="button"
             onClick={onOpenDialog}
           >
             <PictureInPicture2 className="size-3.5" />
-          </Button>
+          </button>
         }
       />
     </section>
@@ -5289,18 +5286,18 @@ function FileDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-6" role="dialog" aria-modal="true">
-      <div className="grid h-[72vh] w-full max-w-4xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
-        <div className="flex h-11 min-w-0 items-center gap-2 px-3 text-[12px] font-medium text-muted-foreground">
+      <div className="grid h-[72vh] w-full max-w-4xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-[#35383d] bg-[#171818] shadow-2xl">
+        <div className="flex h-11 min-w-0 items-center gap-2 px-3 text-[12px] font-medium text-[#9f9f9f]">
           <FileGlyph icon={file.icon} />
-          <span className="min-w-0 truncate text-foreground">{path}</span>
-          <Button
+          <span className="min-w-0 truncate text-[#dfdfdf]">{path}</span>
+          <button
             aria-label="Close file dialog"
-            className="ml-auto grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-white"
+            className="ml-auto grid size-7 place-items-center rounded-md text-[#a7a7a7] hover:bg-[#27292c] hover:text-white"
             type="button"
             onClick={onClose}
           >
             <X className="size-4" />
-          </Button>
+          </button>
         </div>
         <FileViewer
           content={content}
@@ -5312,15 +5309,15 @@ function FileDialog({
           onOpenLocation={onOpenLocation}
           onContentChange={onContentChange}
           footerAction={
-            <Button
+            <button
               aria-label="Collapse file to main editor"
-              className="grid size-6 place-items-center rounded-md text-foreground hover:bg-muted hover:text-white"
+              className="grid size-6 place-items-center rounded-md text-[#bdbdbd] hover:bg-[#27292c] hover:text-white"
               title="Collapse to main editor"
               type="button"
               onClick={onOpenInMain}
             >
               <Dock className="size-3.5" />
-            </Button>
+            </button>
           }
         />
       </div>
@@ -5446,7 +5443,7 @@ function FileViewer({
   ])
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] bg-card">
+    <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] bg-[#171818]">
       <div className="min-h-0 overflow-hidden">
         <Editor
           height="100%"
@@ -5499,11 +5496,11 @@ function FileViewer({
           }}
         />
       </div>
-      <div className="flex h-8 items-center gap-2 border-t border-border px-3 text-[11px] font-medium text-muted-foreground">
+      <div className="flex h-8 items-center gap-2 border-t border-[#25272a] px-3 text-[11px] font-medium text-[#858585]">
         <span>{language}</span>
-        <span className="h-3 w-px bg-accent" />
+        <span className="h-3 w-px bg-[#33363a]" />
         <span>{lines.length} lines</span>
-        <span className="h-3 w-px bg-accent" />
+        <span className="h-3 w-px bg-[#33363a]" />
         <LspFooterToggle
           diagnostics={diagnosticCounts}
           enabled={lspEnabled}
@@ -5551,10 +5548,10 @@ function LspFooterToggle({
   const label = enabled ? lspFooterLabel(status, stale, diagnostics) : server ? "LSP off" : "LSP unavailable"
 
   return (
-    <Button
+    <button
       aria-checked={enabled}
       aria-label="Toggle LSP"
-      className="flex h-6 items-center gap-1.5 rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-55"
+      className="flex h-6 items-center gap-1.5 rounded px-1 text-[11px] font-medium text-[#9a9a9a] hover:bg-[#252729] hover:text-[#d6d6d6] disabled:cursor-not-allowed disabled:opacity-55"
       disabled={disabled}
       role="switch"
       title={enabled ? lspStatusTitle(status, server) : lspEnableTitle(server)}
@@ -5564,18 +5561,18 @@ function LspFooterToggle({
       <span
         className={cn(
           "relative h-3.5 w-6 rounded-full border transition-colors",
-          enabled ? "border-ring bg-primary/20" : "border-border bg-card",
+          enabled ? "border-[#4d8fd9] bg-[#1e4f82]" : "border-[#3a3d42] bg-[#1b1c1f]",
         )}
       >
         <span
           className={cn(
             "absolute top-1/2 size-2.5 -translate-y-1/2 rounded-full transition-transform",
-            enabled ? "translate-x-3 bg-primary" : "translate-x-0.5 bg-accent",
+            enabled ? "translate-x-3 bg-[#b9d8ff]" : "translate-x-0.5 bg-[#777d86]",
           )}
         />
       </span>
       <span>{label}</span>
-    </Button>
+    </button>
   )
 }
 
@@ -5742,25 +5739,25 @@ function RightPanel({
   const gitPanel = useGitPanelState(workspace.path)
 
   return (
-    <aside className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-card">
+    <aside className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-[#2a2c2f] bg-[#171818]">
       <div className="flex h-10 items-center gap-3 px-3">
         <div className="flex gap-1 text-[12px] font-semibold">
-          <Button
-            className={cn("rounded-md px-1.5 py-0.5", activeTab === "files" ? "bg-accent text-foreground" : "text-muted-foreground")}
+          <button
+            className={cn("rounded-md px-1.5 py-0.5", activeTab === "files" ? "bg-[#303236] text-[#d5d5d5]" : "text-[#8c8c8c]")}
             type="button"
             onClick={() => onTabChange("files")}
           >
             Files
-          </Button>
-          <Button
-            className={cn("rounded-md px-1.5 py-0.5", activeTab === "git" ? "bg-accent text-foreground" : "text-muted-foreground")}
+          </button>
+          <button
+            className={cn("rounded-md px-1.5 py-0.5", activeTab === "git" ? "bg-[#303236] text-[#d5d5d5]" : "text-[#8c8c8c]")}
             type="button"
             onClick={() => onTabChange("git")}
           >
             Git
-          </Button>
+          </button>
         </div>
-        <div className="ml-auto flex items-center gap-1 text-muted-foreground">
+        <div className="ml-auto flex items-center gap-1 text-[#8c8c8c]">
           {activeTab === "files" ? (
             <>
               <PanelActionButton label="Refresh files">
@@ -5831,16 +5828,16 @@ function PanelActionButton({
   onClick?: () => void
 }) {
   return (
-    <Button
+    <button
       aria-label={label}
-      className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+      className="grid size-7 shrink-0 place-items-center rounded-md text-[#9a9a9a] hover:bg-[#252729] hover:text-[#e6e6e6] disabled:cursor-not-allowed disabled:opacity-40"
       disabled={disabled}
       title={label}
       type="button"
       onClick={onClick}
     >
       {children}
-    </Button>
+    </button>
   )
 }
 
@@ -5965,8 +5962,8 @@ function FileTreeView({
             aria-level={item.level}
             aria-selected={selected}
             className={cn(
-              "flex h-[26px] w-full min-w-0 cursor-default items-center gap-1.5 rounded-sm px-2 text-left text-[13px] font-medium text-foreground outline-none hover:bg-accent focus-visible:bg-accent",
-              selected && "bg-accent text-white hover:bg-accent focus-visible:bg-accent",
+              "flex h-[26px] w-full min-w-0 cursor-default items-center gap-1.5 rounded-sm px-2 text-left text-[13px] font-medium text-[#c8c8c8] outline-none hover:bg-[#2a2d2e] focus-visible:bg-[#2a2d2e]",
+              selected && "bg-[#333333] text-white hover:bg-[#333333] focus-visible:bg-[#333333]",
             )}
             id={treeItemElementId(treeId, node.id)}
             key={node.id}
@@ -5980,11 +5977,11 @@ function FileTreeView({
           >
             {node.type === "folder" ? (
               loading ? (
-                <LoaderCircle className="size-4 shrink-0 animate-spin text-primary" />
+                <LoaderCircle className="size-4 shrink-0 animate-spin text-[#5e9eff]" />
               ) : hasChildren && expanded ? (
-                <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                <ChevronDown className="size-4 shrink-0 text-[#a3a3a3]" />
               ) : (
-                <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground", !hasChildren && "opacity-35")} />
+                <ChevronRight className={cn("size-4 shrink-0 text-[#a3a3a3]", !hasChildren && "opacity-35")} />
               )
             ) : (
               <FileGlyph icon={node.icon} />
@@ -5999,13 +5996,13 @@ function FileTreeView({
 
 function FileGlyph({ icon }: { icon?: FileNode["icon"] }) {
   const className = "size-4 shrink-0"
-  if (icon === "shell") return <span className="w-4 shrink-0 text-center text-sm font-bold text-primary">$</span>
-  if (icon === "js") return <span className="w-4 shrink-0 text-center text-[11px] font-bold text-destructive">JS</span>
-  if (icon === "json") return <span className="w-4 shrink-0 text-center text-sm font-bold text-destructive">{"{}"}</span>
-  if (icon === "make") return <span className="w-4 shrink-0 text-center text-sm font-bold text-destructive">M</span>
-  if (icon === "docker") return <HardDrive className={cn(className, "text-primary")} />
-  if (icon === "info") return <span className="w-4 shrink-0 text-center text-sm text-primary">i</span>
-  return <FileText className={cn(className, "text-muted-foreground")} />
+  if (icon === "shell") return <span className="w-4 shrink-0 text-center text-sm font-bold text-[#b5d94c]">$</span>
+  if (icon === "js") return <span className="w-4 shrink-0 text-center text-[11px] font-bold text-[#d7df47]">JS</span>
+  if (icon === "json") return <span className="w-4 shrink-0 text-center text-sm font-bold text-[#d7df47]">{"{}"}</span>
+  if (icon === "make") return <span className="w-4 shrink-0 text-center text-sm font-bold text-[#f28b36]">M</span>
+  if (icon === "docker") return <HardDrive className={cn(className, "text-[#6f8790]")} />
+  if (icon === "info") return <span className="w-4 shrink-0 text-center text-sm text-[#4fc1ff]">i</span>
+  return <FileText className={cn(className, "text-[#9a9a9a]")} />
 }
 
 type GitPanelState = ReturnType<typeof useGitPanelState>
@@ -6077,7 +6074,7 @@ function GitPanelSummary({ gitPanel, workspace }: { gitPanel: GitPanelState; wor
 
   if (!status) {
     return (
-      <div className="grid h-40 place-items-center text-[12px] text-muted-foreground">
+      <div className="grid h-40 place-items-center text-[12px] text-[#858585]">
         Loading source control
       </div>
     )
@@ -6085,41 +6082,41 @@ function GitPanelSummary({ gitPanel, workspace }: { gitPanel: GitPanelState; wor
 
   if (!status.isRepository) {
     return (
-      <div className="grid gap-3 px-3 py-4 text-[13px] text-muted-foreground">
-        <div className="flex items-center gap-2 text-foreground">
-          <GitBranch className="size-4 text-muted-foreground" />
+      <div className="grid gap-3 px-3 py-4 text-[13px] text-[#9a9a9a]">
+        <div className="flex items-center gap-2 text-[#d0d0d0]">
+          <GitBranch className="size-4 text-[#9a9a9a]" />
           <span className="min-w-0 truncate">{workspace.name}</span>
         </div>
-        <p className="text-[12px] leading-5 text-muted-foreground">
+        <p className="text-[12px] leading-5 text-[#929292]">
           This workspace is not initialized as a Git repository.
         </p>
-        <Button
-          className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        <button
+          className="h-8 rounded-md bg-[#5e9eff] px-3 text-[12px] font-semibold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-50"
           disabled={gitPanel.isBusy}
           type="button"
           onClick={() => void gitPanel.init()}
         >
           Initialize Repository
-        </Button>
+        </button>
         {gitPanel.notice ? <GitNotice notice={gitPanel.notice} /> : null}
       </div>
     )
   }
 
   return (
-    <div className="grid gap-3 text-[13px] text-foreground">
+    <div className="grid gap-3 text-[13px] text-[#c8c8c8]">
       <div className="grid gap-2 px-1.5">
-        <div className="flex min-w-0 items-center gap-2 px-1.5 text-foreground">
-          <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+        <div className="flex min-w-0 items-center gap-2 px-1.5 text-[#d0d0d0]">
+          <GitBranch className="size-4 shrink-0 text-[#9a9a9a]" />
           <span className="min-w-0 flex-1 truncate">{status.branch || workspace.branch}</span>
           {status.ahead || status.behind ? (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
+            <span className="shrink-0 text-[11px] text-[#858585]">
               {status.ahead ? `↑${status.ahead}` : ""}{status.behind ? ` ↓${status.behind}` : ""}
             </span>
           ) : null}
         </div>
-        <Input
-          className="h-8 rounded-md border border-border bg-background px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+        <input
+          className="h-8 rounded-md border border-[#303236] bg-[#111213] px-2 text-[12px] text-[#d6d6d6] outline-none placeholder:text-[#696969] focus:border-[#5e9eff]"
           placeholder="Message (Ctrl+Enter to commit)"
           value={commitMessage}
           onChange={(event) => setCommitMessage(event.target.value)}
@@ -6129,15 +6126,15 @@ function GitPanelSummary({ gitPanel, workspace }: { gitPanel: GitPanelState; wor
             }
           }}
         />
-        <Button
-          className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+        <button
+          className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-[#2f8fbd] px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
           disabled={!canCommit}
           type="button"
           onClick={() => void gitPanel.commit(commitMessage).then(() => setCommitMessage(""))}
         >
           <Check className="size-4" />
           Commit
-        </Button>
+        </button>
         {gitPanel.notice ? <GitNotice notice={gitPanel.notice} /> : null}
       </div>
 
@@ -6165,7 +6162,7 @@ function GitPanelSummary({ gitPanel, workspace }: { gitPanel: GitPanelState; wor
           />
         </>
       ) : (
-        <div className="px-3 py-2 text-[12px] text-muted-foreground">No changes</div>
+        <div className="px-3 py-2 text-[12px] text-[#858585]">No changes</div>
       )}
 
       {status.commits.length ? (
@@ -6177,7 +6174,7 @@ function GitPanelSummary({ gitPanel, workspace }: { gitPanel: GitPanelState; wor
 
 function GitNotice({ notice }: { notice: { kind: "error" | "info"; text: string } }) {
   return (
-    <div className={cn("truncate rounded-md px-2 py-1 text-[11px]", notice.kind === "error" ? "bg-destructive/10 text-destructive" : "bg-primary/20 text-primary")} title={notice.text}>
+    <div className={cn("truncate rounded-md px-2 py-1 text-[11px]", notice.kind === "error" ? "bg-[#3b2323] text-[#ffadad]" : "bg-[#1d3226] text-[#8ee8a3]")} title={notice.text}>
       {notice.text}
     </div>
   )
@@ -6208,28 +6205,28 @@ function GitChangeGroup({
 
   return (
     <section>
-      <div className="group flex h-7 min-w-0 items-center gap-1 px-1.5 text-[12px] font-semibold text-foreground">
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+      <div className="group flex h-7 min-w-0 items-center gap-1 px-1.5 text-[12px] font-semibold text-[#d0d0d0]">
+        <ChevronDown className="size-4 shrink-0 text-[#9a9a9a]" />
         <span className="min-w-0 flex-1 truncate">{title}</span>
-        <span className="grid min-w-5 place-items-center rounded-full bg-primary px-1 text-[10px] leading-5 text-white">{count}</span>
-        <Button
+        <span className="grid min-w-5 place-items-center rounded-full bg-[#2f8fbd] px-1 text-[10px] leading-5 text-white">{count}</span>
+        <button
           aria-label={actionLabel}
-          className="grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+          className="grid size-6 place-items-center rounded-md text-[#9a9a9a] opacity-0 hover:bg-[#252729] hover:text-[#e6e6e6] group-hover:opacity-100"
           title={actionLabel}
           type="button"
           onClick={onAction}
         >
           {actionLabel.startsWith("Unstage") ? <Minus className="size-4" /> : <Plus className="size-4" />}
-        </Button>
-        <Button
+        </button>
+        <button
           aria-label={`Discard all ${title.toLowerCase()}`}
-          className="grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-destructive group-hover:opacity-100"
+          className="grid size-6 place-items-center rounded-md text-[#9a9a9a] opacity-0 hover:bg-[#252729] hover:text-[#ffadad] group-hover:opacity-100"
           title={`Discard all ${title.toLowerCase()}`}
           type="button"
           onClick={onDiscardAll}
         >
           <Trash2 className="size-4" />
-        </Button>
+        </button>
       </div>
       <div>
         {changes.map((change) => (
@@ -6256,7 +6253,7 @@ function GitChangeRow({
 }) {
   return (
     <div
-      className="group flex h-[26px] min-w-0 items-center gap-2 rounded-sm px-2 text-[12px] text-foreground hover:bg-accent"
+      className="group flex h-[26px] min-w-0 items-center gap-2 rounded-sm px-2 text-[12px] text-[#c8c8c8] hover:bg-[#2a2d2e]"
       title={change.originalPath ? `${change.originalPath} -> ${change.path}` : change.path}
     >
       <span className={cn("w-4 shrink-0 text-center font-mono text-[13px]", gitStatusColor(change.status))}>
@@ -6264,22 +6261,22 @@ function GitChangeRow({
       </span>
       <span className="min-w-0 flex-1 truncate">{change.path}</span>
       <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
-        <Button
+        <button
           aria-label={change.staged ? "Unstage change" : "Stage change"}
-          className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="grid size-5 place-items-center rounded text-[#a8a8a8] hover:bg-[#3a3d42] hover:text-[#e6e6e6]"
           type="button"
           onClick={onToggle}
         >
           {change.staged ? <Minus className="size-3.5" /> : <Plus className="size-3.5" />}
-        </Button>
-        <Button
+        </button>
+        <button
           aria-label="Discard change"
-          className="grid size-5 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+          className="grid size-5 place-items-center rounded text-[#a8a8a8] hover:bg-[#3a3d42] hover:text-[#ffadad]"
           type="button"
           onClick={onDiscard}
         >
           <Trash2 className="size-3.5" />
-        </Button>
+        </button>
       </div>
     </div>
   )
@@ -6287,8 +6284,8 @@ function GitChangeRow({
 
 function GitGraph({ status }: { status: GitStatusResponse }) {
   return (
-    <section className="border-t border-border pt-2">
-      <div className="flex h-7 items-center gap-2 px-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <section className="border-t border-[#25272a] pt-2">
+      <div className="flex h-7 items-center gap-2 px-1.5 text-[12px] font-semibold uppercase tracking-wide text-[#9a9a9a]">
         <ChevronDown className="size-4" />
         <span className="min-w-0 flex-1 truncate">Graph</span>
         <GitBranch className="size-3.5" />
@@ -6298,12 +6295,12 @@ function GitGraph({ status }: { status: GitStatusResponse }) {
         {status.commits.map((commit, index) => (
           <div className="grid h-7 min-w-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-1 px-1.5 text-[12px]" key={`${commit.hash}:${index}`}>
             <span className="relative grid h-full place-items-center">
-              <span className="absolute bottom-0 top-0 left-1/2 w-px -translate-x-1/2 bg-primary" />
-              <span className="relative size-2 rounded-full border border-ring bg-card" />
+              <span className="absolute bottom-0 top-0 left-1/2 w-px -translate-x-1/2 bg-[#2f8fbd]" />
+              <span className="relative size-2 rounded-full border border-[#5e9eff] bg-[#171818]" />
             </span>
-            <span className="min-w-0 truncate text-foreground">
+            <span className="min-w-0 truncate text-[#c8c8c8]">
               {commit.subject}
-              {commit.refs ? <span className="ml-1 text-muted-foreground">{commit.refs}</span> : null}
+              {commit.refs ? <span className="ml-1 text-[#858585]">{commit.refs}</span> : null}
             </span>
           </div>
         ))}
@@ -6428,10 +6425,10 @@ function isoFromLocalDateTimeInput(value: string): string {
 }
 
 function scheduleRunStatusClass(status: MessageScheduleRunStatus): string {
-  if (status === "COMPLETED") return "bg-primary/20 text-primary"
-  if (status === "FAILED" || status === "CANCELLED") return "bg-destructive/10 text-destructive"
-  if (status === "RUNNING") return "bg-primary/20 text-primary"
-  return "bg-accent text-destructive"
+  if (status === "COMPLETED") return "bg-[#14351f] text-[#72d987]"
+  if (status === "FAILED" || status === "CANCELLED") return "bg-[#4a2026] text-[#ff9ca3]"
+  if (status === "RUNNING") return "bg-[#1a3150] text-[#9bc8ff]"
+  return "bg-[#35301b] text-[#e2c766]"
 }
 
 function readMessageScheduleResponse(value: unknown): MessageScheduleResponse | null {
@@ -6466,10 +6463,10 @@ function readMessageScheduleRunStatus(value: unknown): MessageScheduleRunStatus 
 }
 
 function gitStatusColor(status: GitFileChange["status"]) {
-  if (status === "added" || status === "untracked") return "text-primary"
-  if (status === "deleted") return "text-destructive"
-  if (status === "renamed") return "text-primary"
-  return "text-foreground"
+  if (status === "added" || status === "untracked") return "text-[#73c991]"
+  if (status === "deleted") return "text-[#f48771]"
+  if (status === "renamed") return "text-[#4fc1ff]"
+  return "text-[#e2c08d]"
 }
 
 function startColumnResize(

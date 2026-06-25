@@ -5,14 +5,14 @@ import { cn } from "@/lib/utils"
 export function ProviderGlyph({ icon }: { icon: string }) {
   if (icon === "codex") {
     return (
-      <span className="grid size-9 shrink-0 place-items-center rounded-md bg-accent text-primary-foreground">
+      <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#f2f2f0] text-[#111111]">
         <ProviderMark icon={icon} className="size-5" />
       </span>
     )
   }
 
   return (
-    <span className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/20 text-primary">
+    <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#243042] text-[#9bbcff]">
       <Bot className="size-4" />
     </span>
   )
@@ -49,11 +49,11 @@ export function ProviderStatusBadge({ status }: { status: ProviderAccountStatus 
     <span
       className={cn(
         "rounded px-1.5 py-0.5 text-[11px] font-semibold",
-        status === "CONNECTED" && "bg-primary/20 text-primary",
-        status === "AUTHENTICATING" && "bg-accent text-destructive",
-        status === "DISCONNECTED" && "bg-accent text-muted-foreground",
-        status === "INVALIDATED" && "bg-destructive/10 text-destructive",
-        status === "ERROR" && "bg-destructive/10 text-destructive",
+        status === "CONNECTED" && "bg-[#193322] text-[#6fe28d]",
+        status === "AUTHENTICATING" && "bg-[#312a18] text-[#f3c46c]",
+        status === "DISCONNECTED" && "bg-[#282b2f] text-[#a9a9a9]",
+        status === "INVALIDATED" && "bg-[#332719] text-[#ffb86b]",
+        status === "ERROR" && "bg-[#3a1f22] text-[#ff8f8f]",
       )}
     >
       {status.toLowerCase()}

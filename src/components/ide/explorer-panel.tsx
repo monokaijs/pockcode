@@ -7,7 +7,6 @@ import {
   FolderOpen,
 } from "lucide-react"
 import { useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { FileNode, Project } from "@/types/ide"
 
@@ -26,22 +25,22 @@ export function ExplorerPanel({
   const [expanded, setExpanded] = useState(() => new Set(initialExpanded))
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden border-r border-border bg-card text-foreground">
-      <div className="border-b border-border px-3 py-2">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-foreground">
+    <section className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden border-r border-[#2b2b2b] bg-[#181818] text-[#cccccc]">
+      <div className="border-b border-[#2b2b2b] px-3 py-2">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-[#cccccc]">
           Explorer
         </div>
         <div className="mt-1 truncate text-sm font-semibold" title={project.path}>
           {project.name}
         </div>
       </div>
-      <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between border-b border-[#2b2b2b] px-2 py-1.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-[#969696]">
           Files
         </span>
-        <Button className="text-foreground hover:bg-accent" size="xs" variant="ghost">
+        <button className="text-[#cccccc] hover:bg-[#2a2d2e]" size="xs" variant="ghost">
           New File
-        </Button>
+        </button>
       </div>
       <div className="min-h-0 overflow-auto py-1 ide-scrollbar">
         {project.tree.map((node) => (
@@ -95,10 +94,10 @@ function TreeRow({
 
   return (
     <div>
-      <Button
+      <button
         className={cn(
-          "flex h-7 w-full min-w-0 items-center gap-1.5 px-2 text-left text-xs text-foreground hover:bg-accent",
-          active && "bg-accent text-white hover:bg-accent",
+          "flex h-7 w-full min-w-0 items-center gap-1.5 px-2 text-left text-xs text-[#cccccc] hover:bg-[#2a2d2e]",
+          active && "bg-[#37373d] text-white hover:bg-[#37373d]",
         )}
         style={{ paddingLeft: 8 + level * 14 }}
         title={node.path}
@@ -107,23 +106,23 @@ function TreeRow({
       >
         {isFolder ? (
           <ChevronRight
-            className={cn("size-3.5 shrink-0 text-foreground transition-transform", isExpanded && "rotate-90")}
+            className={cn("size-3.5 shrink-0 text-[#cccccc] transition-transform", isExpanded && "rotate-90")}
           />
         ) : (
           <span className="w-3.5 shrink-0" />
         )}
         {isFolder ? (
           isExpanded ? (
-            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+            <FolderOpen className="size-4 shrink-0 text-[#dcb67a]" />
           ) : (
-            <Folder className="size-4 shrink-0 text-muted-foreground" />
+            <Folder className="size-4 shrink-0 text-[#dcb67a]" />
           )
         ) : (
           <FileIcon className={cn("size-4 shrink-0", fileIconColor(node.name))} />
         )}
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
-        {dirty ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}
-      </Button>
+        {dirty ? <span className="size-1.5 shrink-0 rounded-full bg-[#5e6ad2]" /> : null}
+      </button>
       {isFolder && isExpanded
         ? node.children?.map((child) => (
             <TreeRow
@@ -163,16 +162,16 @@ function fileIcon(name: string) {
 
 function fileIconColor(name: string): string {
   if (name.endsWith(".ts") || name.endsWith(".tsx")) {
-    return "text-primary"
+    return "text-[#4fc1ff]"
   }
   if (name.endsWith(".json")) {
-    return "text-destructive"
+    return "text-[#f2c94c]"
   }
   if (name.endsWith(".md")) {
-    return "text-primary"
+    return "text-[#7aa2f7]"
   }
   if (name.endsWith(".css")) {
-    return "text-muted-foreground"
+    return "text-[#c586c0]"
   }
-  return "text-muted-foreground"
+  return "text-[#969696]"
 }

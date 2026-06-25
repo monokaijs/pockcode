@@ -12,7 +12,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 
 export type HostedTerminalStatus = "connecting" | "running" | "exited"
 
@@ -62,17 +61,17 @@ export function SessionTerminalPanel({
     terminals.find((terminal) => terminal.id === activeTerminalId) ?? terminals[0] ?? null
 
   return (
-    <section className="relative grid h-full min-h-0 grid-rows-[4px_36px_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-background">
-      <Button
+    <section className="relative grid h-full min-h-0 grid-rows-[4px_36px_minmax(0,1fr)] overflow-hidden rounded-lg border border-[#2a2c2f] bg-[#111213]">
+      <button
         aria-label="Resize terminal panel"
-        className="group flex cursor-row-resize items-center justify-center bg-background outline-none hover:bg-card focus-visible:bg-card"
+        className="group flex cursor-row-resize items-center justify-center bg-[#111213] outline-none hover:bg-[#17191b] focus-visible:bg-[#17191b]"
         type="button"
         onPointerDown={onResizeStart}
       >
-        <span className="h-px w-14 rounded-full bg-transparent group-hover:bg-accent group-focus-visible:bg-primary" />
-      </Button>
+        <span className="h-px w-14 rounded-full bg-transparent group-hover:bg-[#484c51] group-focus-visible:bg-[#5e9eff]" />
+      </button>
 
-      <header className="flex min-w-0 items-center border-b border-border bg-card px-2">
+      <header className="flex min-w-0 items-center border-b border-[#25272a] bg-[#151617] px-2">
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden pr-2 ide-scrollbar" role="tablist">
           {terminals.length ? (
             terminals.map((terminal) => {
@@ -81,11 +80,11 @@ export function SessionTerminalPanel({
                 <div
                   className={cn(
                     "group flex h-7 min-w-28 max-w-48 shrink-0 items-center rounded-md text-[12px]",
-                    active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted",
+                    active ? "bg-[#202225] text-[#ededed]" : "text-[#a7adb3] hover:bg-[#202225]",
                   )}
                   key={terminal.id}
                 >
-                  <Button
+                  <button
                     aria-selected={active}
                     className="flex h-full min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
                     role="tab"
@@ -93,72 +92,72 @@ export function SessionTerminalPanel({
                     type="button"
                     onClick={() => onActivateTerminal(terminal.id)}
                   >
-                    <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <TerminalIcon className="size-3.5 shrink-0 text-[#9ca3af]" />
                     <span className="min-w-0 flex-1 truncate">{terminalTabLabel(terminal, terminals)}</span>
                     <span
                       className={cn(
                         "size-1.5 shrink-0 rounded-full",
-                        terminal.status === "running" && "bg-primary",
-                        terminal.status === "connecting" && "bg-primary",
-                        terminal.status === "exited" && "bg-accent",
+                        terminal.status === "running" && "bg-[#52c47d]",
+                        terminal.status === "connecting" && "bg-[#8ebeff]",
+                        terminal.status === "exited" && "bg-[#7a7a7a]",
                       )}
                     />
-                  </Button>
-                  <Button
+                  </button>
+                  <button
                     aria-label={`Close ${terminalTabLabel(terminal, terminals)}`}
-                    className="mr-1 grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                    className="mr-1 grid size-5 shrink-0 place-items-center rounded-md text-[#8d9298] opacity-0 hover:bg-[#303236] hover:text-[#d0d0d0] group-hover:opacity-100 focus-visible:opacity-100"
                     type="button"
                     onClick={() => onCloseTerminal(terminal.id)}
                   >
                     <X className="size-3" />
-                  </Button>
+                  </button>
                 </div>
               )
             })
           ) : (
-            <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground" title={workspacePath}>
-              <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-[#8d9298]" title={workspacePath}>
+              <TerminalIcon className="size-3.5 shrink-0 text-[#9ca3af]" />
               <span className="truncate">
                 {connectionState === "connecting" ? "Connecting" : "No terminal"}
               </span>
-              {connectionState === "connecting" ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" /> : null}
+              {connectionState === "connecting" ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[#8ebeff]" /> : null}
             </div>
           )}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <Button
+          <button
             aria-label="New terminal"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             title="New terminal"
             type="button"
             onClick={onCreateTerminal}
           >
             <Plus className="size-4" />
-          </Button>
-          <Button
+          </button>
+          <button
             aria-label="Close terminal"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0] disabled:opacity-40"
             disabled={!activeTerminal}
             title="Close terminal"
             type="button"
             onClick={() => activeTerminal ? onCloseTerminal(activeTerminal.id) : undefined}
           >
             <Trash2 className="size-4" />
-          </Button>
-          <Button
+          </button>
+          <button
             aria-label="Hide terminal panel"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="grid size-7 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
             title="Hide terminal panel"
             type="button"
             onClick={onHide}
           >
             <X className="size-4" />
-          </Button>
+          </button>
         </div>
       </header>
 
-      <div className="min-h-0 min-w-0 overflow-hidden bg-background">
+      <div className="min-h-0 min-w-0 overflow-hidden bg-[#0f1011]">
         {activeTerminal ? (
           <TerminalViewport
             key={activeTerminal.id}
@@ -168,21 +167,21 @@ export function SessionTerminalPanel({
             onResize={(cols, rows) => onResize(activeTerminal.id, cols, rows)}
           />
         ) : (
-          <div className="grid h-full place-items-center p-4 text-center text-[12px] text-muted-foreground">
-            <Button
-              className="inline-flex h-8 items-center gap-2 rounded-md bg-primary px-3 font-semibold text-primary-foreground hover:bg-primary"
+          <div className="grid h-full place-items-center p-4 text-center text-[12px] text-[#858585]">
+            <button
+              className="inline-flex h-8 items-center gap-2 rounded-md bg-[#5e9eff] px-3 font-semibold text-[#07111f] hover:bg-[#83b8ff]"
               type="button"
               onClick={onCreateTerminal}
             >
               <TerminalIcon className="size-4" />
               Start terminal
-            </Button>
+            </button>
           </div>
         )}
       </div>
 
       {error ? (
-        <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-md border border-destructive/50 bg-muted px-3 py-2 text-[12px] text-destructive">
+        <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-md border border-[#5b3030] bg-[#271717] px-3 py-2 text-[12px] text-[#ffb4b4]">
           {error}
         </div>
       ) : null}

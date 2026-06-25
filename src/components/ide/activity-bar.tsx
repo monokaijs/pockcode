@@ -1,7 +1,6 @@
 import { Files, GitBranch } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ActivityId, Project } from "@/types/ide"
-import { Button } from "@/components/ui/button"
 
 type ActivityItem = {
   id: ActivityId
@@ -24,13 +23,13 @@ export function ActivityBar({
   onActivityChange: (activity: ActivityId) => void
 }) {
   return (
-    <aside className="flex h-full w-11 shrink-0 flex-col items-center border-r bg-background py-2">
+    <aside className="flex h-full w-11 shrink-0 flex-col items-center border-r bg-[#0b0c0e] py-2">
       <div className="flex flex-1 flex-col gap-1">
         {activityItems.map((item) => {
           const Icon = item.icon
           const active = item.id === activeActivity
           return (
-            <Button
+            <button
               aria-label={item.label}
               className={cn(
                 "relative grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
@@ -47,7 +46,7 @@ export function ActivityBar({
                   {project.gitChanges.length}
                 </span>
               ) : null}
-            </Button>
+            </button>
           )
         })}
       </div>

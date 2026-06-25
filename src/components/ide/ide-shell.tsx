@@ -11,7 +11,6 @@ import { TerminalPanel } from "@/components/ide/terminal-panel"
 import { findFile, flattenFiles } from "@/lib/ide"
 import { startHorizontalResize, startVerticalResize } from "@/lib/resize"
 import type { ActivityId, AgentMessage, FileNode, Project } from "@/types/ide"
-import { Button } from "@/components/ui/button"
 
 const ACTIVITY_BAR_WIDTH = 44
 const DEFAULT_SIDE_PANEL_WIDTH = 280
@@ -253,7 +252,7 @@ function IdeWorkspaceGrid({ ide }: { ide: IdeShellState }) {
 function IdePanelGrid({ ide }: { ide: IdeShellState }) {
   return (
     <div
-      className="grid min-h-0 min-w-0 overflow-hidden rounded-tl-xl border-l border-t border-border bg-background"
+      className="grid min-h-0 min-w-0 overflow-hidden rounded-tl-xl border-l border-t border-[#2b2b2b] bg-background"
       style={{
         gridTemplateColumns: String(ide.sidePanelWidth) + "px minmax(0, 1fr) " + String(ide.agentPanelWidth) + "px",
         gridTemplateRows: "minmax(0, 1fr) " + String(ide.terminalHeight) + "px",
@@ -284,7 +283,7 @@ function IdeSidePanel({ ide }: { ide: IdeShellState }) {
       ) : (
         <GitPanel key={ide.activeProject.id + ":git"} project={ide.activeProject} />
       )}
-      <Button
+      <button
         aria-label="Resize side panel"
         className="absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize bg-transparent hover:bg-primary/30"
         type="button"
@@ -321,7 +320,7 @@ function IdeAgentPanel({ ide }: { ide: IdeShellState }) {
   }
   return (
     <div className="relative min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "3", gridRow: "1 / 3" }}>
-      <Button
+      <button
         aria-label="Resize AI panel"
         className="absolute -left-1 top-0 z-20 h-full w-2 cursor-col-resize bg-transparent hover:bg-primary/30"
         type="button"
