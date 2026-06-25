@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output
+build/
+dist/
+.react-router/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite / tooling caches
+.vite/
+.vite-temp/
+.cache/
+.tmp/
+
+# Prisma / local databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/*.db
+prisma/*.db-journal
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
