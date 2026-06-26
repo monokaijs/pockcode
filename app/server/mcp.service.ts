@@ -66,21 +66,26 @@ export async function getMcpServer(serverId: string): Promise<McpServerResponse>
 export async function createMcpServer(dto: CreateMcpServerRequest): Promise<McpServerResponse> {
   await ensureDatabase()
   const draft = readMcpServerDraft(dto, { requireTransport: true })
-  if (!draft.name) {
+  const name = draft.name
+  const transport = draft.transport
+  if (!name) {
     throw new HttpError(400, "name is required.")
+  }
+  if (!transport) {
+    throw new HttpError(400, "transport is required.")
   }
   const created = await prisma.mcpServer.create({
     data: {
       adapterSettings: draft.adapterSettings as Prisma.InputJsonObject,
       config: (draft.config ?? {}) as Prisma.InputJsonObject,
-      displayName: draft.displayName,
+      displayName: draft.displayName ?? null,
       enabled: draft.enabled,
-      name: draft.name,
+      name,
       required: draft.required,
       startupTimeoutSec: draft.startupTimeoutSec,
       toolPolicy: draft.toolPolicy as Prisma.InputJsonObject,
       toolTimeoutSec: draft.toolTimeoutSec,
-      transport: draft.transport,
+      transport,
     },
     include: { installations: true },
   }).catch((error: unknown) => {
@@ -414,10 +419,11 @@ function codexConfigForServer(server: McpServer, installation: McpServerInstalla
     entry.disabled_tools = toolPolicy.disabledTools
   }
   if (toolPolicy.tools && Object.keys(toolPolicy.tools).length) {
-    entry.tools = Object.fromEntries(Object.entries(toolPolicy.tools).map(([toolName, override]) => [
-      toolName,
-      override.approvalMode ? { approval_mode: override.approvalMode } : {},
-    ]))
+    const tools: JsonObject = {}
+    for (const [toolName, override] of Object.entries(toolPolicy.tools)) {
+      tools[toolName] = override.approvalMode ? { approval_mode: override.approvalMode } : {}
+    }
+    entry.tools = tools
   }
   return entry
 }
