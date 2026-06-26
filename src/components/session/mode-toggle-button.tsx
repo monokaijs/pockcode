@@ -6,7 +6,7 @@ export function ModeToggleButton({ mode, onClick }: { mode: MainMode; onClick: (
   return (
     <button
       aria-label={editorMode ? "Switch to chat" : "Switch to code"}
-      className="grid size-7 shrink-0 place-items-center rounded-md text-[#a0a0a0] hover:bg-[#252729] hover:text-[#d0d0d0]"
+      className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
       title={editorMode ? "Chat" : "Code"}
       type="button"
       onClick={onClick}

@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>pockcode</title>
+    <script>
+      ;(() => {
+        const storageKey = "pockcode-theme"
+        const fallbackTheme = "dark"
+        const storedTheme = window.localStorage.getItem(storageKey)
+        const theme = storedTheme === "light" || storedTheme === "dark" || storedTheme === "system" ? storedTheme : fallbackTheme
+        const resolvedTheme = theme === "system"
+          ? window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+          : theme
+        document.documentElement.classList.remove("light", "dark")
+        document.documentElement.classList.add(resolvedTheme)
+        document.documentElement.style.colorScheme = resolvedTheme
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

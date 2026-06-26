@@ -1,5 +1,10 @@
 import Editor, { type OnMount } from "@monaco-editor/react"
 import { Circle, FileCode, PanelRightClose, X } from "lucide-react"
+import { useEffect, useState } from "react"
+import { useTheme } from "@/components/theme-provider"
+import { Button } from "@/components/ui/button"
+import type { MonacoApi } from "@/lib/lsp-client"
+import { definePockcodeMonacoTheme, pockcodeMonacoThemeName } from "@/lib/theme-colors"
 import { cn } from "@/lib/utils"
 import type { FileNode, Project } from "@/types/ide"
 
@@ -23,7 +28,20 @@ export function EditorArea({
   onFileContentChange: (fileId: string, value: string) => void
   onFileSelect: (fileId: string) => void
 }) {
-  const handleMount: OnMount = (editor) => {
+  const { resolvedTheme } = useTheme()
+  const [monacoApi, setMonacoApi] = useState<MonacoApi | null>(null)
+  const monacoThemeName = pockcodeMonacoThemeName(resolvedTheme)
+
+  useEffect(() => {
+    if (!monacoApi) {
+      return
+    }
+    monacoApi.editor.setTheme(definePockcodeMonacoTheme(monacoApi, resolvedTheme))
+  }, [monacoApi, resolvedTheme])
+
+  const handleMount: OnMount = (editor, monaco) => {
+    setMonacoApi(monaco)
+    monaco.editor.setTheme(definePockcodeMonacoTheme(monaco, resolvedTheme))
     const position = editor.getPosition()
     if (position) {
       onCursorChange(position.lineNumber, position.column)
@@ -35,7 +53,7 @@ export function EditorArea({
 
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-background">
-      <div className="flex h-9 min-w-0 items-stretch border-b border-[#2b2b2b] bg-[#181818]">
+      <div className="flex h-9 min-w-0 items-stretch border-b border-border bg-card">
         <div className="flex min-w-0 flex-1 overflow-x-auto ide-scrollbar">
           {openFiles.map((file) => {
             const active = file.id === activeFile?.id
@@ -43,12 +61,12 @@ export function EditorArea({
             return (
               <div
                 className={cn(
-                  "group relative flex h-9 min-w-36 max-w-56 shrink-0 items-center border-r border-[#2b2b2b] text-xs",
-                  active ? "bg-background text-foreground" : "bg-[#181818] text-[#969696] hover:bg-[#1f1f1f]",
+                  "group relative flex h-9 min-w-36 max-w-56 shrink-0 items-center border-r border-border text-xs",
+                  active ? "bg-background text-foreground" : "bg-card text-muted-foreground hover:bg-accent/50",
                 )}
                 key={file.id}
               >
-                {active ? <span className="absolute inset-x-0 top-0 h-0.5 bg-[#007acc]" /> : null}
+                {active ? <span className="absolute inset-x-0 top-0 h-0.5 bg-primary" /> : null}
                 <button
                   className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 pt-0.5 text-left"
                   title={file.path}
@@ -74,9 +92,9 @@ export function EditorArea({
             )
           })}
         </div>
-        <button className="mr-1 self-center" size="icon-xs" title="Split editor" variant="ghost">
+        <Button className="mr-1 self-center" size="icon-xs" title="Split editor" variant="ghost">
           <PanelRightClose className="size-3.5" />
-        </button>
+        </Button>
       </div>
 
       <div className="min-h-0 min-w-0">
@@ -101,8 +119,11 @@ export function EditorArea({
               tabSize: 2,
             }}
             path={activeFile.path}
-            theme="vs-dark"
+            theme={monacoThemeName}
             value={activeFileContent}
+            beforeMount={(monaco) => {
+              definePockcodeMonacoTheme(monaco, resolvedTheme)
+            }}
             onChange={(value) => onFileContentChange(activeFile.id, value ?? "")}
             onMount={handleMount}
           />
@@ -118,16 +139,16 @@ export function EditorArea({
 
 function fileIconColor(name: string): string {
   if (name.endsWith(".ts") || name.endsWith(".tsx")) {
-    return "text-[#4fc1ff]"
+    return "text-ide-file-blue"
   }
   if (name.endsWith(".json")) {
-    return "text-[#f2c94c]"
+    return "text-ide-file-yellow"
   }
   if (name.endsWith(".md")) {
-    return "text-[#7aa2f7]"
+    return "text-ide-file-blue"
   }
   if (name.endsWith(".css")) {
-    return "text-[#c586c0]"
+    return "text-ide-file-purple"
   }
   return "text-muted-foreground"
 }

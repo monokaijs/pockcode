@@ -20,6 +20,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react"
+import { MarkdownContent } from "@/components/session/chat-markdown"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, ReactNode } from "react"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
@@ -56,15 +57,12 @@ import {
   groupChatRenderEntries,
   groupFileChanges,
   groupWorkMessages,
-  hashString,
   isOptimisticMessage,
   isPendingUserInputPrompt,
   isRunningPlaceholderMessage,
   isToolMessage,
-  markdownBlockSignature,
   moveItemAround,
   parseFileChangeMessage,
-  parseMarkdownBlocks,
   queuedMessageRunIds,
   readComposerAccessMode,
   readComposerReasoningEffort,
@@ -72,7 +70,6 @@ import {
   readRecordString,
   mergeProviderModelOptions,
   readUserInputQuestions,
-  safeMarkdownHref,
   selectChatAccount,
   selectableChatAccounts,
   serverRequestResponseFor,
@@ -87,7 +84,6 @@ import type {
   ChatComposerReasoningEffort,
   ChatComposerServiceTier,
   ChatComposerSubmit,
-  MarkdownBlock,
   ParsedFileChange,
   UserInputQuestion,
   Workspace,
@@ -142,7 +138,7 @@ export function ChatPane(props: ChatPaneProps) {
   return (
     <ChatPaneStateContext.Provider value={pane}>
       <ChatFileLinkContext.Provider value={pane.fileLinkContext}>
-        <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border border-[#2a2c2f] bg-[#171818]">
+        <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border border-border bg-card">
           <ChatPaneHeader />
           <ChatMessageList />
           <ChatComposer />
@@ -575,8 +571,8 @@ function ChatPaneHeader() {
   const pane = useChatPane()
 
   return (
-    <header className="flex h-10 min-w-0 items-center gap-2 border-b border-[#25272a] px-3">
-      <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#ededed]">
+    <header className="flex h-10 min-w-0 items-center gap-2 border-b border-border px-3">
+      <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
         {pane.chat?.title ?? pane.workspace.name}
       </div>
       {pane.selectableAccounts.length ? <ChatAccountSelect /> : <ChatProvidersButton />}
@@ -590,7 +586,7 @@ function ChatProvidersButton() {
 
   return (
     <button
-      className="h-7 rounded-md border border-[#34363a] px-2 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#252729]"
+      className="h-7 rounded-md border border-border px-2 text-[12px] font-medium text-foreground hover:bg-accent"
       type="button"
       onClick={pane.onOpenProviders}
     >
@@ -605,7 +601,7 @@ function ChatAccountSelect() {
   return (
     <>
       {pane.accountQuota ? (
-        <span className="hidden shrink-0 text-[11px] font-medium text-[#858585] sm:inline">
+        <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground sm:inline">
           {pane.accountQuota}
         </span>
       ) : null}
@@ -617,29 +613,29 @@ function ChatAccountSelect() {
       >
         <SelectTrigger
           aria-label="Provider account"
-          className="h-7 w-[min(42vw,11rem)] border-[#34363a] bg-[#1d1e1f] px-2 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#252729]"
+          className="h-7 w-[min(42vw,11rem)] border-border bg-secondary px-2 text-[12px] font-medium text-foreground hover:bg-accent"
           title={pane.account ? pane.account.displayName + " · " + pane.account.providerId : undefined}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <ProviderMark icon={pane.providerDefinition?.icon} className="size-3.5 shrink-0 text-[#9a9a9a]" />
+            <ProviderMark icon={pane.providerDefinition?.icon} className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">{pane.account?.displayName ?? "Provider"}</span>
           </span>
         </SelectTrigger>
-        <SelectContent align="end" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
+        <SelectContent align="end" className="border-border bg-popover text-foreground">
           {pane.selectableAccounts.map((entry) => {
             const quota = formatProviderQuota(pane.accountLimits[entry.id])
             return (
               <SelectItem
-                className="text-[12px] text-[#d6d6d6] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]"
+                className="text-[12px] text-foreground hover:bg-accent focus-visible:bg-accent"
                 key={entry.id}
                 label={entry.displayName + " · " + (quota ?? entry.providerId)}
                 value={entry.id}
               >
                 <span className="flex min-w-0 items-center gap-2">
-                  <ProviderMark icon={pane.providerIconById.get(entry.providerId)} className="size-3.5 shrink-0 text-[#9a9a9a]" />
+                  <ProviderMark icon={pane.providerIconById.get(entry.providerId)} className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span className="min-w-0 truncate">{entry.displayName}</span>
-                    <span className="min-w-0 truncate text-[11px] text-[#858585]">
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                       {entry.providerId}
                       {quota ? " · " + quota : ""}
                     </span>
@@ -660,7 +656,7 @@ function ChatMessageList() {
   return (
     <div className="min-h-0 overflow-auto px-4 py-4 ide-scrollbar" ref={pane.scrollRef}>
       {pane.error ? (
-        <div className="mb-3 rounded-md border border-[#5a3030] bg-[#241817] px-3 py-2 text-[12px] text-[#ff9f9f]">
+        <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
           {pane.error}
         </div>
       ) : null}
@@ -671,7 +667,7 @@ function ChatMessageList() {
           {pane.renderEntries.map((entry) => <ChatRenderEntryView entry={entry} key={chatRenderEntryId(entry)} />)}
         </div>
       ) : (
-        <div className="grid h-full place-items-center text-[13px] text-[#858585]">
+        <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
           {pane.accounts.length ? "New chat" : "Connect a provider"}
         </div>
       )}
@@ -681,9 +677,9 @@ function ChatMessageList() {
 
 function ChatMessageLoadingIndicator() {
   return (
-    <div className="grid h-full place-items-center text-[13px] text-[#858585]">
+    <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
       <span className="flex items-center gap-2">
-        <LoaderCircle className="size-4 animate-spin text-[#5e9eff]" />
+        <LoaderCircle className="size-4 animate-spin text-info" />
         Loading
       </span>
     </div>
@@ -735,11 +731,11 @@ function ChatComposer() {
 
   return (
     <footer className="px-3 pb-3">
-      <div className="mx-auto rounded-lg border border-[#34363a] bg-[#202121] p-3 shadow-inner">
+      <div className="mx-auto rounded-lg border border-border bg-secondary p-3 shadow-inner">
         <PendingUserInputPrompt />
         <ChatAttachmentList attachments={pane.attachments} onRemove={pane.removeAttachment} />
         <textarea
-          className="min-h-8 w-full resize-none bg-transparent text-[13px] font-medium leading-5 text-[#d0d0d0] outline-none placeholder:text-[#7f7f7f]"
+          className="min-h-8 w-full resize-none bg-transparent text-[13px] font-medium leading-5 text-foreground outline-none placeholder:text-muted-foreground"
           placeholder="Describe the outcome you want"
           ref={pane.textareaRef}
           value={pane.draft}
@@ -764,13 +760,13 @@ function PendingUserInputPrompt() {
     return null
   }
   return (
-    <div className="mb-3 grid gap-2 rounded-md border border-[#3c3f46] bg-[#191a1c] p-2.5 text-[12px] text-[#d6d6d6]">
+    <div className="mb-3 grid gap-2 rounded-md border border-border bg-card p-2.5 text-[12px] text-foreground">
       {pane.pendingUserInputQuestions.map((question) => (
         <PendingUserInputQuestion key={question.id} question={question} />
       ))}
       <div className="flex justify-end">
         <button
-          className="h-7 rounded-md bg-[#5e9eff] px-2.5 text-[11px] font-semibold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-45"
+          className="h-7 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
           disabled={pane.userInputSubmitting}
           type="button"
           onClick={() => void pane.submitUserInput()}
@@ -787,7 +783,7 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
 
   return (
     <div className="grid gap-1.5">
-      <div className="font-medium text-[#ededed]">{question.question}</div>
+      <div className="font-medium text-foreground">{question.question}</div>
       {question.options.length ? (
         <div className="flex flex-wrap gap-1">
           {question.options.map((option) => {
@@ -797,8 +793,8 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
                 className={cn(
                   "h-7 rounded-md border px-2 text-[11px] font-medium",
                   selected
-                    ? "border-[#5e9eff] bg-[#1d314f] text-[#dbeafe]"
-                    : "border-[#34363a] bg-[#202121] text-[#b8b8b8] hover:bg-[#282a2d]",
+                    ? "border-primary bg-primary/20 text-foreground"
+                    : "border-border bg-secondary text-muted-foreground hover:bg-accent",
                 )}
                 key={option.label}
                 title={option.description}
@@ -812,7 +808,7 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
         </div>
       ) : (
         <input
-          className="h-8 min-w-0 rounded-md border border-[#34363a] bg-[#111213] px-2 text-[12px] text-[#d6d6d6] outline-none focus:border-[#5e9eff]"
+          className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-primary"
           type={question.isSecret ? "password" : "text"}
           value={pane.userInputAnswerValue(question)}
           onChange={(event) => pane.updateUserInputAnswer(question.id, event.target.value)}
@@ -827,10 +823,10 @@ function ChatAttachmentList({ attachments, onRemove }: { attachments: ChatCompos
     return null
   }
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-[#9a9a9a]">
+    <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
       {attachments.map((attachment) => (
         <button
-          className="flex max-w-[12rem] items-center gap-1 rounded-md border border-[#34363a] bg-[#1d1e1f] px-1.5 py-1 hover:bg-[#282a2d]"
+          className="flex max-w-[12rem] items-center gap-1 rounded-md border border-border bg-secondary px-1.5 py-1 hover:bg-accent"
           key={attachment.id}
           title={attachment.path ?? attachment.name}
           type="button"
@@ -849,7 +845,7 @@ function ComposerControls() {
   const pane = useChatPane()
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-[#8c8c8c] -mb-2 -mx-2">
+    <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-muted-foreground -mb-2 -mx-2">
       <ComposerContextMenu />
       {pane.supportsAccessMode ? <ComposerAccessModeSelect /> : null}
       <ComposerGoalChip />
@@ -870,7 +866,7 @@ function ComposerContextMenu() {
       <button
         aria-expanded={pane.composerMenuOpen}
         aria-label="Add context"
-        className="grid size-7 place-items-center rounded-md text-[#dcdcdc] hover:bg-[#303236]"
+        className="grid size-7 place-items-center rounded-md text-foreground hover:bg-accent"
         type="button"
         onClick={() => pane.setComposerMenuOpen((current) => !current)}
       >
@@ -894,7 +890,7 @@ function ComposerContextMenuItems() {
   const pane = useChatPane()
 
   return (
-    <div className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-md border border-[#34363a] bg-[#1f2022] p-1 text-[#d6d6d6] shadow-lg">
+    <div className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-md border border-border bg-popover p-1 text-foreground shadow-lg">
       <ComposerMenuButton disabled={!pane.supportsFiles} icon={<FileText className="size-3.5" />} label="Attach files" onClick={() => {
         pane.setComposerMenuOpen(false)
         pane.fileInputRef.current?.click()
@@ -927,14 +923,14 @@ function ComposerMenuButton({
 }) {
   return (
     <button
-      className="flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-[12px] hover:bg-[#2b2d31] disabled:cursor-not-allowed disabled:opacity-45"
+      className="flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-[12px] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
       disabled={disabled}
       type="button"
       onClick={onClick}
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {suffix ? <span className="text-[11px] text-[#9bbcff]">{suffix}</span> : null}
+      {suffix ? <span className="text-[11px] text-info">{suffix}</span> : null}
     </button>
   )
 }
@@ -944,15 +940,15 @@ function ComposerAccessModeSelect() {
 
   return (
     <Select className="min-w-0" disabled={pane.sending || pane.isSwitchingAccount} value={pane.accessMode} onValueChange={pane.changeAccessMode}>
-      <SelectTrigger aria-label="Access mode" className="h-7 w-auto border-transparent bg-transparent px-2 text-[12px] font-medium text-[#d6d6d6] shadow-none hover:bg-[#303236]">
+      <SelectTrigger aria-label="Access mode" className="h-7 w-auto border-transparent bg-transparent px-2 text-[12px] font-medium text-foreground shadow-none hover:bg-accent">
         <span className="flex min-w-0 items-center gap-1.5">
-          <Shield className="size-3.5 shrink-0 text-[#9a9a9a]" />
+          <Shield className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate">{accessModeLabel(pane.accessMode)}</span>
         </span>
       </SelectTrigger>
-      <SelectContent align="start" className="border-[#34363a] bg-[#1f2022] text-[#d6d6d6]">
-        <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="askForApproval">Ask for approval</SelectItem>
-        <SelectItem className="text-[12px] hover:bg-[#2b2d31] focus-visible:bg-[#2b2d31]" value="fullAccess">Full access</SelectItem>
+      <SelectContent align="start" className="border-border bg-popover text-foreground">
+        <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="askForApproval">Ask for approval</SelectItem>
+        <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="fullAccess">Full access</SelectItem>
       </SelectContent>
     </Select>
   )
@@ -972,19 +968,19 @@ function ComposerRuntimeSettingsMenu() {
       <button
         aria-expanded={pane.runtimeSettingsOpen}
         aria-label="Runtime settings"
-        className="flex h-7 max-w-[16rem] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[#d6d6d6] hover:bg-[#303236] disabled:cursor-not-allowed disabled:opacity-55"
+        className="flex h-7 max-w-[16rem] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55"
         disabled={disabled}
         type="button"
         onClick={() => pane.setRuntimeSettingsOpen((open) => !open)}
       >
-        <SlidersHorizontal className="size-3.5 shrink-0 text-[#9a9a9a]" />
+        <SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate">{runtimeLabel}</span>
-        <ChevronDown className={cn("size-3.5 shrink-0 text-[#8f8f8f] transition-transform", pane.runtimeSettingsOpen && "rotate-180")} />
+        <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", pane.runtimeSettingsOpen && "rotate-180")} />
       </button>
       {pane.runtimeSettingsOpen ? (
-        <div className="absolute bottom-9 right-0 z-40 w-64 overflow-hidden rounded-md border border-[#34363a] bg-[#1f2022] py-1 text-[#d6d6d6] shadow-xl">
+        <div className="absolute bottom-9 right-0 z-40 w-64 overflow-hidden rounded-md border border-border bg-popover py-1 text-foreground shadow-xl">
           {pane.supportsReasoningEffort ? (
-            <ComposerRuntimeMenuSection icon={<Brain className="size-3.5 text-[#9a9a9a]" />} label="Reasoning">
+            <ComposerRuntimeMenuSection icon={<Brain className="size-3.5 text-muted-foreground" />} label="Reasoning">
               {composerReasoningEffortOptions.map((option) => (
                 <ComposerRuntimeMenuItem
                   key={option.value}
@@ -996,7 +992,7 @@ function ComposerRuntimeSettingsMenu() {
             </ComposerRuntimeMenuSection>
           ) : null}
           {pane.supportsModels ? (
-            <ComposerRuntimeMenuSection icon={<Cpu className="size-3.5 text-[#9a9a9a]" />} label="Model">
+            <ComposerRuntimeMenuSection icon={<Cpu className="size-3.5 text-muted-foreground" />} label="Model">
               {pane.visibleModelOptions.map((option) => (
                 <ComposerRuntimeMenuItem
                   key={option.id}
@@ -1008,7 +1004,7 @@ function ComposerRuntimeSettingsMenu() {
             </ComposerRuntimeMenuSection>
           ) : null}
           {pane.supportsServiceTier ? (
-            <ComposerRuntimeMenuSection icon={<Zap className="size-3.5 text-[#9a9a9a]" />} label="Speed">
+            <ComposerRuntimeMenuSection icon={<Zap className="size-3.5 text-muted-foreground" />} label="Speed">
               {composerServiceTierOptions.map((option) => (
                 <ComposerRuntimeMenuItem
                   description={option.description}
@@ -1028,8 +1024,8 @@ function ComposerRuntimeSettingsMenu() {
 
 function ComposerRuntimeMenuSection({ children, icon, label }: { children: ReactNode; icon: ReactNode; label: string }) {
   return (
-    <div className="border-t border-[#2b2d31] first:border-t-0">
-      <div className="flex h-7 items-center gap-2 px-2 text-[11px] font-medium text-[#8f8f8f]">
+    <div className="border-t border-border first:border-t-0">
+      <div className="flex h-7 items-center gap-2 px-2 text-[11px] font-medium text-muted-foreground">
         {icon}
         <span>{label}</span>
       </div>
@@ -1051,15 +1047,15 @@ function ComposerRuntimeMenuItem({
 }) {
   return (
     <button
-      className="flex min-h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-[12px] hover:bg-[#2b2d31]"
+      className="flex min-h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-[12px] hover:bg-accent"
       type="button"
       onClick={onClick}
     >
       <span className="grid min-w-0 flex-1">
         <span className="truncate">{title}</span>
-        {description ? <span className="truncate text-[11px] font-normal text-[#8f8f8f]">{description}</span> : null}
+        {description ? <span className="truncate text-[11px] font-normal text-muted-foreground">{description}</span> : null}
       </span>
-      <Check className={cn("size-3.5 shrink-0 text-[#9bbcff]", selected ? "opacity-100" : "opacity-0")} />
+      <Check className={cn("size-3.5 shrink-0 text-info", selected ? "opacity-100" : "opacity-0")} />
     </button>
   )
 }
@@ -1072,7 +1068,7 @@ function ComposerGoalChip() {
   }
   return (
     <button
-      className="flex h-7 max-w-[14rem] items-center gap-1 rounded-md border border-[#34363a] bg-[#1d1e1f] px-2 text-[11px] text-[#cfcfcf] hover:bg-[#282a2d]"
+      className="flex h-7 max-w-[14rem] items-center gap-1 rounded-md border border-border bg-secondary px-2 text-[11px] text-foreground hover:bg-accent"
       title={pane.goalObjective}
       type="button"
       onClick={() => pane.setGoalObjective(null)}
@@ -1092,7 +1088,7 @@ function ComposerPlanChip() {
   }
   return (
     <button
-      className="flex h-7 items-center gap-1 rounded-md border border-[#3c3750] bg-[#272232] px-2 text-[11px] text-[#d6c8ff] hover:bg-[#30283e]"
+      className="flex h-7 items-center gap-1 rounded-md border border-primary/20 bg-primary/15 px-2 text-[11px] text-primary hover:bg-primary/20"
       type="button"
       onClick={() => pane.setPlanMode(false)}
     >
@@ -1112,7 +1108,7 @@ function ComposerSendButton() {
         "grid size-7 shrink-0 place-items-center text-lg disabled:cursor-not-allowed disabled:opacity-45",
         pane.showStopAction
           ? "rounded-full bg-foreground text-background hover:bg-foreground/90"
-          : "rounded-md text-[#dcdcdc] hover:bg-[#303236]",
+          : "rounded-md text-foreground hover:bg-accent",
       )}
       aria-label={pane.showStopAction ? "Stop chat" : "Send message"}
       disabled={pane.showStopAction ? false : !pane.canSend}
@@ -1145,6 +1141,8 @@ function ChatMessageRow({
   onQueuedDrop?: (sourceRunId: string, targetRunId: string, placement: "after" | "before") => void
   onSteerQueuedMessage?: (chatId: string, runId: string) => Promise<void>
 }) {
+  const fileLinks = useContext(ChatFileLinkContext)
+
   if (isToolMessage(message)) {
     return <ToolCallMessageRow animateIn={animateIn} message={message} />
   }
@@ -1164,7 +1162,7 @@ function ChatMessageRow({
         animateIn && "chat-append-enter",
         user && "justify-items-end",
         optimistic && "opacity-60 transition-opacity",
-        draggingOver && "rounded-md outline outline-1 outline-[#5e9eff]/70",
+        draggingOver && "rounded-md outline outline-1 outline-primary/70",
       )}
       draggable={queueSortingEnabled}
       onDragEnd={() => onQueuedDragEnd?.()}
@@ -1203,35 +1201,41 @@ function ChatMessageRow({
         className={cn(
           "min-w-0 text-[13px] leading-6",
           user
-            ? "max-w-[min(680px,100%)] rounded-md border border-[#315070] bg-[#192536] px-3 py-2 text-[#dbeafe]"
+            ? "max-w-[min(680px,100%)] rounded-md bg-muted px-3 py-2 text-foreground"
             : error
-              ? "w-full text-[#ffb3b3]"
-              : "w-full text-[#d6d6d6]",
+              ? "w-full text-destructive"
+              : "w-full text-foreground",
         )}
       >
-        <MarkdownContent animateChanges={!user} compact={user} content={content} scopeKey={message.id} />
+        <MarkdownContent
+          animateChanges={!user}
+          compact={user}
+          content={content}
+          openFileLink={fileLinks?.openFileLink}
+          scopeKey={message.id}
+        />
       </div>
       {queued && message.runId ? (
-        <div className="flex items-center gap-1 text-[11px] text-[#8f8f8f]">
-          <span className="grid size-5 cursor-grab place-items-center rounded text-[#777b82]" title="Drag to reorder">
+        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          <span className="grid size-5 cursor-grab place-items-center rounded text-muted-foreground" title="Drag to reorder">
             <GripVertical className="size-3.5" />
           </span>
           <button
-            className="rounded px-1.5 py-0.5 hover:bg-[#303236] hover:text-[#d6d6d6]"
+            className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
             type="button"
             onClick={() => void onSteerQueuedMessage?.(message.chatId, message.runId!)}
           >
             Steer
           </button>
           <button
-            className="rounded px-1.5 py-0.5 hover:bg-[#303236] hover:text-[#d6d6d6]"
+            className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground"
             type="button"
             onClick={() => void onEditQueuedMessage?.(message.chatId, message.runId!, message.content)}
           >
             Edit
           </button>
           <button
-            className="rounded px-1.5 py-0.5 hover:bg-[#303236] hover:text-[#ffb3b3]"
+            className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-destructive"
             type="button"
             onClick={() => void onDeleteQueuedMessage?.(message.chatId, message.runId!)}
           >
@@ -1246,6 +1250,7 @@ function ChatMessageRow({
 function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; message: ChatMessageResponse }) {
   const [expanded, setExpanded] = useState(false)
   const [responding, setResponding] = useState<"approve" | "deny" | null>(null)
+  const fileLinks = useContext(ChatFileLinkContext)
   const Icon = toolCallIcon(message)
   const title = toolCallTitle(message)
   const fileChanges = message.kind === "FILE_CHANGE" ? parseFileChangeMessage(message) : []
@@ -1267,12 +1272,12 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
   }
 
   return (
-    <article className={cn("min-w-0 text-[13px] text-[#898989]", animateIn && "chat-append-enter")}>
+    <article className={cn("min-w-0 text-[13px] text-muted-foreground", animateIn && "chat-append-enter")}>
       <div className="flex min-h-7 max-w-full items-center gap-2">
         <button
           className={cn(
             "flex min-w-0 flex-1 items-center gap-2 text-left",
-            hasDetail && "hover:text-[#c7c7c7]",
+            hasDetail && "hover:text-foreground",
             !hasDetail && "cursor-default",
           )}
           disabled={!hasDetail}
@@ -1292,7 +1297,7 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
         {canRespond ? (
           <div className="flex shrink-0 items-center gap-1">
             <button
-              className="rounded px-1.5 py-0.5 text-[11px] text-[#9bd49b] hover:bg-[#243424] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded px-1.5 py-0.5 text-[11px] text-success hover:bg-success/10 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={Boolean(responding)}
               type="button"
               onClick={() => void respond(true)}
@@ -1300,7 +1305,7 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
               {responding === "approve" ? "Approving" : "Approve"}
             </button>
             <button
-              className="rounded px-1.5 py-0.5 text-[11px] text-[#ffadad] hover:bg-[#3a2525] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded px-1.5 py-0.5 text-[11px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={Boolean(responding)}
               type="button"
               onClick={() => void respond(false)}
@@ -1311,11 +1316,11 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
         ) : null}
       </div>
       {expanded && hasDetail ? (
-        <div className="ml-5 mt-1 min-w-0 border-l border-[#303236] pl-3 text-[#d6d6d6]">
+        <div className="ml-5 mt-1 min-w-0 border-l border-border pl-3 text-foreground">
           {message.kind === "FILE_CHANGE" ? (
             <FileChangeStatsList changes={fileChanges} fallbackCount={1} />
           ) : (
-            <MarkdownContent compact content={detail || title} />
+            <MarkdownContent compact content={detail || title} openFileLink={fileLinks?.openFileLink} />
           )}
         </div>
       ) : null}
@@ -1455,16 +1460,16 @@ function FileChangeStatsList({
   fallbackCount: number
 }) {
   if (!changes.length) {
-    return <div className="text-[12px] text-[#9a9a9a]">Edited {fallbackCount} files</div>
+    return <div className="text-[12px] text-muted-foreground">Edited {fallbackCount} files</div>
   }
 
   return (
     <div className="grid gap-1.5">
       {changes.map((change, index) => (
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-[12px]" key={`${change.path}:${index}`}>
-          <span className="truncate text-[#c7c7c7]">{change.path}</span>
-          <span className="text-[#74d48a]">
-            +{change.additions} <span className="text-[#ef7f7f]">-{change.deletions}</span>
+          <span className="truncate text-foreground">{change.path}</span>
+          <span className="text-diff-addition-foreground">
+            +{change.additions} <span className="text-diff-deletion-foreground">-{change.deletions}</span>
           </span>
         </div>
       ))}
@@ -1553,7 +1558,7 @@ function WorkActivityStatus({ messages }: { messages: ChatMessageResponse[] }) {
   const label = activeAction ? toolCallTitle(activeAction) : "Thinking"
 
   return (
-    <div className="chat-append-enter flex min-h-7 max-w-full items-center gap-2 text-[13px] text-[#9a9a9a]">
+    <div className="chat-append-enter flex min-h-7 max-w-full items-center gap-2 text-[13px] text-muted-foreground">
       <Icon className={cn("size-3.5 shrink-0", activeAction ? "" : "animate-spin")} />
       <span className="min-w-0 truncate">
         {label}
@@ -1617,9 +1622,9 @@ function ChatWorkBlock({
   }, [finished])
 
   return (
-    <section className={cn("min-w-0 text-[13px] text-[#858585]", animateIn && "chat-append-enter")}>
+    <section className={cn("min-w-0 text-[13px] text-muted-foreground", animateIn && "chat-append-enter")}>
       <button
-        className="flex h-6 max-w-full items-center gap-1.5 text-left font-medium hover:text-[#c7c7c7]"
+        className="flex h-6 max-w-full items-center gap-1.5 text-left font-medium hover:text-foreground"
         type="button"
         onClick={() => {
           if (finished) {
@@ -1691,9 +1696,9 @@ function CompactActionGroup({
   const Icon = workSummaryIcon(messages)
 
   return (
-    <article className={cn("min-w-0 text-[13px] text-[#898989]", animateIn && "chat-append-enter")}>
+    <article className={cn("min-w-0 text-[13px] text-muted-foreground", animateIn && "chat-append-enter")}>
       <button
-        className="flex min-h-7 max-w-full items-center gap-2 text-left hover:text-[#c7c7c7]"
+        className="flex min-h-7 max-w-full items-center gap-2 text-left hover:text-foreground"
         type="button"
         onClick={() => setExpanded((current) => !current)}
       >
@@ -1702,7 +1707,7 @@ function CompactActionGroup({
         <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
       </button>
       {expanded ? (
-        <div className="ml-5 mt-1 grid gap-2 border-l border-[#303236] pl-3">
+        <div className="ml-5 mt-1 grid gap-2 border-l border-border pl-3">
           {messages.map((message) => (
             <ChatMessageRow
               dragOverQueuedRunId={dragOverQueuedRunId}
@@ -1747,29 +1752,29 @@ function ChatFileChangeBlock({
   )
 
   return (
-    <section className={cn("min-w-0 rounded-lg border border-[#303236] bg-[#1b1c1d] p-3 text-[13px]", animateIn && "chat-append-enter")}>
+    <section className={cn("min-w-0 rounded-lg border border-border bg-card p-3 text-[13px]", animateIn && "chat-append-enter")}>
       <div className="flex min-w-0 items-center gap-3">
-        <FileText className="size-4 shrink-0 text-[#8f8f8f]" />
+        <FileText className="size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <div className="font-semibold text-[#d6d6d6]">{editedFilesTitle(changes, messages.length)}</div>
-          <div className="mt-0.5 text-[12px] text-[#74d48a]">
-            +{totals.additions} <span className="text-[#ef7f7f]">-{totals.deletions}</span>
+          <div className="font-semibold text-foreground">{editedFilesTitle(changes, messages.length)}</div>
+          <div className="mt-0.5 text-[12px] text-diff-addition-foreground">
+            +{totals.additions} <span className="text-diff-deletion-foreground">-{totals.deletions}</span>
           </div>
         </div>
       </div>
       {changes.length > 1 ? (
-        <div className="mt-3 grid gap-2 border-t border-[#303236] pt-3">
+        <div className="mt-3 grid gap-2 border-t border-border pt-3">
           {visibleChanges.map((change, index) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-[12px]" key={`${change.path}:${index}`}>
-              <span className="truncate text-[#c7c7c7]">{change.path}</span>
-              <span className="text-[#74d48a]">
-                +{change.additions} <span className="text-[#ef7f7f]">-{change.deletions}</span>
+              <span className="truncate text-foreground">{change.path}</span>
+              <span className="text-diff-addition-foreground">
+                +{change.additions} <span className="text-diff-deletion-foreground">-{change.deletions}</span>
               </span>
             </div>
           ))}
           {changes.length > 3 ? (
             <button
-              className="mt-1 flex h-6 w-fit items-center gap-1 text-[12px] font-medium text-[#9a9a9a] hover:text-[#d0d0d0]"
+              className="mt-1 flex h-6 w-fit items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground"
               type="button"
               onClick={() => setExpanded((current) => !current)}
             >
@@ -1796,219 +1801,4 @@ function useNowMs(enabled: boolean): number {
   }, [enabled])
 
   return nowMs
-}
-
-function MarkdownContent({
-  animateChanges,
-  compact,
-  content,
-  scopeKey,
-}: {
-  animateChanges?: boolean
-  compact?: boolean
-  content: string
-  scopeKey?: string | null
-}) {
-  const fileLinks = useContext(ChatFileLinkContext)
-  const blocks = useMemo(() => parseMarkdownBlocks(content), [content])
-  const blockSignatures = useMemo(() => blocks.map(markdownBlockSignature), [blocks])
-  const animatedBlockIndexes = useChangedIndexes(blockSignatures, scopeKey ?? null, Boolean(animateChanges))
-
-  return (
-    <div className={cn("min-w-0", compact ? "space-y-2" : "space-y-3")}>
-      {blocks.map((block, index) => (
-        <div
-          className={cn("min-w-0", animatedBlockIndexes.has(index) && "chat-append-enter")}
-          key={`${index}:${hashString(blockSignatures[index] ?? "")}`}
-        >
-          {renderMarkdownBlock(block, index, Boolean(compact), fileLinks)}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function useChangedIndexes(signatures: string[], scopeKey: string | null, enabled: boolean): Set<number> {
-  const stateRef = useRef<{ scopeKey: string | null; signatures: string[] }>({
-    scopeKey: null,
-    signatures: [],
-  })
-  const signaturesKey = signatures.map(hashString).join(":")
-
-  return useMemo(() => {
-    if (!enabled) {
-      return new Set<number>()
-    }
-
-    const state = stateRef.current
-    if (state.scopeKey !== scopeKey) {
-      stateRef.current = { scopeKey, signatures }
-      return new Set<number>()
-    }
-
-    const changedIndexes = new Set<number>()
-    signatures.forEach((signature, index) => {
-      if (state.signatures[index] !== signature) {
-        changedIndexes.add(index)
-      }
-    })
-    stateRef.current = { scopeKey, signatures }
-    return changedIndexes
-  }, [enabled, scopeKey, signatures, signaturesKey])
-}
-
-function renderMarkdownBlock(
-  block: MarkdownBlock,
-  index: number,
-  compact: boolean,
-  fileLinks: React.ContextType<typeof ChatFileLinkContext>,
-): ReactNode {
-  if (block.type === "code") {
-    return (
-      <pre
-        className="max-w-full overflow-auto rounded-md border border-[#303236] bg-[#111213] p-3 font-mono text-[12px] leading-5 text-[#d8d8d8] ide-scrollbar"
-        key={index}
-      >
-        <code>{block.value}</code>
-      </pre>
-    )
-  }
-
-  if (block.type === "heading") {
-    const Tag = (`h${Math.min(block.level, 4)}`) as "h1" | "h2" | "h3" | "h4"
-    return (
-      <Tag className={cn("font-semibold text-[#ededed]", block.level <= 2 ? "text-[15px]" : "text-[14px]")} key={index}>
-        {renderInlineMarkdown(block.text, `heading-${index}`, fileLinks)}
-      </Tag>
-    )
-  }
-
-  if (block.type === "list") {
-    const Tag = block.ordered ? "ol" : "ul"
-    return (
-      <Tag className={cn("grid gap-1 pl-5", block.ordered ? "list-decimal" : "list-disc")} key={index}>
-        {block.items.map((item, itemIndex) => (
-          <li key={itemIndex}>{renderInlineMarkdown(item, `list-${index}-${itemIndex}`, fileLinks)}</li>
-        ))}
-      </Tag>
-    )
-  }
-
-  if (block.type === "blockquote") {
-    return (
-      <blockquote className="border-l-2 border-[#4b5563] pl-3 text-[#b8c0cc]" key={index}>
-        {renderInlineLines(block.lines, `quote-${index}`, fileLinks)}
-      </blockquote>
-    )
-  }
-
-  if (block.type === "table") {
-    return (
-      <div className="max-w-full overflow-auto ide-scrollbar" key={index}>
-        <table className="w-full border-collapse text-left text-[12px]">
-          <thead>
-            <tr>
-              {block.headers.map((header, headerIndex) => (
-                <th className="border border-[#34363a] bg-[#202223] px-2 py-1 font-semibold text-[#ededed]" key={headerIndex}>
-                  {renderInlineMarkdown(header, `table-${index}-header-${headerIndex}`, fileLinks)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {row.map((cell, cellIndex) => (
-                  <td className="border border-[#34363a] px-2 py-1 align-top" key={cellIndex}>
-                    {renderInlineMarkdown(cell, `table-${index}-${rowIndex}-${cellIndex}`, fileLinks)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
-  }
-
-  if (block.type === "hr") {
-    return <hr className="border-[#303236]" key={index} />
-  }
-
-  return (
-    <p className={cn("min-w-0", compact ? "leading-5" : "leading-6")} key={index}>
-      {renderInlineLines(block.lines, `paragraph-${index}`, fileLinks)}
-    </p>
-  )
-}
-
-function renderInlineLines(
-  lines: string[],
-  keyPrefix: string,
-  fileLinks: React.ContextType<typeof ChatFileLinkContext>,
-): ReactNode[] {
-  return lines.flatMap((line, index) => [
-    ...(index ? [<br key={`${keyPrefix}-br-${index}`} />] : []),
-    ...renderInlineMarkdown(line, `${keyPrefix}-${index}`, fileLinks),
-  ])
-}
-
-function renderInlineMarkdown(
-  text: string,
-  keyPrefix: string,
-  fileLinks: React.ContextType<typeof ChatFileLinkContext>,
-): ReactNode[] {
-  const nodes: ReactNode[] = []
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/gu
-  let lastIndex = 0
-  let match: RegExpExecArray | null
-
-  while ((match = pattern.exec(text))) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index))
-    }
-    const token = match[0]
-    const key = `${keyPrefix}-${nodes.length}`
-    if (token.startsWith("`")) {
-      nodes.push(
-        <code className="rounded bg-[#111213] px-1 py-0.5 font-mono text-[12px] text-[#e5e5e5]" key={key}>
-          {token.slice(1, -1)}
-        </code>,
-      )
-    } else if (token.startsWith("**") || token.startsWith("__")) {
-      nodes.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2), `${key}-strong`, fileLinks)}</strong>)
-    } else if (token.startsWith("*") || token.startsWith("_")) {
-      nodes.push(<em key={key}>{renderInlineMarkdown(token.slice(1, -1), `${key}-em`, fileLinks)}</em>)
-    } else {
-      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/u)
-      const href = link?.[2]?.trim() ?? ""
-      const safeHref = safeMarkdownHref(href)
-      nodes.push(
-        <a
-          className="text-[#8ab4ff] underline decoration-[#496b9a] underline-offset-2 hover:text-[#b7d1ff]"
-          href={safeHref}
-          key={key}
-          rel={safeHref === "#" ? undefined : "noreferrer"}
-          target={safeHref === "#" ? undefined : "_blank"}
-          onClick={(event) => {
-            if (fileLinks?.openFileLink(href)) {
-              event.preventDefault()
-              return
-            }
-            if (safeHref === "#") {
-              event.preventDefault()
-            }
-          }}
-        >
-          {renderInlineMarkdown(link?.[1] ?? token, `${key}-link`, fileLinks)}
-        </a>,
-      )
-    }
-    lastIndex = pattern.lastIndex
-  }
-
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex))
-  }
-  return nodes
 }

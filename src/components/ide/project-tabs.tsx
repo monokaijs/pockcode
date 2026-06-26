@@ -1,4 +1,5 @@
 import { Folder, Plus, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { Project } from "@/types/ide"
 
@@ -12,7 +13,7 @@ export function ProjectTabs({
   onProjectChange: (projectId: string) => void
 }) {
   return (
-    <header className="flex h-10 min-w-0 items-center border-b bg-[#0d0e11] px-2">
+    <header className="flex h-10 min-w-0 items-center border-b bg-background px-2">
       <div className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto ide-scrollbar">
         {projects.map((project) => {
           const active = project.id === activeProjectId
@@ -35,9 +36,9 @@ export function ProjectTabs({
             </button>
           )
         })}
-        <button className="ml-1 size-7 shrink-0" size="icon-sm" title="Open workspace" variant="ghost">
+        <Button className="ml-1 size-7 shrink-0" size="icon-sm" title="Open workspace" variant="ghost">
           <Plus className="size-4" />
-        </button>
+        </Button>
       </div>
     </header>
   )

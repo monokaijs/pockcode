@@ -23,7 +23,7 @@ export function ActivityBar({
   onActivityChange: (activity: ActivityId) => void
 }) {
   return (
-    <aside className="flex h-full w-11 shrink-0 flex-col items-center border-r bg-[#0b0c0e] py-2">
+    <aside className="flex h-full w-11 shrink-0 flex-col items-center border-r bg-sidebar py-2">
       <div className="flex flex-1 flex-col gap-1">
         {activityItems.map((item) => {
           const Icon = item.icon

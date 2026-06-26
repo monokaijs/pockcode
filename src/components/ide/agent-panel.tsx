@@ -1,6 +1,7 @@
 import { Bot, Send, UserRound, Wrench } from "lucide-react"
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { AgentMessage, Project } from "@/types/ide"
 
@@ -25,7 +26,7 @@ export function AgentPanel({
   }
 
   return (
-    <aside className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] border-l bg-[#111215]">
+    <aside className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] border-l bg-card">
       <div className="flex h-9 min-w-0 items-center gap-2 border-b px-3">
         <Bot className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold">AI Agent</span>
@@ -54,9 +55,9 @@ export function AgentPanel({
           />
           <div className="flex items-center justify-between gap-2 pt-2">
             <span className="text-[11px] text-muted-foreground">Cmd/Ctrl Enter</span>
-            <button disabled={!draft.trim()} size="sm" onClick={send}>
+            <Button disabled={!draft.trim()} size="sm" onClick={send}>
               <Send className="size-3.5" /> Send
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -252,7 +252,7 @@ function IdeWorkspaceGrid({ ide }: { ide: IdeShellState }) {
 function IdePanelGrid({ ide }: { ide: IdeShellState }) {
   return (
     <div
-      className="grid min-h-0 min-w-0 overflow-hidden rounded-tl-xl border-l border-t border-[#2b2b2b] bg-background"
+      className="grid min-h-0 min-w-0 overflow-hidden rounded-tl-xl border-l border-t border-border bg-background"
       style={{
         gridTemplateColumns: String(ide.sidePanelWidth) + "px minmax(0, 1fr) " + String(ide.agentPanelWidth) + "px",
         gridTemplateRows: "minmax(0, 1fr) " + String(ide.terminalHeight) + "px",

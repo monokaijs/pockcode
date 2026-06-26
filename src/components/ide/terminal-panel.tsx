@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { Plus, Terminal, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { TerminalSession } from "@/types/ide"
 
@@ -18,16 +19,16 @@ export function TerminalPanel({
     terminals.find((terminal) => terminal.id === activeTerminalId) ?? terminals[0] ?? null
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[4px_auto_minmax(0,1fr)] overflow-hidden border-t bg-[#09090b]">
+    <section className="grid h-full min-h-0 grid-rows-[4px_auto_minmax(0,1fr)] overflow-hidden border-t bg-ide-terminal">
       <button
         aria-label="Resize terminal panel"
-        className="group flex cursor-row-resize items-center justify-center bg-[#111215]"
+        className="group flex cursor-row-resize items-center justify-center bg-card"
         type="button"
         onPointerDown={onResizeStart}
       >
         <span className="h-0.5 w-12 rounded-full bg-muted-foreground/25 group-hover:bg-muted-foreground/60" />
       </button>
-      <div className="flex min-h-9 min-w-0 items-center gap-1 border-b bg-[#111215] px-2">
+      <div className="flex min-h-9 min-w-0 items-center gap-1 border-b bg-card px-2">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto ide-scrollbar" role="tablist">
           {terminals.map((terminal) => {
             const active = terminal.id === activeTerminal?.id
@@ -52,8 +53,8 @@ export function TerminalPanel({
                   <span
                     className={cn(
                       "size-1.5 shrink-0 rounded-full",
-                      terminal.status === "running" && "bg-emerald-400",
-                      terminal.status === "idle" && "bg-amber-300",
+                      terminal.status === "running" && "bg-success",
+                      terminal.status === "idle" && "bg-warning",
                       terminal.status === "exited" && "bg-muted-foreground",
                     )}
                   />
@@ -69,22 +70,22 @@ export function TerminalPanel({
             )
           })}
         </div>
-        <button size="icon-sm" title="New terminal" variant="ghost">
+        <Button size="icon-sm" title="New terminal" variant="ghost">
           <Plus className="size-4" />
-        </button>
+        </Button>
       </div>
 
-      <div className="min-h-0 overflow-auto p-3 font-mono text-xs leading-5 text-zinc-200 ide-scrollbar">
+      <div className="min-h-0 overflow-auto p-3 font-mono text-xs leading-5 text-foreground ide-scrollbar">
         {activeTerminal ? (
           <>
-            <div className="mb-2 text-zinc-500">{activeTerminal.cwd}</div>
+            <div className="mb-2 text-muted-foreground">{activeTerminal.cwd}</div>
             <pre className="whitespace-pre-wrap">{activeTerminal.lines.join("\n")}</pre>
             {activeTerminal.status === "running" ? (
-              <span className="mt-2 inline-block h-4 w-2 animate-pulse bg-zinc-200 align-middle" />
+              <span className="mt-2 inline-block h-4 w-2 animate-pulse bg-foreground align-middle" />
             ) : null}
           </>
         ) : (
-          <div className="grid h-full place-items-center text-zinc-500">No terminal</div>
+          <div className="grid h-full place-items-center text-muted-foreground">No terminal</div>
         )}
       </div>
     </section>
