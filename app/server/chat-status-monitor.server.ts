@@ -1,6 +1,7 @@
 import { watch, type FSWatcher } from "node:fs"
 import { stat } from "node:fs/promises"
 import { listChats, publishMessageDeltas, refreshChatStatusesForWorkspaces, syncProviderChatsOnce } from "./chats.service"
+import { ensureDatabase } from "./database.server"
 import { prisma } from "./prisma.server"
 import { readCodexHistoryWatchPaths } from "./providers/codex.server"
 import { listWatchedWorkspacePaths, onWorkspaceWatchChange, publishProviderEvent } from "./socket.server"
@@ -102,6 +103,7 @@ async function syncProviderState({ publishExisting }: { publishExisting: boolean
 }
 
 async function refreshCodexWatchers(): Promise<void> {
+  await ensureDatabase()
   const accounts = await prisma.providerAccount.findMany({
     orderBy: { createdAt: "asc" },
     where: { providerId: "codex", status: "CONNECTED" },

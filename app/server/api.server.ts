@@ -111,7 +111,7 @@ export function installApiServer(middlewares: MiddlewareStack): void {
   })
 }
 
-async function handleApiRequest(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+export async function handleApiRequest(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const method = req.method ?? "GET"
 
   if (url.pathname === "/api/providers") {
@@ -873,7 +873,7 @@ function sendJson(res: ServerResponse, data: unknown, status = 200): void {
   res.end(JSON.stringify(data))
 }
 
-function sendRouteError(res: ServerResponse, error: unknown): void {
+export function sendRouteError(res: ServerResponse, error: unknown): void {
   if (error instanceof HttpError) {
     sendJson(res, { error: error.message }, error.status)
     return

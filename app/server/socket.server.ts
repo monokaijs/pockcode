@@ -1,4 +1,5 @@
 import type { Server as HttpServer } from "node:http"
+import type { IncomingMessage } from "node:http"
 import { Server } from "socket.io"
 import { installTerminalSocketHandlers } from "./terminal.server"
 
@@ -14,12 +15,22 @@ const workspaceWatchListeners = new Set<() => void>()
 const workspacePathsBySocket = new Map<string, Set<string>>()
 let io: Server | null = null
 
-export function installProviderSocketServer(server: HttpServer): void {
+export function installProviderSocketServer(
+  server: HttpServer,
+  options: { authenticateRequest?: (req: IncomingMessage) => Promise<boolean> | boolean } = {},
+): void {
   if (installedServers.has(server)) {
     return
   }
   installedServers.add(server)
   io = new Server(server, {
+    allowRequest: options.authenticateRequest
+      ? (req, callback) => {
+          Promise.resolve(options.authenticateRequest?.(req) ?? true)
+            .then((allowed) => callback(null, allowed))
+            .catch((error) => callback(error instanceof Error ? error.message : "Unauthorized.", false))
+        }
+      : undefined,
     cors: { origin: true, credentials: true },
     path: "/socket.io",
   })

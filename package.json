@@ -1,13 +1,22 @@
 {
   "name": "pockcode",
-  "private": true,
   "version": "0.0.1",
   "type": "module",
+  "bin": {
+    "pockcode": "./dist/pockcode.js"
+  },
+  "files": [
+    "build/client",
+    "dist",
+    "prisma/schema.prisma"
+  ],
   "packageManager": "pnpm@10.17.1",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0",
+    "build": "tsc -b && vite build --config vite.client.config.ts && vite build --config vite.cli.config.ts",
+    "postinstall": "prisma generate --schema=prisma/schema.prisma",
+    "prepack": "npm run build",
+    "preview": "node dist/pockcode.js --host 0.0.0.0",
     "test": "vitest run",
     "test:real-codex": "node scripts/real-codex-smoke.mjs",
     "typecheck": "tsc --noEmit"

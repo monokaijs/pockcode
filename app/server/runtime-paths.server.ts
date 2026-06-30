@@ -20,6 +20,10 @@ export function resolvePockcodeDatabasePath(): string {
   return join(resolvePockcodeHome(), "pockcode.db")
 }
 
+export function resolvePockcodeAuthPath(): string {
+  return join(resolvePockcodeHome(), "auth.json")
+}
+
 export function sqliteDatabaseUrl(databasePath = resolvePockcodeDatabasePath()): string {
   return `file:${databasePath}?connection_limit=1&pool_timeout=30`
 }
