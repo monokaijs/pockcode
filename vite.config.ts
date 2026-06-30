@@ -5,8 +5,8 @@ import path from "node:path"
 import { defineConfig } from "vite"
 import { installApiServer } from "./app/server/api.server"
 import { startChatStatusMonitor } from "./app/server/chat-status-monitor.server"
-import { installLspSocketServer } from "./app/server/lsp-socket.server"
 import { startMessageScheduleMonitor } from "./app/server/message-schedule-monitor.server"
+import { startPluginRuntimeManager } from "./app/server/plugins/manager.server"
 import { installProviderSocketServer } from "./app/server/socket.server"
 
 const hmrHost = process.env.VITE_HMR_HOST
@@ -20,9 +20,9 @@ export default defineConfig({
         installApiServer(server.middlewares)
         if (server.httpServer) {
           installProviderSocketServer(server.httpServer as unknown as HttpServer)
-          installLspSocketServer(server.httpServer as unknown as HttpServer)
           startChatStatusMonitor()
           startMessageScheduleMonitor()
+          startPluginRuntimeManager()
         }
       },
     },

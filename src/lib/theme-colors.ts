@@ -1,5 +1,5 @@
 import type { ResolvedTheme } from "@/components/theme-provider"
-import type { MonacoApi } from "@/lib/lsp-client"
+import type { MonacoApi } from "@/lib/monaco"
 
 const HEX_COLOR_PATTERN = /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i
 

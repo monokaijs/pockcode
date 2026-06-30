@@ -31,7 +31,17 @@ export function TopBar({
   onToggleTerminalPanel: () => void
 }) {
   return (
-    <header className="flex min-w-0 items-center bg-sidebar">
+    <header className="flex min-w-0 items-center bg-background">
+      <div className="flex h-full shrink-0 items-center pl-2 md:hidden">
+        <button
+          aria-label="Open chats panel"
+          className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          type="button"
+          onClick={onOpenSessionsDrawer}
+        >
+          <PanelLeft className="size-4" />
+        </button>
+      </div>
       <WorkspaceTabs
         activeWorkspaceId={activeWorkspaceId}
         workspaces={workspaces}
@@ -41,14 +51,6 @@ export function TopBar({
       />
 
       <div className="ml-auto flex items-center justify-end gap-2 px-3">
-        <button
-          aria-label="Open chats panel"
-          className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
-          type="button"
-          onClick={onOpenSessionsDrawer}
-        >
-          <PanelLeft className="size-4" />
-        </button>
         <button
           aria-label={isTerminalPanelOpen ? "Hide terminal panel" : "Show terminal panel"}
           aria-pressed={isTerminalPanelOpen}
@@ -61,6 +63,7 @@ export function TopBar({
         >
           <Terminal className="size-4" />
         </button>
+        <ThemeModeToggle />
         <button
           aria-label="Open files panel"
           className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
@@ -81,10 +84,6 @@ export function TopBar({
         >
           <PanelRight className="size-4" />
         </button>
-        <ThemeModeToggle />
-        <div className="grid size-7 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-warning to-primary text-xs font-bold text-primary-foreground">
-          M
-        </div>
       </div>
     </header>
   )

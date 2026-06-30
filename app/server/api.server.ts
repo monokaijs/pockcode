@@ -2,12 +2,15 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type {
   AccountAuthMode,
   ChatAttachmentRequest,
+  CompactChatRequest,
   CreateMessageScheduleRequest,
   CreateChatRequest,
   CreateProviderAccountRequest,
   ExecuteChatRequest,
+  ForkChatRequest,
   MessageScheduleRecurrence,
   ReorderQueuedChatRunsRequest,
+  ReviewChatRequest,
   ServerRequestResponseRequest,
   UpdateMessageScheduleRequest,
   UpdateQueuedChatRunRequest,
@@ -15,6 +18,7 @@ import type {
   UpdateCodexInstructionsRequest,
   UpdateProviderAccountRequest,
 } from "../types/providers"
+import type { PluginSettingsUpdateRequest } from "../types/plugins"
 import type {
   CreateMcpServerRequest as CreateMcpServerBody,
   McpServerOauthLoginRequest as McpServerOauthLoginBody,
@@ -32,18 +36,28 @@ import {
 } from "./accounts.service"
 import {
   archiveChat,
+  compactChat,
   createChat,
   deleteQueuedChatRun,
   executeMessage,
+  forkChat,
   interruptChatRun,
   listChats,
   listMessages,
+  refreshChat,
   reorderQueuedChatRuns,
   respondToServerRequest,
+  reviewChat,
   steerQueuedChatRun,
   updateQueuedChatRun,
   updateChat,
 } from "./chats.service"
+import {
+  deleteNamedCloudflaredTunnel,
+  readCloudflaredStatus,
+  startTemporaryCloudflaredTunnel,
+  stopTemporaryCloudflaredTunnel,
+} from "./cloudflared.service"
 import {
   commitGitChanges,
   discardGitPaths,
@@ -55,7 +69,6 @@ import {
   unstageGitPaths,
 } from "./git.service"
 import { HttpError, readBooleanField, readRecordField, readStringField } from "./http.server"
-import { listLanguageServers } from "./lsp.service"
 import {
   archiveMessageSchedule,
   createMessageSchedule,
@@ -76,6 +89,7 @@ import {
 } from "./mcp.service"
 import { readCodexInstructions, updateCodexInstructions } from "./providers/codex.server"
 import { listProviders } from "./providers.service"
+import { listPlugins, runPluginAction, updatePlugin } from "./plugins.service"
 import { deleteWorkspaceHistory, listWorkspaceHistory, saveWorkspaceHistory } from "./workspace-history.service"
 import { listWorkspaceDirectory, readWorkspaceResource, readWorkspaceTree } from "./workspaces.server"
 
@@ -103,6 +117,32 @@ async function handleApiRequest(req: IncomingMessage, res: ServerResponse, url: 
   if (url.pathname === "/api/providers") {
     requireMethod(method, ["GET"])
     sendJson(res, await listProviders())
+    return
+  }
+
+  if (url.pathname === "/api/plugins") {
+    requireMethod(method, ["GET"])
+    sendJson(res, await listPlugins())
+    return
+  }
+
+  const pluginActionMatch = url.pathname.match(/^\/api\/plugins\/([^/]+)\/actions\/([^/]+)$/)
+  if (pluginActionMatch) {
+    requireMethod(method, ["POST"])
+    sendJson(res, await runPluginAction(
+      decodeURIComponent(pluginActionMatch[1]),
+      decodeURIComponent(pluginActionMatch[2]),
+    ))
+    return
+  }
+
+  const pluginMatch = url.pathname.match(/^\/api\/plugins\/([^/]+)$/)
+  if (pluginMatch) {
+    requireMethod(method, ["PATCH"])
+    sendJson(res, await updatePlugin(
+      decodeURIComponent(pluginMatch[1]),
+      readPluginSettingsUpdateRequest(await readNodeJsonBody(req)),
+    ))
     return
   }
 
@@ -247,6 +287,43 @@ async function handleApiRequest(req: IncomingMessage, res: ServerResponse, url: 
     return
   }
 
+  const chatForkMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/fork$/)
+  if (chatForkMatch) {
+    requireMethod(method, ["POST"])
+    sendJson(res, await forkChat(
+      decodeURIComponent(chatForkMatch[1]),
+      readForkChatRequest(await readNodeJsonBody(req)),
+    ), 201)
+    return
+  }
+
+  const chatCompactMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/compact$/)
+  if (chatCompactMatch) {
+    requireMethod(method, ["POST"])
+    sendJson(res, await compactChat(
+      decodeURIComponent(chatCompactMatch[1]),
+      readCompactChatRequest(await readNodeJsonBody(req)),
+    ))
+    return
+  }
+
+  const chatReviewMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/review$/)
+  if (chatReviewMatch) {
+    requireMethod(method, ["POST"])
+    sendJson(res, await reviewChat(
+      decodeURIComponent(chatReviewMatch[1]),
+      readReviewChatRequest(await readNodeJsonBody(req)),
+    ))
+    return
+  }
+
+  const chatRefreshMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/refresh$/)
+  if (chatRefreshMatch) {
+    requireMethod(method, ["POST"])
+    sendJson(res, await refreshChat(decodeURIComponent(chatRefreshMatch[1])))
+    return
+  }
+
   const serverRequestMatch = url.pathname.match(/^\/api\/chats\/([^/]+)\/server-requests\/([^/]+)$/)
   if (serverRequestMatch) {
     requireMethod(method, ["POST"])
@@ -360,9 +437,32 @@ async function handleApiRequest(req: IncomingMessage, res: ServerResponse, url: 
     return
   }
 
-  if (url.pathname === "/api/lsp/servers") {
+  if (url.pathname === "/api/cloudflared/status") {
     requireMethod(method, ["GET"])
-    sendJson(res, await listLanguageServers(url.searchParams.get("workspacePath")))
+    sendJson(res, await readCloudflaredStatus())
+    return
+  }
+
+  if (url.pathname === "/api/cloudflared/temporary") {
+    requireMethod(method, ["POST"])
+    const body = await readNodeJsonBody(req)
+    sendJson(res, await startTemporaryCloudflaredTunnel(
+      readStringField(body.url, "url", { required: true, maxLength: 2_000 }),
+    ), 201)
+    return
+  }
+
+  const cloudflaredTemporaryMatch = url.pathname.match(/^\/api\/cloudflared\/temporary\/([^/]+)$/)
+  if (cloudflaredTemporaryMatch) {
+    requireMethod(method, ["DELETE"])
+    sendJson(res, await stopTemporaryCloudflaredTunnel(decodeURIComponent(cloudflaredTemporaryMatch[1])))
+    return
+  }
+
+  const cloudflaredTunnelMatch = url.pathname.match(/^\/api\/cloudflared\/tunnels\/([^/]+)$/)
+  if (cloudflaredTunnelMatch) {
+    requireMethod(method, ["DELETE"])
+    sendJson(res, await deleteNamedCloudflaredTunnel(decodeURIComponent(cloudflaredTunnelMatch[1])))
     return
   }
 
@@ -445,6 +545,14 @@ function readCreateAccountRequest(body: Partial<CreateProviderAccountRequest>): 
   }
 }
 
+function readPluginSettingsUpdateRequest(body: Partial<PluginSettingsUpdateRequest>): PluginSettingsUpdateRequest {
+  return {
+    enabled: readBooleanField(body.enabled, "enabled"),
+    secrets: readRecordField(body.secrets, "secrets") as PluginSettingsUpdateRequest["secrets"],
+    settings: readRecordField(body.settings, "settings") as PluginSettingsUpdateRequest["settings"],
+  }
+}
+
 function readCodexInstructionsRequest(body: Partial<UpdateCodexInstructionsRequest>): UpdateCodexInstructionsRequest {
   if (body.instructions === undefined) {
     return { instructions: "" }
@@ -519,6 +627,42 @@ function readUpdateChatRequest(body: Partial<UpdateChatRequest>): UpdateChatRequ
     serviceTier: readNullableStringField(body.serviceTier, "serviceTier"),
     title: readStringField(body.title, "title", { maxLength: 160 }),
     workingDirectory: readStringField(body.workingDirectory, "workingDirectory"),
+  }
+}
+
+function readForkChatRequest(body: Partial<ForkChatRequest>): ForkChatRequest {
+  return {
+    lastTurnId: readNullableStringField(body.lastTurnId, "lastTurnId"),
+  }
+}
+
+function readCompactChatRequest(_body: Partial<CompactChatRequest>): CompactChatRequest {
+  return {}
+}
+
+function readReviewChatRequest(body: Partial<ReviewChatRequest>): ReviewChatRequest {
+  const target = body.target
+  if (
+    target !== undefined &&
+    target !== null &&
+    target !== "uncommittedChanges" &&
+    target !== "baseBranch" &&
+    target !== "commit" &&
+    target !== "custom"
+  ) {
+    throw new HttpError(400, "target must be uncommittedChanges, baseBranch, commit, or custom.")
+  }
+  const delivery = body.delivery
+  if (delivery !== undefined && delivery !== null && delivery !== "inline" && delivery !== "detached") {
+    throw new HttpError(400, "delivery must be inline or detached.")
+  }
+  return {
+    baseBranch: readNullableStringField(body.baseBranch, "baseBranch"),
+    commitSha: readNullableStringField(body.commitSha, "commitSha"),
+    commitTitle: readNullableStringField(body.commitTitle, "commitTitle"),
+    delivery,
+    instructions: readNullableStringField(body.instructions, "instructions"),
+    target,
   }
 }
 

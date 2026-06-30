@@ -39,6 +39,20 @@ const schemaStatements = [
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS "PluginSetting" (
+    "pluginId" TEXT NOT NULL PRIMARY KEY,
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "settings" JSONB NOT NULL DEFAULT '{}',
+    "secrets" JSONB NOT NULL DEFAULT '{}',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "PluginState" (
+    "pluginId" TEXT NOT NULL PRIMARY KEY,
+    "state" JSONB NOT NULL DEFAULT '{}',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
   `CREATE TABLE IF NOT EXISTS "ProviderAccount" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "providerId" TEXT NOT NULL,
@@ -133,31 +147,6 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS "ChatRun_providerId_idx" ON "ChatRun"("providerId")`,
   `CREATE INDEX IF NOT EXISTS "ChatRun_accountId_idx" ON "ChatRun"("accountId")`,
   `CREATE INDEX IF NOT EXISTS "ChatRun_externalTurnId_idx" ON "ChatRun"("externalTurnId")`,
-  `CREATE TABLE IF NOT EXISTS "ChatMessage" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "chatId" TEXT NOT NULL,
-    "runId" TEXT,
-    "sequence" INTEGER NOT NULL,
-    "role" TEXT NOT NULL,
-    "kind" TEXT NOT NULL DEFAULT 'CHAT',
-    "status" TEXT NOT NULL DEFAULT 'COMPLETED',
-    "turnId" TEXT,
-    "itemId" TEXT,
-    "requestId" TEXT,
-    "content" TEXT NOT NULL,
-    "metadata" JSONB,
-    "rawPayload" JSONB,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "completedAt" DATETIME,
-    CONSTRAINT "ChatMessage_chatId_fkey" FOREIGN KEY ("chatId") REFERENCES "Chat" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "ChatMessage_runId_fkey" FOREIGN KEY ("runId") REFERENCES "ChatRun" ("id") ON DELETE SET NULL ON UPDATE CASCADE
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS "ChatMessage_chatId_sequence_key" ON "ChatMessage"("chatId", "sequence")`,
-  `CREATE INDEX IF NOT EXISTS "ChatMessage_chatId_sequence_idx" ON "ChatMessage"("chatId", "sequence")`,
-  `CREATE INDEX IF NOT EXISTS "ChatMessage_chatId_turnId_idx" ON "ChatMessage"("chatId", "turnId")`,
-  `CREATE INDEX IF NOT EXISTS "ChatMessage_chatId_itemId_idx" ON "ChatMessage"("chatId", "itemId")`,
-  `CREATE INDEX IF NOT EXISTS "ChatMessage_requestId_idx" ON "ChatMessage"("requestId")`,
-  `CREATE INDEX IF NOT EXISTS "ChatMessage_runId_idx" ON "ChatMessage"("runId")`,
   `CREATE TABLE IF NOT EXISTS "MessageSchedule" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "title" TEXT NOT NULL,

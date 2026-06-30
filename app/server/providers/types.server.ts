@@ -2,9 +2,11 @@ import type { ProviderAccount } from "@prisma/client"
 import type {
   AccountAuthMode,
   AuthenticateProviderAccountResponse,
+  CompactChatRequest,
   ChatStatsResponse,
   ChatStatus,
   ChatAttachmentRequest,
+  ForkChatRequest,
   MessageKind,
   MessageRole,
   MessageStatus,
@@ -13,6 +15,7 @@ import type {
   ProviderFieldDefinition,
   ProviderLimitsResponse,
   ProviderModelListResponse,
+  ReviewChatRequest,
   ServerRequestResponseRequest,
 } from "../../types/providers"
 import type { JsonObject, JsonSerializable } from "../../types/json"
@@ -99,6 +102,19 @@ export type ProviderAccountSwitchContext = {
   toAccount: ProviderAccount
 }
 
+export type ProviderThreadForkResult = {
+  externalThreadId: string
+  raw?: JsonSerializable
+  title?: string | null
+  workingDirectory?: string | null
+}
+
+export type ProviderThreadActionResult = {
+  externalThreadId?: string | null
+  raw?: JsonSerializable
+  turnId?: string | null
+}
+
 export type ProviderAdapter = {
   definition: ProviderDefinition
   authenticate(account: ProviderAccount, mode: AccountAuthMode): Promise<AuthenticateProviderAccountResponse>
@@ -107,8 +123,12 @@ export type ProviderAdapter = {
   defaultAccountSettings(): JsonObject
   defaultRuntimeDefaults(): JsonObject
   defaultSettings(): JsonObject
+  archiveThread?(account: ProviderAccount, externalThreadId: string, workingDirectory?: string | null): Promise<boolean>
+  compactThread?(account: ProviderAccount, externalThreadId: string, request?: CompactChatRequest, workingDirectory?: string | null): Promise<ProviderThreadActionResult>
+  deleteThread?(account: ProviderAccount, externalThreadId: string): Promise<boolean>
+  forkThread?(account: ProviderAccount, externalThreadId: string, request?: ForkChatRequest, workingDirectory?: string | null): Promise<ProviderThreadForkResult>
   hydrateThreadForAccount(threadId: string, account: ProviderAccount): Promise<boolean>
-  interrupt(account: ProviderAccount, threadId: string, turnId: string): Promise<void>
+  interrupt(account: ProviderAccount, threadId: string, turnId?: string | null): Promise<void>
   isAccountConnected?(account: ProviderAccount): Promise<boolean> | boolean
   listChats(account: ProviderAccount): Promise<ProviderChatListItem[]>
   loadChatMessages(account: ProviderAccount, externalThreadId: string): Promise<ProviderChatMessageItem[]>
@@ -118,8 +138,15 @@ export type ProviderAdapter = {
   readAccountAlias?(account: ProviderAccount): Promise<string | null> | string | null
   readCachedChatStates?(account: ProviderAccount, externalThreadIds: string[]): Promise<Map<string, ProviderChatStateSnapshot>>
   readChatStatus?(account: ProviderAccount, externalThreadId: string): Promise<ChatStatus | null>
+  readConfig?(account: ProviderAccount, workingDirectory?: string | null): Promise<JsonSerializable>
   readLimits(account: ProviderAccount): Promise<ProviderLimitsResponse>
+  readUsage?(account: ProviderAccount): Promise<JsonSerializable>
+  listHooks?(account: ProviderAccount, workingDirectory?: string | null): Promise<JsonSerializable>
+  listPlugins?(account: ProviderAccount): Promise<JsonSerializable>
+  listSkills?(account: ProviderAccount, workingDirectory?: string | null): Promise<JsonSerializable>
+  renameThread?(account: ProviderAccount, externalThreadId: string, title: string, workingDirectory?: string | null): Promise<boolean>
   respondToServerRequest?(account: ProviderAccount, requestId: string, response: ServerRequestResponseRequest): Promise<void>
+  reviewThread?(account: ProviderAccount, externalThreadId: string, request?: ReviewChatRequest, workingDirectory?: string | null): Promise<ProviderThreadActionResult>
   sendMessage(account: ProviderAccount, input: ProviderRuntimeMessageInput): Promise<ProviderRuntimeMessageResult>
   steerMessage?(account: ProviderAccount, input: ProviderRuntimeSteerInput): Promise<ProviderRuntimeSteerResult>
   stopAccountRuntime(accountId: string): void

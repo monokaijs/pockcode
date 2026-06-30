@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Check,
+  Copy,
   Dock,
   ExternalLink,
   FileText,
@@ -52,11 +53,14 @@ import {
   apiClient,
   type AccountAuthMode,
   type BrowserEntry,
+  type ChatAccountSwitchPhase,
   type ChatMessageResponse,
   type ChatResponse,
+  type CloudflaredNamedTunnel,
+  type CloudflaredStatusResponse,
+  type CloudflaredTemporaryTunnel,
   type GitFileChange,
   type GitStatusResponse,
-  type LanguageServerInfo,
   type MessageScheduleRecurrence,
   type MessageScheduleResponse,
   type MessageScheduleRunResponse,
@@ -66,19 +70,13 @@ import {
   type McpServerStatusItem,
   type McpServerTransportConfig,
   type McpToolApprovalMode,
+  type PluginResponse,
   type ProviderAccountResponse,
   type ProviderDefinitionResponse,
   type ProviderModelListResponse,
   type WorkspaceHistoryResponse,
 } from "@/lib/api-client"
-import {
-  attachMonacoLsp,
-  fileUriFromPath,
-  lspLanguageIdForPath,
-  selectLanguageServer,
-  type LspStatus,
-  type MonacoApi,
-} from "@/lib/lsp-client"
+import { configureMonacoLanguageDefaults, type MonacoApi } from "@/lib/monaco"
 import { definePockcodeMonacoTheme, pockcodeMonacoThemeName } from "@/lib/theme-colors"
 import { cn } from "@/lib/utils"
 import type {
@@ -135,6 +133,7 @@ import {
   mergeProviderModelOptions,
   readComposerReasoningEffort,
   readComposerServiceTier,
+  readChatAccountSwitchEvent,
   readChatMessageResponse,
   readChatResponse,
   readCodexHomeValue,
@@ -217,6 +216,16 @@ export function useChatList(): ChatListContextValue {
 
 function hasStreamingMessages(messages: ChatMessageResponse[]): boolean {
   return messages.some((message) => message.status === "STREAMING")
+}
+
+function removeInterruptedStreamingMessages(
+  messages: ChatMessageResponse[],
+  runId: string | null,
+): ChatMessageResponse[] {
+  return messages.filter((message) => (
+    message.status !== "STREAMING" ||
+    (runId ? message.runId !== runId : false)
+  ))
 }
 
 function useWorkspaceTerminals(activeWorkspace: Workspace | null) {
@@ -417,7 +426,7 @@ const customizations: ManagementItem[] = [
   { icon: FileText, id: "instructions", label: "Instructions" },
   { icon: Wrench, label: "Hooks" },
   { icon: Server, id: "mcpServers", label: "MCP Servers" },
-  { icon: Plug, label: "Plugins" },
+  { icon: Plug, id: "plugins", label: "Plugins" },
 ]
 
 type SessionShellState = ReturnType<typeof useSessionShellController>
@@ -474,6 +483,7 @@ function useSessionShellController() {
   const [providerDefinitions, setProviderDefinitions] = useState<ProviderDefinitionResponse[]>([])
   const [preferredAccountId, setPreferredAccountId] = useState<string | null>(null)
   const [isSwitchingAccount, setIsSwitchingAccount] = useState(false)
+  const [accountSwitchByChatId, setAccountSwitchByChatId] = useState<Record<string, ChatAccountSwitchPhase>>({})
   const [isChatsLoading, setIsChatsLoading] = useState(false)
   const [activeScheduleId, setActiveScheduleId] = useState<string | null>(null)
   const [isSchedulesLoading, setIsSchedulesLoading] = useState(false)
@@ -490,7 +500,6 @@ function useSessionShellController() {
   const [filesWidth, setFilesWidth] = useState(380)
   const [isFilesPanelOpen, setIsFilesPanelOpen] = useState(() => shouldShowFilesPanelByDefault())
   const [isTerminalPanelOpen, setIsTerminalPanelOpen] = useState(false)
-  const [lspServersByWorkspace, setLspServersByWorkspace] = useState<Record<string, LanguageServerInfo[]>>({})
   const [mainMode, setMainMode] = useState<MainMode>("chat")
   const [messagesByChatId, setMessagesByChatId] = useState<Record<string, ChatMessageResponse[]>>({})
   const [mobileDrawer, setMobileDrawer] = useState<MobileDrawer>(null)
@@ -501,6 +510,7 @@ function useSessionShellController() {
   const [providersDialogOpen, setProvidersDialogOpen] = useState(false)
   const [instructionsDialogOpen, setInstructionsDialogOpen] = useState(false)
   const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
+  const [pluginsDialogOpen, setPluginsDialogOpen] = useState(false)
   const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null)
   const [workspaceBrowserOpen, setWorkspaceBrowserOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -539,10 +549,6 @@ function useSessionShellController() {
   const selectedFileContent = selectedFile
     ? fileContentById[selectedFile.id] ?? fileContentFor(selectedFile)
     : ""
-  const selectedFileContentLoaded = selectedFile
-    ? !selectedFile.path || selectedFile.content !== undefined || fileContentById[selectedFile.id] !== undefined
-    : false
-  const activeLanguageServers = activeWorkspace ? lspServersByWorkspace[activeWorkspace.id] ?? [] : []
   const activeMessages = activeChat ? messagesByChatId[activeChat.id] ?? [] : []
   const activeMessagesLoaded = activeChat ? Object.prototype.hasOwnProperty.call(messagesByChatId, activeChat.id) : true
   const desktopGridColumns = isFilesPanelOpen
@@ -692,27 +698,6 @@ function useSessionShellController() {
   }, [activeScheduleId])
 
   useEffect(() => {
-    if (!activeWorkspace) {
-      return
-    }
-    let cancelled = false
-    void apiClient.lsp.listServers(activeWorkspace.path)
-      .then((servers) => {
-        if (!cancelled) {
-          setLspServersByWorkspace((current) => ({ ...current, [activeWorkspace.id]: servers }))
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLspServersByWorkspace((current) => ({ ...current, [activeWorkspace.id]: [] }))
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [activeWorkspace?.id, activeWorkspace?.path])
-
-  useEffect(() => {
     if (!activeChatId) {
       return
     }
@@ -766,6 +751,27 @@ function useSessionShellController() {
     const handleProviderEvent = (value: unknown) => {
       const event = readProviderSocketEvent(value)
       if (!event) {
+        return
+      }
+      if (event.type === "chat.accountSwitch") {
+        const switchEvent = readChatAccountSwitchEvent(event.payload)
+        if (!switchEvent) {
+          return
+        }
+        setAccountSwitchByChatId((current) => {
+          if (switchEvent.phase === "completed" || switchEvent.phase === "failed") {
+            return omitRecordKey(current, switchEvent.chatId)
+          }
+          return { ...current, [switchEvent.chatId]: switchEvent.phase }
+        })
+        if (switchEvent.phase === "failed") {
+          setPreferredAccountId(switchEvent.fromAccountId ?? null)
+          setIsSwitchingAccount(false)
+          setChatError(switchEvent.error ?? "Unable to switch provider account.")
+        }
+        if (switchEvent.phase === "completed") {
+          setIsSwitchingAccount(false)
+        }
         return
       }
       if (event.type === "chat.updated") {
@@ -971,7 +977,6 @@ function useSessionShellController() {
     })
     setOpenFileIdsByWorkspace((current) => omitRecordKey(current, workspaceId))
     setSelectedFileByWorkspace((current) => omitRecordKey(current, workspaceId))
-    setLspServersByWorkspace((current) => omitRecordKey(current, workspaceId))
     void apiClient.workspaces.deleteHistory(closingWorkspace.path).catch(() => undefined)
   }
 
@@ -1278,9 +1283,18 @@ function useSessionShellController() {
     if (!activeChat) {
       return
     }
+    const chatId = activeChat.id
     setChatError(null)
     try {
-      await apiClient.chats.interrupt(activeChat.id)
+      const response = await apiClient.chats.interrupt(chatId)
+      setChats((current) =>
+        current.map((chat) => chat.id === chatId ? { ...chat, status: "IDLE" } : chat),
+      )
+      setMessagesByChatId((current) => ({
+        ...current,
+        [chatId]: removeInterruptedStreamingMessages(current[chatId] ?? [], response.runId),
+      }))
+      await loadMessagesForChat(chatId)
     } catch (error) {
       setChatError(readError(error))
     }
@@ -1292,6 +1306,7 @@ function useSessionShellController() {
       setProvidersDialogOpen(true)
       return
     }
+    const previousAccountId = activeChat?.accountId ?? preferredAccountId
     setPreferredAccountId(accountId)
     if (!activeChat || activeChat.accountId === accountId) {
       return
@@ -1301,7 +1316,9 @@ function useSessionShellController() {
     try {
       const updated = await apiClient.chats.update(activeChat.id, { accountId })
       setChats((current) => upsertChat(current, updated))
+      await loadMessagesForChat(updated.id)
     } catch (error) {
+      setPreferredAccountId(previousAccountId ?? null)
       setChatError(readError(error))
     } finally {
       setIsSwitchingAccount(false)
@@ -1331,6 +1348,88 @@ function useSessionShellController() {
       setChatError(readError(error))
       throw error
     }
+  }
+
+  const archiveChat = async (chatId: string) => {
+    setChatError(null)
+    try {
+      await apiClient.chats.delete(chatId)
+      setChats((current) => {
+        const next = current.filter((chat) => chat.id !== chatId)
+        if (activeChatId === chatId) {
+          setActiveChatId(next[0]?.id ?? null)
+        }
+        return next
+      })
+      setMessagesByChatId((current) => omitRecordKey(current, chatId))
+    } catch (error) {
+      setChatError(readError(error))
+    }
+  }
+
+  const compactChat = async (chatId: string) => {
+    setChatError(null)
+    try {
+      const updated = await apiClient.chats.compact(chatId)
+      setChats((current) => upsertChat(current, updated))
+      await loadMessagesForChat(chatId)
+    } catch (error) {
+      setChatError(readError(error))
+    }
+  }
+
+  const forkChat = async (chatId: string, lastTurnId?: string | null) => {
+    setChatError(null)
+    try {
+      const forked = await apiClient.chats.fork(chatId, lastTurnId ? { lastTurnId } : {})
+      setChats((current) => upsertChat(current, forked))
+      setActiveChatId(forked.id)
+      await loadMessagesForChat(forked.id)
+    } catch (error) {
+      setChatError(readError(error))
+    }
+  }
+
+  const refreshChat = async (chatId: string) => {
+    setChatError(null)
+    try {
+      const response = await apiClient.chats.refresh(chatId)
+      setChats((current) => upsertChat(current, response.chat))
+      setMessagesByChatId((current) => ({ ...current, [chatId]: response.messages.data }))
+    } catch (error) {
+      setChatError(readError(error))
+    }
+  }
+
+  const renameChat = async (chatId: string, title: string) => {
+    setChatError(null)
+    try {
+      const updated = await apiClient.chats.update(chatId, { title })
+      setChats((current) => upsertChat(current, updated))
+    } catch (error) {
+      setChatError(readError(error))
+      throw error
+    }
+  }
+
+  const reviewChat = async (chatId: string, instructions?: string | null) => {
+    setChatError(null)
+    try {
+      const updated = await apiClient.chats.review(chatId, instructions?.trim()
+        ? { target: "custom", instructions: instructions.trim() }
+        : { target: "uncommittedChanges" })
+      setChats((current) => upsertChat(current, updated))
+      await loadMessagesForChat(chatId)
+    } catch (error) {
+      setChatError(readError(error))
+    }
+  }
+
+  const startNewChat = () => {
+    setActiveChatId(null)
+    setChatError(null)
+    setMainMode("chat")
+    setMobileDrawer(null)
   }
 
   const createSchedule = async () => {
@@ -1434,6 +1533,7 @@ function useSessionShellController() {
     setProvidersDialogOpen(view === "providers")
     setInstructionsDialogOpen(view === "instructions")
     setMcpServersDialogOpen(view === "mcpServers")
+    setPluginsDialogOpen(view === "plugins")
     setMobileDrawer(null)
   }
 
@@ -1441,7 +1541,6 @@ function useSessionShellController() {
   return {
     activeChat,
     activeChatId,
-    activeLanguageServers,
     activeMessages,
     activeMessagesLoaded,
     activePanelTab,
@@ -1450,9 +1549,12 @@ function useSessionShellController() {
     activeScheduleRuns: activeScheduleId ? scheduleRunsByScheduleId[activeScheduleId] ?? [] : [],
     activeTerminalId: terminalHost.activeTerminalId,
     activeWorkspace,
+    accountSwitchPhase: activeChatId ? accountSwitchByChatId[activeChatId] ?? null : null,
+    archiveChat,
     chatAccounts,
     chatError,
     chats,
+    compactChat,
     closeTerminal: terminalHost.closeTerminal,
     closeFile,
     closeWorkspace,
@@ -1465,6 +1567,7 @@ function useSessionShellController() {
     editorRevealTarget,
     expandedFolderIds,
     filesWidth,
+    forkChat,
     instructionsDialogOpen,
     isChatsLoading,
     isFilesPanelOpen,
@@ -1483,17 +1586,20 @@ function useSessionShellController() {
     openSelectedFileDialog,
     openWorkspaceFilePath,
     openWorkspaceFromFolder,
+    pluginsDialogOpen,
     preferredAccountId,
     providerDefinitions,
     providersDialogOpen,
     recentWorkspaces,
+    refreshChat,
+    renameChat,
     reorderQueuedMessages,
+    reviewChat,
     selectFile,
     selectManagementView,
     selectSchedule,
     selectedFile,
     selectedFileContent,
-    selectedFileContentLoaded,
     selectedFileId,
     sendChatMessage,
     setActiveChatId,
@@ -1507,6 +1613,7 @@ function useSessionShellController() {
     setIsTerminalPanelOpen,
     setMainMode,
     setMcpServersDialogOpen,
+    setPluginsDialogOpen,
     setMobileDrawer,
     setProvidersDialogOpen,
     setSidebarWidth,
@@ -1515,6 +1622,7 @@ function useSessionShellController() {
     setWorkspaceBrowserOpen,
     sidebarWidth,
     sidebarTab,
+    startNewChat,
     steerQueuedMessage,
     stopActiveChat,
     switchChatAccount,
@@ -1598,7 +1706,7 @@ function SessionDesktopWorkspace() {
 
   return (
     <div
-      className="hidden min-h-0 gap-2 overflow-hidden bg-background p-2 md:grid"
+      className="hidden min-h-0 gap-2 overflow-hidden bg-background p-2 pt-0 md:grid"
       style={{
         gridTemplateColumns: shell.desktopGridColumns,
         gridTemplateRows: shell.isTerminalPanelOpen
@@ -1647,20 +1755,7 @@ function SessionDesktopWorkspace() {
       ) : null}
       {shell.isTerminalPanelOpen ? (
         <div className="min-h-0 overflow-hidden" style={{ gridColumn: `2 / ${terminalColumnEnd}`, gridRow: "2" }}>
-          <SessionTerminalPanel
-            activeTerminalId={shell.activeTerminalId}
-            connectionState={shell.terminalConnectionState}
-            error={shell.terminalError}
-            outputByTerminalId={shell.terminalOutputByTerminalId}
-            terminals={shell.terminals}
-            workspaceName={shell.activeWorkspace?.name ?? "workspace"}
-            workspacePath={shell.activeWorkspace?.path ?? ""}
-            onActivateTerminal={shell.setActiveTerminalId}
-            onCloseTerminal={shell.closeTerminal}
-            onCreateTerminal={shell.createTerminal}
-            onHide={() => shell.setIsTerminalPanelOpen(false)}
-            onInput={shell.writeTerminalInput}
-            onResize={shell.resizeTerminal}
+          <SessionTerminalPanelHost
             onResizeStart={(event) =>
               startTerminalResize(event, {
                 startHeight: shell.terminalHeight,
@@ -1678,8 +1773,32 @@ function SessionMobileMain() {
   const shell = useSessionShellState()
 
   return (
-    <div className="h-full min-h-0 overflow-hidden md:hidden">
-      <SessionMainContent onBackToChat={shell.switchToChat} />
+    <div
+      className={cn(
+        "grid h-full min-h-0 overflow-hidden bg-background md:hidden",
+        shell.isTerminalPanelOpen && "gap-2 p-2 pt-0",
+      )}
+      style={{
+        gridTemplateRows: shell.isTerminalPanelOpen
+          ? `minmax(0, 1fr) clamp(${MIN_TERMINAL_HEIGHT}px, ${shell.terminalHeight}px, 46dvh)`
+          : "minmax(0, 1fr)",
+      }}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <SessionMainContent onBackToChat={shell.switchToChat} />
+      </div>
+      {shell.isTerminalPanelOpen ? (
+        <div className="min-h-0 overflow-hidden">
+          <SessionTerminalPanelHost
+            onResizeStart={(event) =>
+              startTerminalResize(event, {
+                startHeight: shell.terminalHeight,
+                onResize: shell.setTerminalHeight,
+              })
+            }
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1730,6 +1849,37 @@ function SessionRightPanel({ treeId }: { treeId: string }) {
   )
 }
 
+function SessionTerminalPanelHost({
+  onResizeStart,
+}: {
+  onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
+}) {
+  const shell = useSessionShellState()
+
+  if (!shell.activeWorkspace) {
+    return null
+  }
+
+  return (
+    <SessionTerminalPanel
+      activeTerminalId={shell.activeTerminalId}
+      connectionState={shell.terminalConnectionState}
+      error={shell.terminalError}
+      outputByTerminalId={shell.terminalOutputByTerminalId}
+      terminals={shell.terminals}
+      workspaceName={shell.activeWorkspace.name}
+      workspacePath={shell.activeWorkspace.path}
+      onActivateTerminal={shell.setActiveTerminalId}
+      onCloseTerminal={shell.closeTerminal}
+      onCreateTerminal={shell.createTerminal}
+      onHide={() => shell.setIsTerminalPanelOpen(false)}
+      onInput={shell.writeTerminalInput}
+      onResize={shell.resizeTerminal}
+      onResizeStart={onResizeStart}
+    />
+  )
+}
+
 function SessionMobileDrawers() {
   const shell = useSessionShellState()
 
@@ -1760,14 +1910,11 @@ function SessionDialogHost() {
       {shell.activeWorkspace && shell.selectedFile && shell.mainMode === "dialog" ? (
         <FileDialog
           content={shell.selectedFileContent}
-          contentLoaded={shell.selectedFileContentLoaded}
           file={shell.selectedFile}
-          languageServers={shell.activeLanguageServers}
           revealTarget={revealTarget}
           workspace={shell.activeWorkspace}
           onClose={() => shell.setMainMode("chat")}
           onContentChange={shell.updateFileContent}
-          onOpenLocation={shell.openWorkspaceFilePath}
           onOpenInMain={() => {
             writeDetachedEditorPreference(false)
             shell.setMainMode("editor")
@@ -1789,6 +1936,10 @@ function SessionDialogHost() {
       <McpServersManagementDialog
         open={shell.mcpServersDialogOpen}
         onClose={() => shell.setMcpServersDialogOpen(false)}
+      />
+      <PluginsManagementDialog
+        open={shell.pluginsDialogOpen}
+        onClose={() => shell.setPluginsDialogOpen(false)}
       />
     </>
   )
@@ -2547,7 +2698,9 @@ function SessionSidebar() {
       ? "instructions"
       : shell.mcpServersDialogOpen
         ? "mcpServers"
-        : null
+        : shell.pluginsDialogOpen
+          ? "plugins"
+          : null
   const workspace = shell.activeWorkspace
   const providerIconById = useMemo(
     () => new Map(shell.providerDefinitions.map((provider) => [provider.id, provider.icon])),
@@ -2837,16 +2990,13 @@ function MainContentPane({
     return (
       <FileEditorPane
         content={shell.selectedFileContent}
-        contentLoaded={shell.selectedFileContentLoaded}
         file={selectedFile}
-        languageServers={shell.activeLanguageServers}
         openFiles={shell.openFiles}
         revealTarget={shell.editorRevealTarget?.fileId === selectedFile.id ? shell.editorRevealTarget : null}
         workspace={workspace}
         onFileClose={shell.closeFile}
         onContentChange={shell.updateFileContent}
         onFileSelect={shell.selectFile}
-        onOpenLocation={shell.openWorkspaceFilePath}
         onOpenDialog={shell.openSelectedFileDialog}
         onToggleMode={onBackToChat}
       />
@@ -2865,14 +3015,24 @@ function MainContentPane({
       isLoading={shell.isChatsLoading}
       isMessagesLoading={Boolean(shell.activeChat && !shell.activeMessagesLoaded)}
       isSwitchingAccount={shell.isSwitchingAccount}
+      accountSwitchPhase={shell.accountSwitchPhase}
       messages={shell.activeMessages}
       preferredAccountId={shell.preferredAccountId}
       providerDefinitions={shell.providerDefinitions}
       workspace={workspace}
+      onArchiveChat={shell.archiveChat}
+      onCompactChat={shell.compactChat}
       onDeleteQueuedMessage={shell.deleteQueuedMessage}
       onEditQueuedMessage={shell.editQueuedMessage}
       onFileLinkOpen={shell.openChatFileLink}
+      onForkChat={shell.forkChat}
+      onNewChat={shell.startNewChat}
+      onOpenMcpServers={() => shell.setMcpServersDialogOpen(true)}
       onOpenProviders={() => shell.setProvidersDialogOpen(true)}
+      onOpenPlugins={() => shell.setPluginsDialogOpen(true)}
+      onRefreshChat={shell.refreshChat}
+      onRenameChat={shell.renameChat}
+      onReviewChat={shell.reviewChat}
       onToggleMode={shell.switchToEditor}
       onReorderQueuedMessages={shell.reorderQueuedMessages}
       onPermissionModeChange={shell.updateChatPermissionMode}
@@ -3391,6 +3551,350 @@ function CodexInstructionsDialog({ open, onClose }: { open: boolean; onClose: ()
       </section>
     </div>
   )
+}
+
+function PluginsManagementDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [drafts, setDrafts] = useState<Record<string, { botToken: string; enabled: boolean }>>({})
+  const [isLoading, setIsLoading] = useState(false)
+  const [notice, setNotice] = useState<{ kind: "error" | "info"; text: string } | null>(null)
+  const [plugins, setPlugins] = useState<PluginResponse[]>([])
+  const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null)
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const selectedPlugin = plugins.find((plugin) => plugin.id === selectedPluginId) ?? null
+
+  const loadPlugins = async () => {
+    setIsLoading(true)
+    setNotice(null)
+    try {
+      const response = await apiClient.plugins.list()
+      setPlugins(response)
+      setDrafts(Object.fromEntries(response.map((plugin) => [plugin.id, pluginDraftFromResponse(plugin)])))
+    } catch (error) {
+      setNotice({ kind: "error", text: readError(error) })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (open) {
+      void loadPlugins()
+    }
+  }, [open])
+
+  const updateDraft = (pluginId: string, patch: Partial<{ botToken: string; enabled: boolean }>) => {
+    setDrafts((current) => ({
+      ...current,
+      [pluginId]: { ...(current[pluginId] ?? { botToken: "", enabled: false }), ...patch },
+    }))
+  }
+
+  const savePlugin = async (plugin: PluginResponse) => {
+    const draft = drafts[plugin.id] ?? { botToken: "", enabled: plugin.enabled }
+    setSavingId(plugin.id)
+    setNotice(null)
+    try {
+      const updated = await apiClient.plugins.update(plugin.id, {
+        enabled: draft.enabled,
+        secrets: { botToken: draft.botToken.trim() },
+      })
+      setPlugins((current) => current.map((entry) => entry.id === updated.id ? updated : entry))
+      updateDraft(plugin.id, pluginDraftFromResponse(updated))
+      window.dispatchEvent(new Event("pockcode:plugins-changed"))
+      setNotice({ kind: "info", text: "Saved" })
+    } catch (error) {
+      setNotice({ kind: "error", text: readError(error) })
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  const runAction = async (plugin: PluginResponse, action: string) => {
+    setSavingId(plugin.id)
+    setNotice(null)
+    try {
+      const response = await apiClient.plugins.action(plugin.id, action)
+      setPlugins((current) => current.map((entry) => entry.id === response.plugin.id ? response.plugin : entry))
+      window.dispatchEvent(new Event("pockcode:plugins-changed"))
+      setNotice({ kind: "info", text: response.message ?? "Updated" })
+    } catch (error) {
+      setNotice({ kind: "error", text: readError(error) })
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
+      <button aria-label="Close plugins" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-lg grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
+          <Plug className="size-4 shrink-0 text-info" />
+          <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">Plugins</h1>
+          <button
+            aria-label="Refresh plugins"
+            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="Refresh"
+            type="button"
+            onClick={() => void loadPlugins()}
+          >
+            <RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
+          </button>
+          <button
+            aria-label="Close plugins"
+            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            type="button"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        </header>
+
+        <div className="min-h-0 overflow-auto p-3 ide-scrollbar">
+          {notice ? (
+            <div
+              className={cn(
+                "mb-3 rounded-md border px-3 py-2 text-[12px]",
+                notice.kind === "error"
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : "border-info/20 bg-info/10 text-info",
+              )}
+            >
+              {notice.text}
+            </div>
+          ) : null}
+
+          {isLoading ? (
+            <div className="grid h-full min-h-44 place-items-center text-[13px] text-muted-foreground">Loading</div>
+          ) : plugins.length ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {plugins.map((plugin) => (
+                <PluginListCard
+                  key={plugin.id}
+                  plugin={plugin}
+                  onSelect={() => setSelectedPluginId(plugin.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="grid h-full min-h-44 place-items-center text-[13px] text-muted-foreground">No plugins</div>
+          )}
+        </div>
+      </section>
+      <PluginConfigDialog
+        draft={selectedPlugin ? drafts[selectedPlugin.id] ?? { botToken: "", enabled: selectedPlugin.enabled } : null}
+        plugin={selectedPlugin}
+        saving={selectedPlugin ? savingId === selectedPlugin.id : false}
+        onAction={(action) => {
+          if (selectedPlugin) {
+            void runAction(selectedPlugin, action)
+          }
+        }}
+        onClose={() => setSelectedPluginId(null)}
+        onDraftChange={(patch) => {
+          if (selectedPlugin) {
+            updateDraft(selectedPlugin.id, patch)
+          }
+        }}
+        onSave={() => {
+          if (selectedPlugin) {
+            void savePlugin(selectedPlugin)
+          }
+        }}
+      />
+    </div>
+  )
+}
+
+function PluginListCard({ plugin, onSelect }: { plugin: PluginResponse; onSelect: () => void }) {
+  const statusLabel = plugin.enabled ? plugin.status.state : "disabled"
+
+  return (
+    <button
+      className="grid aspect-square min-w-0 place-items-center rounded-md border border-border bg-secondary/30 p-3 text-center hover:bg-accent/70"
+      type="button"
+      onClick={onSelect}
+    >
+      <div className="grid min-w-0 place-items-center gap-2">
+        <span className="grid size-12 place-items-center rounded-md bg-info/15 text-info">
+          <PluginIcon icon={plugin.icon} className="size-6" />
+        </span>
+        <span className="min-w-0 truncate text-[13px] font-semibold text-foreground">{plugin.label}</span>
+        <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", pluginStatusClass(statusLabel))}>
+          {statusLabel}
+        </span>
+      </div>
+    </button>
+  )
+}
+
+function pluginDraftFromResponse(plugin: PluginResponse): { botToken: string; enabled: boolean } {
+  return {
+    botToken: readRecordString(plugin.secrets, "botToken"),
+    enabled: plugin.enabled,
+  }
+}
+
+function PluginIcon({ className, icon }: { className?: string; icon: string }) {
+  if (icon === "telegram") {
+    return <TelegramIcon className={className} />
+  }
+  return <Plug className={className} />
+}
+
+function TelegramIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={cn("shrink-0", className)}
+      fill="currentColor"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="M21.8 3.5 18.6 20c-.2 1.2-.9 1.5-1.9.9l-5.1-3.8-2.5 2.4c-.3.3-.5.5-1 .5l.4-5.2 9.5-8.6c.4-.4-.1-.6-.6-.2L5.7 13.4.6 11.8c-1.1-.4-1.1-1.1.2-1.6L20.7 2.5c.9-.3 1.7.2 1.1 1Z" />
+    </svg>
+  )
+}
+
+function PluginConfigDialog({
+  draft,
+  plugin,
+  saving,
+  onAction,
+  onClose,
+  onDraftChange,
+  onSave,
+}: {
+  draft: { botToken: string; enabled: boolean } | null
+  plugin: PluginResponse | null
+  saving: boolean
+  onAction: (action: string) => void
+  onClose: () => void
+  onDraftChange: (patch: Partial<{ botToken: string; enabled: boolean }>) => void
+  onSave: () => void
+}) {
+  if (!plugin || !draft) {
+    return null
+  }
+
+  const summary = readRecord(plugin.stateSummary)
+  const pairingCode = readRecordString(summary, "pairingCode")
+  const ownerLabel = readRecordString(summary, "ownerLabel")
+  const ownerUserId = summary.ownerUserId
+  const subscriptionCount = typeof summary.subscriptionCount === "number" ? summary.subscriptionCount : 0
+  const tokenConfigured = plugin.secretConfigured.botToken
+
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
+      <button aria-label="Close plugin settings" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative grid max-h-[84vh] w-full max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+        <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
+          <PluginIcon icon={plugin.icon} className="size-4 shrink-0 text-info" />
+          <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{plugin.label}</h2>
+          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", pluginStatusClass(plugin.status.state))}>
+            {plugin.status.state}
+          </span>
+          <button
+            aria-label="Close plugin settings"
+            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            type="button"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        </header>
+
+        <div className="min-h-0 overflow-auto p-3 ide-scrollbar">
+          <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-secondary/30 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-medium text-foreground">{draft.enabled ? "Enabled" : "Disabled"}</div>
+              <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{plugin.status.message || plugin.description}</div>
+            </div>
+            <Switch
+              aria-label={draft.enabled ? "Disable plugin" : "Enable plugin"}
+              checked={draft.enabled}
+              size="sm"
+              onCheckedChange={(enabled) => onDraftChange({ enabled })}
+            />
+          </div>
+
+          <div className="grid gap-3">
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Bot token</span>
+              <input
+                className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-primary"
+                placeholder={tokenConfigured ? "Configured" : "123456:ABC..."}
+                type="text"
+                value={draft.botToken}
+                onChange={(event) => onDraftChange({ botToken: event.target.value })}
+              />
+            </label>
+
+            <div className="grid gap-2 rounded-md border border-border bg-background/60 px-3 py-2 text-[12px]">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="w-24 shrink-0 text-muted-foreground">Pairing</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-foreground">{ownerLabel ? "paired" : pairingCode || "not ready"}</span>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="w-24 shrink-0 text-muted-foreground">Owner</span>
+                <span className="min-w-0 flex-1 truncate text-foreground">
+                  {ownerLabel ? `${ownerLabel}${typeof ownerUserId === "number" ? ` (${ownerUserId})` : ""}` : "none"}
+                </span>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="w-24 shrink-0 text-muted-foreground">Subscriptions</span>
+                <span className="min-w-0 flex-1 truncate text-foreground">{subscriptionCount}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer className="flex min-h-11 flex-wrap items-center justify-end gap-2 border-t border-border px-3 py-1.5">
+          <button
+            className="h-8 rounded-md border border-border px-3 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={saving}
+            type="button"
+            onClick={() => onAction("refreshPairingCode")}
+          >
+            Refresh code
+          </button>
+          <button
+            className="h-8 rounded-md border border-destructive/30 px-3 text-[12px] font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={saving || !ownerLabel}
+            type="button"
+            onClick={() => onAction("clearOwner")}
+          >
+            Clear owner
+          </button>
+          <button
+            className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={saving}
+            type="button"
+            onClick={onSave}
+          >
+            {saving ? "Saving" : "Save"}
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+function pluginStatusClass(status: PluginResponse["status"]["state"]): string {
+  if (status === "running") {
+    return "bg-success/10 text-success"
+  }
+  if (status === "starting") {
+    return "bg-warning/10 text-warning"
+  }
+  if (status === "error") {
+    return "bg-destructive/10 text-destructive"
+  }
+  return "bg-muted text-muted-foreground"
 }
 
 type McpServerDraft = {
@@ -4951,9 +5455,7 @@ function ProviderAccountDialogFooter({
 
 function FileEditorPane({
   content,
-  contentLoaded,
   file,
-  languageServers,
   openFiles,
   revealTarget,
   workspace,
@@ -4961,13 +5463,10 @@ function FileEditorPane({
   onContentChange,
   onFileSelect,
   onOpenDialog,
-  onOpenLocation,
   onToggleMode,
 }: {
   content: string
-  contentLoaded: boolean
   file: FileNode
-  languageServers: LanguageServerInfo[]
   openFiles: FileNode[]
   revealTarget: FileRevealTarget | null
   workspace: Workspace
@@ -4975,7 +5474,6 @@ function FileEditorPane({
   onContentChange: (id: string, value: string) => void
   onFileSelect: (id: string, options?: FileSelectOptions) => void
   onOpenDialog: () => void
-  onOpenLocation: (filePath: string, lineNumber: number, column: number) => Promise<boolean>
   onToggleMode: () => void
 }) {
   return (
@@ -5025,12 +5523,9 @@ function FileEditorPane({
       </div>
       <FileViewer
         content={content}
-        contentLoaded={contentLoaded}
         file={file}
-        languageServers={languageServers}
         revealTarget={revealTarget}
         workspace={workspace}
-        onOpenLocation={onOpenLocation}
         onContentChange={onContentChange}
         footerAction={
           <button
@@ -5050,25 +5545,19 @@ function FileEditorPane({
 
 function FileDialog({
   content,
-  contentLoaded,
   file,
-  languageServers,
   revealTarget,
   workspace,
   onClose,
   onContentChange,
-  onOpenLocation,
   onOpenInMain,
 }: {
   content: string
-  contentLoaded: boolean
   file: FileNode
-  languageServers: LanguageServerInfo[]
   revealTarget: FileRevealTarget | null
   workspace: Workspace
   onClose: () => void
   onContentChange: (id: string, value: string) => void
-  onOpenLocation: (filePath: string, lineNumber: number, column: number) => Promise<boolean>
   onOpenInMain: () => void
 }) {
   const path = findFilePath(workspace.fileTree, file.id)?.join(" / ") ?? file.name
@@ -5090,12 +5579,9 @@ function FileDialog({
         </div>
         <FileViewer
           content={content}
-          contentLoaded={contentLoaded}
           file={file}
-          languageServers={languageServers}
           revealTarget={revealTarget}
           workspace={workspace}
-          onOpenLocation={onOpenLocation}
           onContentChange={onContentChange}
           footerAction={
             <button
@@ -5116,42 +5602,27 @@ function FileDialog({
 
 function FileViewer({
   content,
-  contentLoaded,
   file,
   footerAction,
-  languageServers,
-  onOpenLocation,
   revealTarget,
   workspace,
   onContentChange,
 }: {
   content: string
-  contentLoaded: boolean
   file: FileNode
   footerAction?: ReactNode
-  languageServers: LanguageServerInfo[]
-  onOpenLocation?: (filePath: string, lineNumber: number, column: number) => boolean | Promise<boolean>
   revealTarget?: FileRevealTarget | null
   workspace: Workspace
   onContentChange: (id: string, value: string) => void
 }) {
   const language = file.language ?? fileLanguage(file.name)
   const monacoLanguage = file.language ?? monacoLanguageFor(file.name)
-  const lspLanguageId = file.path ? lspLanguageIdForPath(file.path, monacoLanguage) : monacoLanguage
-  const lspServer = file.path ? selectLanguageServer(languageServers, file.path, lspLanguageId) : null
-  const editorPath = file.path ? fileUriFromPath(file.path) : `${workspace.id}/${file.id.replace(/[:/]/g, "_")}/${file.name}`
+  const editorPath = file.path ?? `${workspace.id}/${file.id.replace(/[:/]/g, "_")}/${file.name}`
   const lines = content.split("\n")
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
-  const diskSnapshotRef = useRef({ content: "", fileId: "" })
-  const [diagnosticCounts, setDiagnosticCounts] = useState({ errors: 0, warnings: 0 })
-  const [lspEnabledFileIds, setLspEnabledFileIds] = useState<Set<string>>(new Set())
-  const [lspStatus, setLspStatus] = useState<LspStatus>({ state: "idle" })
   const [monacoApi, setMonacoApi] = useState<MonacoApi | null>(null)
   const { resolvedTheme } = useTheme()
   const monacoThemeName = pockcodeMonacoThemeName(resolvedTheme)
-  const snapshot = diskSnapshotRef.current
-  const lspEnabled = lspEnabledFileIds.has(file.id)
-  const lspStale = contentLoaded && snapshot.fileId === file.id && snapshot.content !== content
 
   const revealLine = useCallback((target: FileRevealTarget) => {
     const editor = editorRef.current
@@ -5173,65 +5644,6 @@ function FileViewer({
     const frame = window.requestAnimationFrame(() => revealLine(revealTarget))
     return () => window.cancelAnimationFrame(frame)
   }, [revealLine, revealTarget?.nonce])
-
-  useEffect(() => {
-    if (!contentLoaded) {
-      return
-    }
-    diskSnapshotRef.current = { content, fileId: file.id }
-    setDiagnosticCounts({ errors: 0, warnings: 0 })
-    setLspStatus({ state: "idle" })
-  }, [contentLoaded, file.id, file.path])
-
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!lspEnabled) {
-      setDiagnosticCounts({ errors: 0, warnings: 0 })
-      setLspStatus({ state: "idle" })
-      return
-    }
-    if (!editor || !monacoApi || !file.path || !contentLoaded) {
-      return
-    }
-    if (!lspServer) {
-      setLspStatus({
-        state: languageServers.length ? "unavailable" : "idle",
-        detail: languageServers.length ? "No language server" : undefined,
-      })
-      return
-    }
-
-    return attachMonacoLsp({
-      content: diskSnapshotRef.current.fileId === file.id ? diskSnapshotRef.current.content : content,
-      editor,
-      filePath: file.path,
-      languageId: lspLanguageId,
-      monaco: monacoApi,
-      server: lspServer,
-      workspaceName: workspace.name,
-      workspacePath: workspace.path,
-      onDiagnostics: (diagnostics) => {
-        setDiagnosticCounts({
-          errors: diagnostics.filter((diagnostic) => diagnostic.severity === 1).length,
-          warnings: diagnostics.filter((diagnostic) => diagnostic.severity === 2).length,
-        })
-      },
-      onOpenLocation,
-      onStatus: setLspStatus,
-    })
-  }, [
-    contentLoaded,
-    file.id,
-    file.path,
-    languageServers.length,
-    lspEnabled,
-    lspLanguageId,
-    lspServer,
-    monacoApi,
-    onOpenLocation,
-    workspace.name,
-    workspace.path,
-  ])
 
   useEffect(() => {
     if (!monacoApi) {
@@ -5286,131 +5698,10 @@ function FileViewer({
         <span>{language}</span>
         <span className="h-3 w-px bg-border" />
         <span>{lines.length} lines</span>
-        <span className="h-3 w-px bg-border" />
-        <LspFooterToggle
-          diagnostics={diagnosticCounts}
-          enabled={lspEnabled}
-          server={lspServer}
-          stale={lspStale}
-          status={lspStatus}
-          onToggle={() =>
-            setLspEnabledFileIds((current) => {
-              const next = new Set(current)
-              if (next.has(file.id)) {
-                next.delete(file.id)
-              } else {
-                next.add(file.id)
-              }
-              return next
-            })
-          }
-        />
         {footerAction ? <div className="ml-auto">{footerAction}</div> : null}
       </div>
     </div>
   )
-}
-
-function lspEnableTitle(server: LanguageServerInfo | null): string {
-  return server ? `Start ${server.displayName} language server` : "No language server is available for this file."
-}
-
-function LspFooterToggle({
-  diagnostics,
-  enabled,
-  server,
-  stale,
-  status,
-  onToggle,
-}: {
-  diagnostics: { errors: number; warnings: number }
-  enabled: boolean
-  server: LanguageServerInfo | null
-  stale: boolean
-  status: LspStatus
-  onToggle: () => void
-}) {
-  const disabled = !server && !enabled
-  const label = enabled ? lspFooterLabel(status, stale, diagnostics) : server ? "LSP off" : "LSP unavailable"
-
-  return (
-    <button
-      aria-checked={enabled}
-      aria-label="Toggle LSP"
-      className="flex h-6 items-center gap-1.5 rounded px-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-55"
-      disabled={disabled}
-      role="switch"
-      title={enabled ? lspStatusTitle(status, server) : lspEnableTitle(server)}
-      type="button"
-      onClick={onToggle}
-    >
-      <span
-        className={cn(
-          "relative h-3.5 w-6 rounded-full border transition-colors",
-          enabled ? "border-primary bg-primary/60" : "border-border bg-secondary",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-1/2 size-2.5 -translate-y-1/2 rounded-full transition-transform",
-            enabled ? "translate-x-3 bg-primary-foreground" : "translate-x-0.5 bg-muted-foreground",
-          )}
-        />
-      </span>
-      <span>{label}</span>
-    </button>
-  )
-}
-
-function lspFooterLabel(
-  status: LspStatus,
-  stale: boolean,
-  diagnostics: { errors: number; warnings: number },
-): string {
-  if (stale && status.state === "ready") {
-    return "LSP stale"
-  }
-  if (status.state === "ready") {
-    if (diagnostics.errors || diagnostics.warnings) {
-      return `${diagnostics.errors} errors, ${diagnostics.warnings} warnings`
-    }
-    return "LSP ready"
-  }
-  if (status.state === "starting") {
-    return "LSP starting"
-  }
-  if (status.state === "unavailable") {
-    return "LSP unavailable"
-  }
-  if (status.state === "error") {
-    return "LSP stopped"
-  }
-  return "LSP idle"
-}
-
-function configureMonacoLanguageDefaults(monaco: MonacoApi): void {
-  const typescriptLanguage = monaco.languages.typescript as unknown as {
-    javascriptDefaults?: { setDiagnosticsOptions: (options: { noSemanticValidation: boolean; noSyntaxValidation: boolean }) => void }
-    typescriptDefaults?: { setDiagnosticsOptions: (options: { noSemanticValidation: boolean; noSyntaxValidation: boolean }) => void }
-  }
-  typescriptLanguage.typescriptDefaults?.setDiagnosticsOptions({
-    noSemanticValidation: true,
-    noSyntaxValidation: false,
-  })
-  typescriptLanguage.javascriptDefaults?.setDiagnosticsOptions({
-    noSemanticValidation: true,
-    noSyntaxValidation: false,
-  })
-}
-
-function lspStatusTitle(status: LspStatus, server: LanguageServerInfo | null): string {
-  if (status.detail) {
-    return status.detail
-  }
-  if (server) {
-    return `${server.displayName}: ${server.command}`
-  }
-  return "No language server is attached to this file."
 }
 
 function findFileByAbsolutePath(nodes: FileNode[], targetPath: string): FileNode | null {
@@ -5523,11 +5814,12 @@ function RightPanel({
   onTabChange: (tab: PanelTab) => void
 }) {
   const gitPanel = useGitPanelState(workspace.path)
+  const cloudflaredPanel = useCloudflaredPanelState(activeTab === "tunnels")
 
   return (
-    <aside className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex h-10 items-center gap-3 px-3">
-        <div className="flex gap-1 text-[12px] font-semibold">
+    <aside className="grid h-full min-h-0 min-w-0 max-w-full grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex h-10 min-w-0 items-center gap-3 px-3">
+        <div className="flex min-w-0 gap-1 text-[12px] font-semibold">
           <button
             className={cn("rounded-md px-1.5 py-0.5", activeTab === "files" ? "bg-accent text-foreground" : "text-muted-foreground")}
             type="button"
@@ -5542,8 +5834,15 @@ function RightPanel({
           >
             Git
           </button>
+          <button
+            className={cn("rounded-md px-1.5 py-0.5", activeTab === "tunnels" ? "bg-accent text-foreground" : "text-muted-foreground")}
+            type="button"
+            onClick={() => onTabChange("tunnels")}
+          >
+            Tunnels
+          </button>
         </div>
-        <div className="ml-auto flex items-center gap-1 text-muted-foreground">
+        <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
           {activeTab === "files" ? (
             <>
               <PanelActionButton label="Refresh files">
@@ -5580,10 +5879,18 @@ function RightPanel({
                 <RefreshCw className={cn("size-4", gitPanel.isLoading && "animate-spin")} />
               </PanelActionButton>
             </>
+          ) : activeTab === "tunnels" ? (
+            <PanelActionButton
+              disabled={cloudflaredPanel.isBusy}
+              label="Refresh tunnels"
+              onClick={() => void cloudflaredPanel.refresh()}
+            >
+              <RefreshCw className={cn("size-4", cloudflaredPanel.isLoading && "animate-spin")} />
+            </PanelActionButton>
           ) : null}
         </div>
       </div>
-      <div className="min-h-0 overflow-auto px-1.5 pb-3 pt-1 ide-scrollbar">
+      <div className="min-h-0 min-w-0 max-w-full overflow-auto px-1.5 pb-3 pt-1 ide-scrollbar">
         {activeTab === "files" ? (
           <FileTreeView
             expandedFolderIds={expandedFolderIds}
@@ -5594,8 +5901,10 @@ function RightPanel({
             onFileSelect={onFileSelect}
             onFolderToggle={onFolderToggle}
           />
-        ) : (
+        ) : activeTab === "git" ? (
           <GitPanelSummary gitPanel={gitPanel} workspace={workspace} />
+        ) : (
+          <CloudflaredPanelSummary cloudflaredPanel={cloudflaredPanel} />
         )}
       </div>
     </aside>
@@ -5789,6 +6098,445 @@ function FileGlyph({ icon }: { icon?: FileNode["icon"] }) {
   if (icon === "docker") return <HardDrive className={cn(className, "text-muted-foreground")} />
   if (icon === "info") return <span className="w-4 shrink-0 text-center text-sm text-ide-file-blue">i</span>
   return <FileText className={cn(className, "text-muted-foreground")} />
+}
+
+type CloudflaredPanelState = ReturnType<typeof useCloudflaredPanelState>
+
+function useCloudflaredPanelState(enabled: boolean) {
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ kind: "error" | "info"; text: string } | null>(null)
+  const [status, setStatus] = useState<CloudflaredStatusResponse | null>(null)
+
+  const refresh = useCallback(async () => {
+    setBusyAction((current) => current ?? "refresh")
+    setNotice(null)
+    try {
+      setStatus(await apiClient.cloudflared.status())
+    } catch (error) {
+      setNotice({ kind: "error", text: readError(error) })
+    } finally {
+      setBusyAction((current) => current === "refresh" ? null : current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (enabled) {
+      void refresh()
+    }
+  }, [enabled, refresh])
+
+  const runAction = useCallback(async (
+    action: string,
+    request: () => Promise<CloudflaredStatusResponse>,
+    success: string,
+  ) => {
+    setBusyAction(action)
+    setNotice(null)
+    try {
+      setStatus(await request())
+      setNotice({ kind: "info", text: success })
+    } catch (error) {
+      setNotice({ kind: "error", text: readError(error) })
+    } finally {
+      setBusyAction(null)
+    }
+  }, [])
+
+  return {
+    busyAction,
+    deleteNamedTunnel: (id: string) => runAction(`delete:${id}`, () => apiClient.cloudflared.deleteNamedTunnel(id), "Tunnel deleted."),
+    isBusy: Boolean(busyAction),
+    isLoading: busyAction === "refresh" && !status,
+    notice,
+    refresh,
+    startTemporary: (url: string) => runAction("start", () => apiClient.cloudflared.startTemporary(url), "Temporary tunnel started."),
+    status,
+    stopTemporary: (id: string) => runAction(`stop:${id}`, () => apiClient.cloudflared.stopTemporary(id), "Temporary tunnel stopped."),
+  }
+}
+
+function CloudflaredPanelSummary({ cloudflaredPanel }: { cloudflaredPanel: CloudflaredPanelState }) {
+  const [originUrl, setOriginUrl] = useState("http://localhost:5173")
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+  const [logTunnelId, setLogTunnelId] = useState<string | null>(null)
+  const status = cloudflaredPanel.status
+  const canStartTemporary = Boolean(status?.installed && originUrl.trim() && !cloudflaredPanel.isBusy)
+  const logTunnel = status?.temporaryTunnels.find((tunnel) => tunnel.id === logTunnelId) ?? null
+
+  const copyUrl = useCallback(async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedUrl(url)
+      window.setTimeout(() => setCopiedUrl((current) => current === url ? null : current), 1400)
+    } catch {
+      setCopiedUrl(null)
+    }
+  }, [])
+
+  if (!status) {
+    return (
+      <div className="grid h-40 min-w-0 place-items-center text-[12px] text-muted-foreground">
+        Loading tunnels
+      </div>
+    )
+  }
+
+  if (!status.installed) {
+    return (
+      <div className="grid min-w-0 max-w-full gap-3 px-3 py-4 text-[13px] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2 text-foreground">
+          <Server className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate">cloudflared</span>
+        </div>
+        <p className="min-w-0 whitespace-pre-wrap text-[12px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+          {status.message ?? "cloudflared is not available on PATH."}
+        </p>
+        <button
+          className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={cloudflaredPanel.isBusy}
+          type="button"
+          onClick={() => void cloudflaredPanel.refresh()}
+        >
+          Refresh
+        </button>
+        {cloudflaredPanel.notice ? <CloudflaredNotice notice={cloudflaredPanel.notice} /> : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid min-w-0 max-w-full gap-3 text-[13px] text-muted-foreground">
+      <section className="grid min-w-0 gap-2 px-1.5">
+        <div className="flex min-w-0 items-center gap-2 px-1.5 text-foreground">
+          <Server className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">cloudflared</span>
+          {status.version ? (
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={status.version}>
+              {status.version}
+            </span>
+          ) : null}
+        </div>
+
+        <form
+          className="grid min-w-0 gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (canStartTemporary) {
+              void cloudflaredPanel.startTemporary(originUrl)
+            }
+          }}
+        >
+          <input
+            aria-label="Local service URL"
+            className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+            placeholder="http://localhost:3000"
+            value={originUrl}
+            onChange={(event) => setOriginUrl(event.target.value)}
+          />
+          <button
+            className="flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={!canStartTemporary}
+            type="submit"
+          >
+            {cloudflaredPanel.busyAction === "start" ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            Temporary Tunnel
+          </button>
+        </form>
+
+        {cloudflaredPanel.notice ? <CloudflaredNotice notice={cloudflaredPanel.notice} /> : null}
+      </section>
+
+      <section className="min-w-0 border-t border-border pt-2">
+        <div className="flex h-7 min-w-0 items-center gap-2 px-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <ChevronDown className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">Temporary</span>
+          <span className="grid min-w-5 place-items-center rounded-full bg-secondary px-1 text-[10px] leading-5 text-secondary-foreground">
+            {status.temporaryTunnels.length}
+          </span>
+        </div>
+        {status.temporaryTunnels.length ? (
+          <div className="grid min-w-0 gap-1">
+            {status.temporaryTunnels.map((tunnel) => (
+              <TemporaryTunnelRow
+                copied={Boolean(tunnel.publicUrl && copiedUrl === tunnel.publicUrl)}
+                key={tunnel.id}
+                stopping={cloudflaredPanel.busyAction === `stop:${tunnel.id}`}
+                tunnel={tunnel}
+                onCopy={copyUrl}
+                onViewLogs={tunnel.logs.length ? () => setLogTunnelId(tunnel.id) : undefined}
+                onStop={() => void cloudflaredPanel.stopTemporary(tunnel.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="px-3 py-2 text-[12px] text-muted-foreground">No temporary tunnels</div>
+        )}
+      </section>
+
+      <section className="min-w-0 border-t border-border pt-2">
+        <div className="flex h-7 min-w-0 items-center gap-2 px-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <ChevronDown className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">Named Tunnels</span>
+          <span className="grid min-w-5 place-items-center rounded-full bg-secondary px-1 text-[10px] leading-5 text-secondary-foreground">
+            {status.namedTunnels.length}
+          </span>
+        </div>
+        {status.namedTunnelsError ? (
+          <CloudflaredNotice notice={{ kind: status.namedTunnelsAuthRequired ? "info" : "error", text: status.namedTunnelsError }} />
+        ) : status.namedTunnels.length ? (
+          <div className="grid min-w-0 gap-1">
+            {status.namedTunnels.map((tunnel) => (
+              <NamedTunnelRow
+                deleting={cloudflaredPanel.busyAction === `delete:${tunnel.id}`}
+                key={tunnel.id}
+                tunnel={tunnel}
+                onDelete={() => void cloudflaredPanel.deleteNamedTunnel(tunnel.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="px-3 py-2 text-[12px] text-muted-foreground">No named tunnels</div>
+        )}
+      </section>
+      <CloudflaredTunnelLogsDialog tunnel={logTunnel} onClose={() => setLogTunnelId(null)} />
+    </div>
+  )
+}
+
+function TemporaryTunnelRow({
+  copied,
+  stopping,
+  tunnel,
+  onCopy,
+  onViewLogs,
+  onStop,
+}: {
+  copied: boolean
+  stopping: boolean
+  tunnel: CloudflaredTemporaryTunnel
+  onCopy: (url: string) => void
+  onViewLogs?: () => void
+  onStop: () => void
+}) {
+  const canStop = tunnel.status === "running" || tunnel.status === "starting"
+
+  return (
+    <div className="grid min-w-0 gap-1 rounded-md px-2 py-1.5 text-[12px] hover:bg-accent/70">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cn("size-2 shrink-0 rounded-full", tunnelStatusDotColor(tunnel.status))} />
+        <span className="min-w-0 flex-1 truncate text-foreground" title={tunnel.publicUrl ?? tunnel.originUrl}>
+          {tunnel.publicUrl ?? tunnel.originUrl}
+        </span>
+        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold", temporaryTunnelStatusClass(tunnel.status))}>
+          {temporaryTunnelStatusLabel(tunnel.status)}
+        </span>
+      </div>
+      <div className="min-w-0 truncate pl-4 text-[11px]" title={tunnel.originUrl}>
+        {tunnel.originUrl}
+      </div>
+      <div className="flex min-w-0 items-center gap-1 pl-4">
+        {tunnel.publicUrl ? (
+          <>
+            <a
+              className="min-w-0 flex-1 truncate text-info underline decoration-info/40 underline-offset-2 hover:text-info"
+              href={tunnel.publicUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {tunnel.publicUrl}
+            </a>
+            <button
+              aria-label="Copy tunnel URL"
+              className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+              title="Copy tunnel URL"
+              type="button"
+              onClick={() => onCopy(tunnel.publicUrl ?? "")}
+            >
+              {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+            </button>
+            <a
+              aria-label="Open tunnel"
+              className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+              href={tunnel.publicUrl}
+              rel="noreferrer"
+              target="_blank"
+              title="Open tunnel"
+            >
+              <ExternalLink className="size-3.5" />
+            </a>
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">Waiting for public URL</span>
+        )}
+        {onViewLogs ? (
+          <button
+            aria-label="View tunnel logs"
+            className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+            title="View tunnel logs"
+            type="button"
+            onClick={onViewLogs}
+          >
+            <FileText className="size-3.5" />
+          </button>
+        ) : null}
+        <button
+          aria-label="Stop temporary tunnel"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!canStop || stopping}
+          title="Stop temporary tunnel"
+          type="button"
+          onClick={onStop}
+        >
+          {stopping ? <LoaderCircle className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CloudflaredTunnelLogsDialog({
+  tunnel,
+  onClose,
+}: {
+  tunnel: CloudflaredTemporaryTunnel | null
+  onClose: () => void
+}) {
+  if (!tunnel) {
+    return null
+  }
+
+  const logs = tunnel.logs.map((line) => line.trim()).filter(Boolean)
+  const title = tunnel.publicUrl ?? tunnel.originUrl
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-labelledby="cloudflared-logs-title" aria-modal="true">
+      <button aria-label="Close tunnel logs" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
+      <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+        <header className="flex h-12 min-w-0 items-center gap-2 border-b border-border px-3">
+          <FileText className="size-4 shrink-0 text-info" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-semibold text-foreground" id="cloudflared-logs-title">Tunnel logs</div>
+            <div className="truncate text-[11px] text-muted-foreground" title={title}>{title}</div>
+          </div>
+          <button
+            aria-label="Close tunnel logs"
+            className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            type="button"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        </header>
+        <div className="min-h-0 overflow-auto p-3 ide-scrollbar">
+          {logs.length ? (
+            <pre className="min-h-full whitespace-pre-wrap break-words rounded-md bg-background p-3 font-mono text-[11px] leading-4 text-muted-foreground">{logs.join("\n")}</pre>
+          ) : (
+            <div className="grid h-full place-items-center rounded-md bg-background p-4 text-center text-[12px] text-muted-foreground">
+              No logs yet
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function NamedTunnelRow({
+  deleting,
+  tunnel,
+  onDelete,
+}: {
+  deleting: boolean
+  tunnel: CloudflaredNamedTunnel
+  onDelete: () => void
+}) {
+  return (
+    <div className="group grid min-w-0 gap-1 rounded-md px-2 py-1.5 text-[12px] hover:bg-accent/70">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cn("size-2 shrink-0 rounded-full", namedTunnelStatusDotColor(tunnel.status))} />
+        <span className="min-w-0 flex-1 truncate text-foreground" title={tunnel.name}>{tunnel.name}</span>
+        <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-secondary-foreground">
+          {tunnel.connectionCount}
+        </span>
+        <button
+          aria-label="Delete named tunnel"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 hover:bg-background hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
+          disabled={deleting}
+          title="Delete named tunnel"
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Delete ${tunnel.name}?`)) {
+              onDelete()
+            }
+          }}
+        >
+          {deleting ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+        </button>
+      </div>
+      <div className="flex min-w-0 items-center gap-2 pl-4 text-[11px]">
+        <span className="min-w-0 truncate" title={tunnel.id}>{shortTunnelId(tunnel.id)}</span>
+        <span className="shrink-0 text-muted-foreground">{formatTunnelDate(tunnel.createdAt)}</span>
+      </div>
+    </div>
+  )
+}
+
+function CloudflaredNotice({ notice }: { notice: { kind: "error" | "info"; text: string } }) {
+  return (
+    <div className={cn("min-w-0 max-w-full overflow-hidden whitespace-pre-wrap rounded-md px-2 py-1 text-[11px] leading-4 [overflow-wrap:anywhere]", notice.kind === "error" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")} title={notice.text}>
+      {notice.text}
+    </div>
+  )
+}
+
+function temporaryTunnelStatusLabel(status: CloudflaredTemporaryTunnel["status"]) {
+  const labels: Record<CloudflaredTemporaryTunnel["status"], string> = {
+    exited: "Exited",
+    running: "Live",
+    starting: "Starting",
+    stopped: "Stopped",
+  }
+  return labels[status]
+}
+
+function temporaryTunnelStatusClass(status: CloudflaredTemporaryTunnel["status"]) {
+  if (status === "running") return "bg-success/10 text-success"
+  if (status === "starting") return "bg-info/10 text-info"
+  if (status === "stopped") return "bg-muted text-muted-foreground"
+  return "bg-destructive/10 text-destructive"
+}
+
+function tunnelStatusDotColor(status: CloudflaredTemporaryTunnel["status"]) {
+  if (status === "running") return "bg-success"
+  if (status === "starting") return "bg-info"
+  if (status === "stopped") return "bg-muted-foreground"
+  return "bg-destructive"
+}
+
+function namedTunnelStatusDotColor(status: CloudflaredNamedTunnel["status"]) {
+  if (status === "active") return "bg-success"
+  if (status === "inactive") return "bg-muted-foreground"
+  return "bg-warning"
+}
+
+function shortTunnelId(id: string) {
+  return id.length > 18 ? `${id.slice(0, 8)}...${id.slice(-6)}` : id
+}
+
+function formatTunnelDate(value: string | undefined) {
+  if (!value) {
+    return "Unknown"
+  }
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) {
+    return value
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+  }).format(new Date(timestamp))
 }
 
 type GitPanelState = ReturnType<typeof useGitPanelState>

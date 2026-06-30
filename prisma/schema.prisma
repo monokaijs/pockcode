@@ -36,32 +36,6 @@ enum MessageScheduleRunStatus {
   CANCELLED
 }
 
-enum MessageRole {
-  USER
-  ASSISTANT
-  SYSTEM
-  TOOL
-}
-
-enum MessageStatus {
-  PENDING
-  STREAMING
-  COMPLETED
-  FAILED
-}
-
-enum MessageKind {
-  CHAT
-  THINKING
-  TOOL_ACTIVITY
-  COMMAND_EXECUTION
-  FILE_CHANGE
-  PLAN
-  APPROVAL
-  USER_INPUT_PROMPT
-  ERROR
-}
-
 enum RunStatus {
   QUEUED
   RUNNING
@@ -75,6 +49,22 @@ model ProviderSetting {
   settings   Json     @default("{}")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model PluginSetting {
+  pluginId  String   @id
+  enabled   Boolean  @default(false)
+  settings  Json     @default("{}")
+  secrets   Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PluginState {
+  pluginId  String   @id
+  state     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model WorkspaceHistory {
@@ -162,7 +152,6 @@ model Chat {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   account           ProviderAccount? @relation("ChatAccount", fields: [accountId], references: [id], onDelete: SetNull)
-  messages          ChatMessage[]
   runs              ChatRun[]
 
   @@index([providerId])
@@ -170,33 +159,6 @@ model Chat {
   @@index([updatedAt])
   @@index([lastActivityAt])
   @@index([externalThreadId])
-}
-
-model ChatMessage {
-  id          String        @id @default(uuid())
-  chatId      String
-  runId       String?
-  sequence    Int
-  role        MessageRole
-  kind        MessageKind   @default(CHAT)
-  status      MessageStatus @default(COMPLETED)
-  turnId      String?
-  itemId      String?
-  requestId   String?
-  content     String
-  metadata    Json?
-  rawPayload  Json?
-  createdAt   DateTime      @default(now())
-  completedAt DateTime?
-  chat        Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  run         ChatRun?      @relation(fields: [runId], references: [id], onDelete: SetNull)
-
-  @@unique([chatId, sequence])
-  @@index([chatId, sequence])
-  @@index([chatId, turnId])
-  @@index([chatId, itemId])
-  @@index([requestId])
-  @@index([runId])
 }
 
 model ChatRun {
@@ -215,7 +177,6 @@ model ChatRun {
   updatedAt            DateTime         @updatedAt
   chat                 Chat             @relation(fields: [chatId], references: [id], onDelete: Cascade)
   account              ProviderAccount? @relation("RunAccount", fields: [accountId], references: [id], onDelete: SetNull)
-  messages             ChatMessage[]
 
   @@index([chatId, createdAt])
   @@index([providerId])

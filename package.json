@@ -8,6 +8,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "test:real-codex": "node scripts/real-codex-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -22,6 +24,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
+    "grammy": "^1.44.0",
     "lucide-react": "^1.21.0",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.1.0",
@@ -33,24 +36,17 @@
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.6.0",
-    "tw-animate-css": "^1.4.0",
-    "typescript-language-server": "^5.3.0",
-    "vscode-jsonrpc": "^9.0.0",
-    "vscode-langservers-extracted": "^4.10.0",
-    "vscode-languageserver-protocol": "^3.18.1",
-    "vscode-languageserver-types": "^3.18.0",
-    "vscode-uri": "^3.1.0",
-    "ws": "^8.21.0"
+    "tw-animate-css": "^1.4.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.2",
     "tailwindcss": "^4.3.1",
     "typescript": "^5.9.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   }
 }

@@ -28,10 +28,10 @@ export function MarkdownContent({
   const animatedBlockIndexes = useChangedIndexes(blockSignatures, scopeKey ?? null, Boolean(animateChanges))
 
   return (
-    <div className={cn("min-w-0", compact ? "space-y-2" : "space-y-3")}>
+    <div className={cn("chat-markdown min-w-0 max-w-full", compact ? "space-y-2" : "space-y-3")}>
       {blocks.map((block, index) => (
         <div
-          className={cn("min-w-0", animatedBlockIndexes.has(index) && "chat-append-enter")}
+          className={cn("min-w-0 max-w-full", animatedBlockIndexes.has(index) && "chat-append-enter")}
           key={`${index}:${hashString(blockSignatures[index] ?? "")}`}
         >
           {renderMarkdownBlock(block, index, Boolean(compact), openFileLink)}
@@ -79,7 +79,7 @@ function renderMarkdownBlock(
   if (block.type === "code") {
     return (
       <pre
-        className="max-w-full overflow-auto rounded-md border border-border bg-background p-3 font-mono text-[12px] leading-5 text-foreground ide-scrollbar"
+        className="min-w-0 max-w-full overflow-auto rounded-md border border-border bg-background p-3 font-mono text-[12px] leading-5 text-foreground ide-scrollbar"
         key={index}
       >
         <code>{block.value}</code>
@@ -101,7 +101,7 @@ function renderMarkdownBlock(
     return (
       <Tag className={cn("grid gap-1 pl-5", block.ordered ? "list-decimal" : "list-disc")} key={index}>
         {block.items.map((item, itemIndex) => (
-          <li key={itemIndex}>{renderInlineMarkdown(item, `list-${index}-${itemIndex}`, openFileLink)}</li>
+          <li className="min-w-0" key={itemIndex}>{renderInlineMarkdown(item, `list-${index}-${itemIndex}`, openFileLink)}</li>
         ))}
       </Tag>
     )
@@ -109,7 +109,7 @@ function renderMarkdownBlock(
 
   if (block.type === "blockquote") {
     return (
-      <blockquote className="border-l-2 border-border pl-3 text-muted-foreground" key={index}>
+      <blockquote className="min-w-0 border-l-2 border-border pl-3 text-muted-foreground" key={index}>
         {renderInlineLines(block.lines, `quote-${index}`, openFileLink)}
       </blockquote>
     )
@@ -117,7 +117,7 @@ function renderMarkdownBlock(
 
   if (block.type === "table") {
     return (
-      <div className="max-w-full overflow-auto ide-scrollbar" key={index}>
+      <div className="min-w-0 max-w-full overflow-auto ide-scrollbar" key={index}>
         <table className="w-full border-collapse text-left text-[12px]">
           <thead>
             <tr>

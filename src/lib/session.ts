@@ -1,4 +1,4 @@
-import { apiClient, type BrowserDirectoryResponse, type BrowserEntry, type ChatMessageResponse, type ChatResponse, type ProviderAccountResponse, type ProviderComposerFeature, type ProviderDefinitionResponse, type ProviderLimitsResponse, type ProviderModelListResponse, type ServerRequestResponseRequest, type WorkspaceHistoryResponse } from "@/lib/api-client"
+import { apiClient, type BrowserDirectoryResponse, type BrowserEntry, type ChatAccountSwitchEvent, type ChatMessageResponse, type ChatResponse, type ProviderAccountResponse, type ProviderComposerFeature, type ProviderDefinitionResponse, type ProviderLimitsResponse, type ProviderModelListResponse, type ServerRequestResponseRequest, type WorkspaceHistoryResponse } from "@/lib/api-client"
 import type { ChatComposerAccessMode, ChatComposerAttachment, ChatComposerReasoningEffort, ChatComposerServiceTier, ChatFileLinkTarget, ChatRenderEntry, FileNode, MarkdownBlock, ParsedFileChange, ProviderClientEvent, SessionRouteTarget, UserInputQuestion, VisibleTreeItem, WorkRenderEntry, Workspace } from "@/types/session"
 
 export function formatJson(value: unknown) {
@@ -123,10 +123,12 @@ const codexComposerFeatures: ProviderComposerFeature[] = [
 export const defaultCodexModel = "gpt-5.5"
 
 const codexReasoningEffortOptions = [
+  { description: "None", reasoningEffort: "none" },
+  { description: "Minimal", reasoningEffort: "minimal" },
   { description: "Low", reasoningEffort: "low" },
   { description: "Medium", reasoningEffort: "medium" },
   { description: "High", reasoningEffort: "high" },
-  { description: "Extra High", reasoningEffort: "extra-high" },
+  { description: "Extra High", reasoningEffort: "xhigh" },
 ]
 
 const codexModelOptions: ProviderModelListResponse["data"] = [
@@ -161,6 +163,8 @@ const codexModelOptions: ProviderModelListResponse["data"] = [
 ]
 
 export const composerReasoningEffortOptions: { label: string; value: ChatComposerReasoningEffort }[] = [
+  { label: "None", value: "none" },
+  { label: "Minimal", value: "minimal" },
   { label: "Low", value: "low" },
   { label: "Medium", value: "medium" },
   { label: "High", value: "high" },
@@ -171,6 +175,79 @@ export const composerServiceTierOptions: { description: string; label: string; v
   { description: "Default speed", label: "Standard", value: "standard" },
   { description: "1.5x speed, increased usage", label: "Fast", value: "fast" },
 ]
+
+export type ChatSlashCommandId =
+  | "model"
+  | "fast"
+  | "permissions"
+  | "plan"
+  | "goal"
+  | "review"
+  | "compact"
+  | "fork"
+  | "new"
+  | "status"
+  | "usage"
+  | "mcp"
+  | "skills"
+  | "plugins"
+  | "hooks"
+  | "diff"
+  | "clear"
+
+export type ChatSlashCommand = {
+  description: string
+  id: ChatSlashCommandId
+  usage: string
+}
+
+export type ParsedChatSlashCommand = {
+  argument: string
+  command: ChatSlashCommand
+}
+
+export const chatSlashCommands: ChatSlashCommand[] = [
+  { id: "model", usage: "/model <name>", description: "Switch the chat model" },
+  { id: "fast", usage: "/fast", description: "Use the fast service tier" },
+  { id: "permissions", usage: "/permissions <ask|full>", description: "Change access mode" },
+  { id: "plan", usage: "/plan [prompt]", description: "Toggle or send in plan mode" },
+  { id: "goal", usage: "/goal <objective>", description: "Attach a goal to the next turn" },
+  { id: "review", usage: "/review [instructions]", description: "Start a Codex review" },
+  { id: "compact", usage: "/compact", description: "Compact the current thread" },
+  { id: "fork", usage: "/fork", description: "Fork the current thread" },
+  { id: "new", usage: "/new", description: "Start a new chat" },
+  { id: "status", usage: "/status", description: "Refresh chat status" },
+  { id: "usage", usage: "/usage", description: "Open provider usage" },
+  { id: "mcp", usage: "/mcp", description: "Open MCP servers" },
+  { id: "skills", usage: "/skills", description: "Check Codex skills support" },
+  { id: "plugins", usage: "/plugins", description: "Open plugins" },
+  { id: "hooks", usage: "/hooks", description: "Check Codex hooks support" },
+  { id: "diff", usage: "/diff", description: "Ask Codex for the current diff" },
+  { id: "clear", usage: "/clear", description: "Clear the composer" },
+]
+
+export function parseChatSlashCommand(value: string): ParsedChatSlashCommand | null {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("/") || trimmed === "/") {
+    return null
+  }
+  const match = trimmed.match(/^\/([a-zA-Z][\w-]*)(?:\s+([\s\S]*))?$/u)
+  if (!match) {
+    return null
+  }
+  const id = match[1]?.toLowerCase()
+  const command = chatSlashCommands.find((entry) => entry.id === id)
+  return command ? { command, argument: match[2]?.trim() ?? "" } : null
+}
+
+export function matchingChatSlashCommands(value: string): ChatSlashCommand[] {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("/")) {
+    return []
+  }
+  const query = trimmed.slice(1).split(/\s/u, 1)[0]?.toLowerCase() ?? ""
+  return chatSlashCommands.filter((command) => command.id.startsWith(query)).slice(0, 8)
+}
 
 export function fallbackComposerFeatures(providerId: string | null | undefined): ProviderComposerFeature[] {
   return providerId === "codex" ? codexComposerFeatures : []
@@ -223,6 +300,12 @@ export function mergeProviderModelOptions(
 }
 
 export function readComposerReasoningEffort(value: string | null | undefined): ChatComposerReasoningEffort {
+  if (value === "none") {
+    return "none"
+  }
+  if (value === "minimal") {
+    return "minimal"
+  }
   if (value === "low" || value === "fast") {
     return "low"
   }
@@ -236,6 +319,12 @@ export function readComposerReasoningEffort(value: string | null | undefined): C
 }
 
 export function composerReasoningEffortValue(value: ChatComposerReasoningEffort): string {
+  if (value === "none") {
+    return "none"
+  }
+  if (value === "minimal") {
+    return "minimal"
+  }
   if (value === "low") {
     return "low"
   }
@@ -243,12 +332,18 @@ export function composerReasoningEffortValue(value: ChatComposerReasoningEffort)
     return "high"
   }
   if (value === "extraHigh") {
-    return "extra-high"
+    return "xhigh"
   }
   return "medium"
 }
 
 export function composerReasoningEffortLabel(value: ChatComposerReasoningEffort): string {
+  if (value === "none") {
+    return "None"
+  }
+  if (value === "minimal") {
+    return "Minimal"
+  }
   if (value === "low") {
     return "Low"
   }
@@ -372,17 +467,21 @@ export function isToolMessage(message: ChatMessageResponse): boolean {
   return (
     message.role === "TOOL" ||
     message.kind === "APPROVAL" ||
+    message.kind === "COMPACTION" ||
     message.kind === "COMMAND_EXECUTION" ||
     message.kind === "FILE_CHANGE" ||
-    message.kind === "PLAN" ||
+    message.kind === "REVIEW" ||
+    message.kind === "SUBAGENT_ACTIVITY" ||
     message.kind === "USER_INPUT_PROMPT" ||
-    message.kind === "TOOL_ACTIVITY"
+    message.kind === "TOOL_ACTIVITY" ||
+    message.kind === "WARNING"
   )
 }
 
 export function serverRequestResponseFor(message: ChatMessageResponse, approved: boolean): ServerRequestResponseRequest {
   const method = readRecordString(readRecord(message.metadata), "serverRequestMethod")
-  if (method === "item/permissions/requestApproval") {
+  const normalizedMethod = normalizedServerRequestMethod(method)
+  if (normalizedMethod.includes("permissionsrequestapproval")) {
     return {
       kind: "permissions",
       result: {
@@ -391,7 +490,7 @@ export function serverRequestResponseFor(message: ChatMessageResponse, approved:
       } as ServerRequestResponseRequest["result"],
     }
   }
-  if (method === "item/tool/requestUserInput") {
+  if (normalizedMethod.endsWith("requestuserinput")) {
     return {
       kind: "userInput",
       result: { answers: {} },
@@ -403,30 +502,65 @@ export function serverRequestResponseFor(message: ChatMessageResponse, approved:
   }
 }
 
+function normalizedServerRequestMethod(method: string): string {
+  return method.toLowerCase().replace(/[^a-z0-9]/gu, "")
+}
+
 export function isPendingUserInputPrompt(message: ChatMessageResponse): boolean {
   return message.kind === "USER_INPUT_PROMPT" && message.status === "PENDING" && Boolean(message.requestId)
 }
 
 export function readUserInputQuestions(value: unknown): UserInputQuestion[] {
-  const questions = readRecord(value).questions
+  const source = readUserInputQuestionSource(value)
+  const questions = source.questions
   if (!Array.isArray(questions)) {
-    return []
+    return [fallbackUserInputQuestion(source)]
   }
-  return questions.flatMap((questionValue) => {
+  const parsedQuestions = questions.flatMap((questionValue, index) => {
     const question = readRecord(questionValue)
-    const id = readRecordString(question, "id")
-    const prompt = readRecordString(question, "question")
-    if (!id || !prompt) {
+    const id = readRecordString(question, "id") || readRecordString(question, "name") || `question_${index + 1}`
+    const prompt =
+      readRecordString(question, "question") ||
+      readRecordString(question, "prompt") ||
+      readRecordString(question, "label") ||
+      readRecordString(question, "header")
+    if (!prompt) {
       return []
     }
     return [{
-      header: readRecordString(question, "header") ?? "",
+      header: readRecordString(question, "header"),
       id,
-      isSecret: question.isSecret === true,
+      isSecret: question.isSecret === true || question.is_secret === true,
       options: readUserInputOptions(question.options),
       question: prompt,
     }]
   })
+  return parsedQuestions.length ? parsedQuestions : [fallbackUserInputQuestion(source)]
+}
+
+function readUserInputQuestionSource(value: unknown): Record<string, unknown> {
+  const record = readRecord(value)
+  for (const key of ["arguments", "input", "payload", "request"]) {
+    const nested = readRecord(record[key])
+    if (Array.isArray(nested.questions)) {
+      return nested
+    }
+  }
+  return record
+}
+
+function fallbackUserInputQuestion(source: Record<string, unknown>): UserInputQuestion {
+  return {
+    header: "",
+    id: readRecordString(source, "id") || "answer",
+    isSecret: source.isSecret === true || source.is_secret === true,
+    options: readUserInputOptions(source.options),
+    question:
+      readRecordString(source, "question") ||
+      readRecordString(source, "prompt") ||
+      readRecordString(source, "message") ||
+      "Response",
+  }
 }
 
 export function readUserInputOptions(value: unknown): UserInputQuestion["options"] {
@@ -434,8 +568,11 @@ export function readUserInputOptions(value: unknown): UserInputQuestion["options
     return []
   }
   return value.flatMap((optionValue) => {
+    if (typeof optionValue === "string" && optionValue.trim()) {
+      return [{ description: "", label: optionValue.trim() }]
+    }
     const option = readRecord(optionValue)
-    const label = readRecordString(option, "label")
+    const label = readRecordString(option, "label") || readRecordString(option, "value") || readRecordString(option, "text")
     if (!label) {
       return []
     }
@@ -503,10 +640,26 @@ export function renderAssistantSegment(
 ): ChatRenderEntry[] {
   const finalAssistantIndex = findLastIndex(messages, isFinalAssistantMessage)
   const finalAssistant = finalAssistantIndex >= 0 ? messages[finalAssistantIndex] : null
-  const finished = !running && Boolean(finalAssistant && isFinishedMessage(finalAssistant))
+  const finalPlanIndex = findLastIndex(messages, (message) => message.kind === "PLAN" && isFinishedMessage(message))
+  const terminalMessage = finalAssistant ?? (finalPlanIndex >= 0 ? messages[finalPlanIndex] ?? null : null)
+  const finished = !running && Boolean(terminalMessage && isFinishedMessage(terminalMessage))
   const workMessages: ChatMessageResponse[] = []
   const fileChangeMessages: ChatMessageResponse[] = []
   const entries: ChatRenderEntry[] = []
+  const flushWorkMessages = () => {
+    if (!workMessages.length) {
+      return
+    }
+    entries.push({
+      type: "work",
+      completedAt: workCompletedAt(messages),
+      finished,
+      id: `work:${workMessages[0]?.runId ?? workMessages[0]?.id ?? "unknown"}`,
+      messages: [...workMessages],
+      startedAt: userMessage?.createdAt ?? workMessages[0]?.createdAt ?? null,
+    })
+    workMessages.length = 0
+  }
 
   messages.forEach((message, index) => {
     if (finished && index === finalAssistantIndex) {
@@ -515,22 +668,18 @@ export function renderAssistantSegment(
     if (isRunningPlaceholderMessage(message) && (!running || isStaleRunningPlaceholder(message))) {
       return
     }
+    if (message.kind === "PLAN") {
+      flushWorkMessages()
+      entries.push({ type: "message", message })
+      return
+    }
     workMessages.push(message)
     if (finished && isFileChangeMessage(message)) {
       fileChangeMessages.push(message)
     }
   })
 
-  if (workMessages.length) {
-    entries.push({
-      type: "work",
-      completedAt: workCompletedAt(messages),
-      finished,
-      id: `work:${workMessages[0]?.runId ?? workMessages[0]?.id ?? "unknown"}`,
-      messages: workMessages,
-      startedAt: userMessage?.createdAt ?? workMessages[0]?.createdAt ?? null,
-    })
-  }
+  flushWorkMessages()
   if (finished && finalAssistant) {
     entries.push({ type: "message", message: finalAssistant })
   }
@@ -1183,6 +1332,34 @@ export function readProviderSocketEvent(value: unknown): ProviderClientEvent | n
   }
 }
 
+export function readChatAccountSwitchEvent(value: unknown): ChatAccountSwitchEvent | null {
+  const payload = readRecord(value)
+  const chatId = readRecordString(payload, "chatId")
+  const toAccountId = readRecordString(payload, "toAccountId")
+  const phase = readRecordString(payload, "phase")
+  if (
+    !chatId ||
+    !toAccountId ||
+    (
+      phase !== "preparing" &&
+      phase !== "syncingSource" &&
+      phase !== "hydratingTarget" &&
+      phase !== "refreshingMessages" &&
+      phase !== "completed" &&
+      phase !== "failed"
+    )
+  ) {
+    return null
+  }
+  return {
+    chatId,
+    toAccountId,
+    phase,
+    error: readRecordString(payload, "error") || null,
+    fromAccountId: readRecordString(payload, "fromAccountId") || null,
+  }
+}
+
 export function readChatResponse(value: unknown): ChatResponse | null {
   const chat = readRecord(value)
   const status = readChatStatus(chat.status)
@@ -1236,6 +1413,10 @@ export function readMessageKind(value: unknown): ChatMessageResponse["kind"] | n
     value === "PLAN" ||
     value === "APPROVAL" ||
     value === "USER_INPUT_PROMPT" ||
+    value === "REVIEW" ||
+    value === "WARNING" ||
+    value === "COMPACTION" ||
+    value === "SUBAGENT_ACTIVITY" ||
     value === "ERROR"
   )
     ? value

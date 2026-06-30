@@ -13,11 +13,11 @@ export type FileNode = {
 
 export type MainMode = "chat" | "dialog" | "editor" | "schedule"
 
-export type ManagementView = "instructions" | "mcpServers" | "providers"
+export type ManagementView = "instructions" | "mcpServers" | "plugins" | "providers"
 
 export type MobileDrawer = "sessions" | "files" | null
 
-export type PanelTab = "files" | "git"
+export type PanelTab = "files" | "git" | "tunnels"
 
 export type SidebarTab = "chats" | "scheduler"
 
@@ -46,7 +46,7 @@ export type ChatFileLinkTarget = FileSelectOptions & {
 
 export type ChatComposerAccessMode = "askForApproval" | "fullAccess"
 
-export type ChatComposerReasoningEffort = "extraHigh" | "high" | "low" | "medium"
+export type ChatComposerReasoningEffort = "extraHigh" | "high" | "low" | "medium" | "minimal" | "none"
 
 export type ChatComposerServiceTier = "fast" | "standard"
 

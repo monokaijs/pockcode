@@ -286,6 +286,24 @@
   pointer-events: auto;
 }
 
+.chat-markdown {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-markdown :where(p, li, blockquote, h1, h2, h3, h4, th, td, a, strong, em, code) {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-markdown pre,
+.chat-markdown pre code {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .chat-append-enter {
     animation: chat-append-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);

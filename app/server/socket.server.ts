@@ -9,6 +9,7 @@ export type ProviderSocketEvent = {
 }
 
 const installedServers = new WeakSet<HttpServer>()
+const providerEventListeners = new Set<(event: ProviderSocketEvent) => Promise<void> | void>()
 const workspaceWatchListeners = new Set<() => void>()
 const workspacePathsBySocket = new Map<string, Set<string>>()
 let io: Server | null = null
@@ -78,7 +79,17 @@ export function onWorkspaceWatchChange(listener: () => void): void {
   workspaceWatchListeners.add(listener)
 }
 
+export function onProviderEvent(listener: (event: ProviderSocketEvent) => Promise<void> | void): () => void {
+  providerEventListeners.add(listener)
+  return () => {
+    providerEventListeners.delete(listener)
+  }
+}
+
 export function publishProviderEvent(event: ProviderSocketEvent): void {
+  for (const listener of providerEventListeners) {
+    Promise.resolve(listener(event)).catch(() => undefined)
+  }
   if (!io) {
     return
   }

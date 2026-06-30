@@ -1,19 +1,25 @@
 import { Prisma, type Chat, type ChatRun, type ProviderAccount } from "@prisma/client"
 import type {
   ChatAttachmentRequest,
+  ChatAccountSwitchEvent,
+  ChatAccountSwitchPhase,
   ChatContextResponse,
   ChatMessageResponse,
   ChatResponse,
   ChatStatsResponse,
   ChatStatus,
+  CompactChatRequest,
   CreateChatRequest,
   ExecuteChatRequest,
   ExecuteChatResponse,
+  ForkChatRequest,
   InterruptChatRunResponse,
   MessagePageResponse,
   QueuedChatRunResponse,
   ReorderQueuedChatRunsRequest,
   ReorderQueuedChatRunsResponse,
+  RefreshChatResponse,
+  ReviewChatRequest,
   ServerRequestResponseRequest,
   UpdateQueuedChatRunRequest,
   UpdateChatRequest,
@@ -36,7 +42,9 @@ type ChatHistoryMessageItem = ProviderChatMessageItem & {
 
 let providerChatsSyncPromise: Promise<Map<string, ChatStatsResponse>> | null = null
 const messageSnapshotsByChatId = new Map<string, Map<string, string>>()
+const messageSnapshotSeparator = "\u0000"
 const localRunGraceMs = 120_000
+const recentInterruptSuppressMs = 30 * 60 * 1000
 
 export async function createChat(dto: CreateChatRequest): Promise<ChatResponse> {
   await ensureDatabase()
@@ -99,23 +107,38 @@ export async function updateChat(chatId: string, dto: UpdateChatRequest): Promis
     throw new HttpError(400, "Switching provider types for an existing chat is not supported.")
   }
   if (targetAccount && targetAccount.id !== chat.accountId && chat.externalThreadId) {
-    const fromAdapter = getProviderAdapter(chat.providerId)
-    const toAdapter = getProviderAdapter(targetAccount.providerId)
-    const fromAccount = chat.accountId ? await requireConnectedAccount(chat.accountId).catch(() => null) : null
-    const threadId = chat.externalThreadId
-    const context = { threadId, fromAccount, toAccount: targetAccount }
-    const moved = fromAccount ? await fromAdapter.moveThreadToAccount?.(context) ?? false : false
-    if (!moved) {
-      await fromAdapter.beforeAccountSwitch?.(context)
-      const synced = fromAccount ? await fromAdapter.syncThreadFromAccount(threadId, fromAccount) : true
-      const hydrated = await toAdapter.hydrateThreadForAccount(threadId, targetAccount)
-      if (!synced || !hydrated) {
-        throw new HttpError(500, "Unable to move chat history to the selected provider account.")
+    publishAccountSwitchProgress(chat.id, chat.accountId, targetAccount.id, "preparing")
+    try {
+      const fromAdapter = getProviderAdapter(chat.providerId)
+      const toAdapter = getProviderAdapter(targetAccount.providerId)
+      const fromAccount = chat.accountId ? await requireConnectedAccount(chat.accountId).catch(() => null) : null
+      const threadId = chat.externalThreadId
+      const context = { threadId, fromAccount, toAccount: targetAccount }
+      publishAccountSwitchProgress(chat.id, chat.accountId, targetAccount.id, "syncingSource")
+      const moved = fromAccount ? await fromAdapter.moveThreadToAccount?.(context) ?? false : false
+      if (!moved) {
+        await fromAdapter.beforeAccountSwitch?.(context)
+        const synced = fromAccount ? await fromAdapter.syncThreadFromAccount(threadId, fromAccount) : true
+        publishAccountSwitchProgress(chat.id, chat.accountId, targetAccount.id, "hydratingTarget")
+        const hydrated = await toAdapter.hydrateThreadForAccount(threadId, targetAccount)
+        if (!synced || !hydrated) {
+          throw new HttpError(500, "Unable to move chat history to the selected provider account.")
+        }
+        await fromAdapter.afterAccountSwitch?.(context)
+        if (fromAdapter !== toAdapter) {
+          await toAdapter.afterAccountSwitch?.(context)
+        }
       }
-      await fromAdapter.afterAccountSwitch?.(context)
-      if (fromAdapter !== toAdapter) {
-        await toAdapter.afterAccountSwitch?.(context)
-      }
+    } catch (error) {
+      publishAccountSwitchProgress(chat.id, chat.accountId, targetAccount.id, "failed", readErrorMessage(error))
+      throw error
+    }
+  }
+  if (dto.title !== undefined && chat.externalThreadId) {
+    const renameAccount = targetAccount ?? (chat.accountId ? await requireConnectedAccount(chat.accountId).catch(() => null) : null)
+    const nextTitle = normalizeTitle(dto.title) ?? "Untitled chat"
+    if (renameAccount) {
+      await getProviderAdapter(renameAccount.providerId).renameThread?.(renameAccount, chat.externalThreadId, nextTitle, chat.workingDirectory).catch(() => false)
     }
   }
 
@@ -147,7 +170,9 @@ export async function updateChat(chatId: string, dto: UpdateChatRequest): Promis
   const response = serializeChat(updated)
   publishProviderEvent({ threadId: updated.id, type: "chat.updated", payload: response })
   if (targetAccount && updated.externalThreadId) {
+    publishAccountSwitchProgress(updated.id, chat.accountId, targetAccount.id, "refreshingMessages")
     await publishMessageDeltas(updated.id)
+    publishAccountSwitchProgress(updated.id, chat.accountId, targetAccount.id, "completed")
   }
   return response
 }
@@ -164,10 +189,78 @@ function hasBlockedRunningChatUpdate(dto: UpdateChatRequest): boolean {
 }
 
 export async function archiveChat(chatId: string): Promise<ChatResponse> {
-  await getChat(chatId)
+  const chat = await getChat(chatId)
+  if (chat.accountId && chat.externalThreadId) {
+    const account = await requireConnectedAccount(chat.accountId).catch(() => null)
+    if (account) {
+      await getProviderAdapter(chat.providerId).archiveThread?.(account, chat.externalThreadId, chat.workingDirectory).catch(() => false)
+    }
+  }
   const archived = await prisma.chat.update({ where: { id: chatId }, data: { status: "ARCHIVED" } })
   publishProviderEvent({ threadId: archived.id, type: "chat.updated", payload: serializeChat(archived) })
   return serializeChat(archived)
+}
+
+export async function forkChat(chatId: string, request: ForkChatRequest = {}): Promise<ChatResponse> {
+  const { account, adapter, chat, externalThreadId } = await requireProviderBackedChat(chatId, "fork")
+  if (!adapter.forkThread) {
+    throw new HttpError(400, "This provider does not support forking chats.")
+  }
+  const forked = await adapter.forkThread(account, externalThreadId, request, chat.workingDirectory)
+  const created = await prisma.chat.create({
+    data: {
+      accountId: account.id,
+      autoRotateAccount: chat.autoRotateAccount,
+      collaborationMode: chat.collaborationMode,
+      externalThreadId: forked.externalThreadId,
+      lastActivityAt: new Date(),
+      model: chat.model,
+      permissionMode: chat.permissionMode,
+      providerId: chat.providerId,
+      reasoningEffort: chat.reasoningEffort,
+      serviceTier: chat.serviceTier,
+      status: "IDLE",
+      title: normalizeTitle(forked.title) ?? `${chat.title} fork`,
+      workingDirectory: forked.workingDirectory ?? chat.workingDirectory,
+    },
+  })
+  const response = serializeChat(created)
+  publishProviderEvent({ threadId: created.id, type: "chat.updated", payload: response })
+  await publishMessageDeltas(created.id)
+  return response
+}
+
+export async function compactChat(chatId: string, request: CompactChatRequest = {}): Promise<ChatResponse> {
+  const { account, adapter, chat, externalThreadId } = await requireProviderBackedChat(chatId, "compact")
+  if (!adapter.compactThread) {
+    throw new HttpError(400, "This provider does not support compacting chats.")
+  }
+  await adapter.compactThread(account, externalThreadId, request, chat.workingDirectory)
+  const updated = await prisma.chat.update({ where: { id: chat.id }, data: { lastActivityAt: new Date() } })
+  const response = serializeChat(updated)
+  publishProviderEvent({ threadId: updated.id, type: "chat.updated", payload: response })
+  await publishMessageDeltas(updated.id)
+  return response
+}
+
+export async function reviewChat(chatId: string, request: ReviewChatRequest = {}): Promise<ChatResponse> {
+  const { account, adapter, chat, externalThreadId } = await requireProviderBackedChat(chatId, "review")
+  if (!adapter.reviewThread) {
+    throw new HttpError(400, "This provider does not support review.")
+  }
+  await adapter.reviewThread(account, externalThreadId, request, chat.workingDirectory)
+  const updated = await prisma.chat.update({ where: { id: chat.id }, data: { lastActivityAt: new Date(), status: "RUNNING" } })
+  const response = serializeChat(updated)
+  publishProviderEvent({ threadId: updated.id, type: "chat.updated", payload: response })
+  await publishMessageDeltas(updated.id)
+  return response
+}
+
+export async function refreshChat(chatId: string): Promise<RefreshChatResponse> {
+  const chat = serializeChat(await getChat(chatId))
+  const messages = await readMessagePage(chatId)
+  rememberMessageSnapshot(chatId, messages.data)
+  return { chat, messages }
 }
 
 export async function listMessages(chatId: string, limit = 1000): Promise<MessagePageResponse> {
@@ -218,6 +311,23 @@ function publishMessageCreated(chatId: string, message: ChatMessageResponse): vo
   publishProviderEvent({ threadId: chatId, type: "message.created", payload: message })
 }
 
+function publishAccountSwitchProgress(
+  chatId: string,
+  fromAccountId: string | null,
+  toAccountId: string,
+  phase: ChatAccountSwitchPhase,
+  error?: string | null,
+): void {
+  const payload: ChatAccountSwitchEvent = {
+    chatId,
+    fromAccountId,
+    toAccountId,
+    phase,
+    error: error ?? null,
+  }
+  publishProviderEvent({ threadId: chatId, type: "chat.accountSwitch", payload })
+}
+
 function rememberMessageSnapshot(chatId: string, messages: ChatMessageResponse[]): void {
   messageSnapshotsByChatId.set(chatId, messageSnapshotMap(messages))
 }
@@ -242,7 +352,38 @@ function messageSnapshot(message: ChatMessageResponse): string {
     message.createdAt,
     message.completedAt,
     message.content,
-  ].join("\u0000")
+  ].join(messageSnapshotSeparator)
+}
+
+function knownMessageSequence(chatId: string, messageId: string): number | null {
+  const snapshot = messageSnapshotsByChatId.get(chatId)?.get(messageId)
+  if (!snapshot) {
+    return null
+  }
+  const sequence = Number.parseInt(snapshot.split(messageSnapshotSeparator, 1)[0] ?? "", 10)
+  return Number.isFinite(sequence) && sequence > 0 ? sequence : null
+}
+
+function nextKnownMessageSequence(chatId: string): number {
+  const snapshot = messageSnapshotsByChatId.get(chatId)
+  if (!snapshot?.size) {
+    return 1
+  }
+  let maxSequence = 0
+  for (const value of snapshot.values()) {
+    const sequence = Number.parseInt(value.split(messageSnapshotSeparator, 1)[0] ?? "", 10)
+    if (Number.isFinite(sequence)) {
+      maxSequence = Math.max(maxSequence, sequence)
+    }
+  }
+  return maxSequence + 1
+}
+
+function nextMessageSequenceForChat(chat: Chat): number {
+  if (messageSnapshotsByChatId.get(chat.id)?.size) {
+    return nextKnownMessageSequence(chat.id)
+  }
+  return 1
 }
 
 async function overlayCachedChatStates(chats: Chat[]): Promise<Chat[]> {
@@ -288,8 +429,13 @@ async function overlayCachedChatStates(chats: Chat[]): Promise<Chat[]> {
       if (updatedAt && updatedAt.getTime() > next.lastActivityAt.getTime()) {
         next = { ...next, lastActivityAt: updatedAt }
       }
-      if (state.status === "RUNNING" && next.status !== "RUNNING") {
-        next = { ...next, status: "RUNNING" }
+      if (state.status === "RUNNING") {
+        const suppressProviderRunning = await hasRecentInterruptRequest(chat.id) && !(await hasActiveChatRun(chat.id, "RUNNING"))
+        if (suppressProviderRunning) {
+          next = { ...next, status: "IDLE" }
+        } else if (next.status !== "RUNNING") {
+          next = { ...next, status: "RUNNING" }
+        }
       }
       if (next !== chat) {
         overlays.set(chat.id, next)
@@ -330,6 +476,9 @@ export async function refreshChatStatusesForWorkspaces(workspacePaths: string[])
       : null
     let status: ChatStatus | null = providerStatus
     const hasActiveRun = await hasActiveChatRun(chat.id, status)
+    if (status === "RUNNING" && !hasActiveRun && await hasRecentInterruptRequest(chat.id)) {
+      status = "IDLE"
+    }
     if (status !== "RUNNING" && hasActiveRun) {
       status = "RUNNING"
     }
@@ -401,7 +550,12 @@ async function syncProviderAccountChats(account: ProviderAccount): Promise<Map<s
     if (existing) {
       if (providerChat.status && existing.status !== "ARCHIVED") {
         const hasActiveRun = await hasActiveProviderThreadRun(account, externalThreadId)
-        data.status = providerChat.status === "RUNNING" || hasActiveRun ? "RUNNING" : providerChat.status
+        const suppressProviderRunning = providerChat.status === "RUNNING" && !hasActiveRun && await hasRecentInterruptRequest(existing.id)
+        data.status = suppressProviderRunning
+          ? "IDLE"
+          : providerChat.status === "RUNNING" || hasActiveRun
+            ? "RUNNING"
+            : providerChat.status
       }
       await prisma.chat.updateMany({
         where: {
@@ -525,6 +679,18 @@ async function hasActiveProviderThreadRun(account: ProviderAccount, externalThre
   return Boolean(run)
 }
 
+async function hasRecentInterruptRequest(chatId: string): Promise<boolean> {
+  const run = await prisma.chatRun.findFirst({
+    select: { id: true },
+    where: {
+      chatId,
+      interruptRequestedAt: { gte: new Date(Date.now() - recentInterruptSuppressMs) },
+      status: "CANCELLED",
+    },
+  })
+  return Boolean(run)
+}
+
 async function hasActiveChatRun(chatId: string, providerStatus?: ChatStatus | null): Promise<boolean> {
   const runs = await prisma.chatRun.findMany({
     select: { createdAt: true, externalTurnId: true, id: true, startedAt: true },
@@ -548,6 +714,18 @@ async function hasActiveChatRun(chatId: string, providerStatus?: ChatStatus | nu
     return freshLocalRuns.length > 0
   }
   return true
+}
+
+async function hasRunningChatRunExcept(chatId: string, excludedRunId: string): Promise<boolean> {
+  const run = await prisma.chatRun.findFirst({
+    select: { id: true },
+    where: {
+      chatId,
+      id: { not: excludedRunId },
+      status: "RUNNING",
+    },
+  })
+  return Boolean(run)
 }
 
 export async function executeMessage(chatId: string, dto: ExecuteChatRequest): Promise<ExecuteChatResponse> {
@@ -583,8 +761,9 @@ export async function executeMessage(chatId: string, dto: ExecuteChatRequest): P
       request: runRequestFromDto(dto),
     },
   })
-  const userMessage = serializeRunMessage(chat.id, run, "USER", dto.content, "COMPLETED", 1)
-  const assistantMessage = serializeRunMessage(chat.id, run, "ASSISTANT", "Running", "STREAMING", 2)
+  const previewSequence = await nextMessageSequenceForChat(chat)
+  const userMessage = serializeRunMessage(chat.id, run, "USER", dto.content, "COMPLETED", previewSequence)
+  const assistantMessage = serializeRunMessage(chat.id, run, "ASSISTANT", "Running", "STREAMING", previewSequence + 1)
   const runningChat = await prisma.chat.update({
     where: { id: chat.id },
     data: {
@@ -642,6 +821,12 @@ export async function respondToServerRequest(
   if (!responder) {
     throw new HttpError(400, "This provider does not support server request responses.")
   }
+  if (dto.kind === "userInput" && isCodexFunctionCallRequestId(requestId)) {
+    throw new HttpError(409, "This input prompt came from saved Codex history, not a live request. Refresh the chat or send a new message to continue.")
+  }
+  if (dto.kind === "userInput" && !(await hasActiveChatRun(chat.id))) {
+    throw new HttpError(409, "This input request is no longer active. Refresh the chat or send a new message to continue.")
+  }
   await responder(account, requestId, dto)
   return null
 }
@@ -656,7 +841,7 @@ async function queueMessage(chat: Chat, account: ProviderAccount, dto: ExecuteCh
       request: runRequestFromDto(dto),
     },
   })
-  const message = serializeRunMessage(chat.id, run, "USER", dto.content, "PENDING", 1)
+  const message = serializeRunMessage(chat.id, run, "USER", dto.content, "PENDING", await nextMessageSequenceForChat(chat))
   const updatedChat = await prisma.chat.update({
     where: { id: chat.id },
     data: {
@@ -702,21 +887,45 @@ async function steerActiveMessage(
 
 export async function interruptChatRun(chatId: string): Promise<InterruptChatRunResponse> {
   const chat = await getChat(chatId)
-  if (chat.status !== "RUNNING") {
-    throw new HttpError(409, "There is no running task to stop.")
-  }
   const run = await prisma.chatRun.findFirst({
     orderBy: { createdAt: "desc" },
     where: { chatId, status: "RUNNING" },
   })
+  const accountId = run?.accountId ?? chat.accountId
+  const account = accountId ? await requireConnectedAccount(accountId).catch(() => null) : null
+  const adapter = getProviderAdapter(chat.providerId)
+  const providerStatus = account && chat.externalThreadId && adapter.readChatStatus
+    ? await adapter.readChatStatus(account, chat.externalThreadId).catch(() => null)
+    : null
+  const providerRunning = providerStatus === "RUNNING"
+
+  if (chat.status !== "RUNNING" && !run && !providerRunning) {
+    throw new HttpError(409, "There is no running task to stop.")
+  }
+
   if (!run) {
+    if (account && chat.externalThreadId && providerRunning) {
+      await adapter.interrupt(account, chat.externalThreadId, null).catch(() => undefined)
+      const interruptedAt = new Date()
+      await prisma.chatRun.create({
+        data: {
+          accountId: account.id,
+          chatId,
+          endedAt: interruptedAt,
+          interruptRequestedAt: interruptedAt,
+          providerId: chat.providerId,
+          request: {},
+          startedAt: interruptedAt,
+          status: "CANCELLED",
+        },
+      })
+    }
     const updated = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE" } })
     publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updated) })
     await publishMessageDeltas(chatId)
-    return { chatId, runId: null, status: "CANCELLED", message: "Marked stale run as cancelled." }
+    return { chatId, runId: null, status: "CANCELLED", message: providerRunning ? "Provider task cancelled." : "Marked stale run as cancelled." }
   }
-  const account = run.accountId ? await requireConnectedAccount(run.accountId).catch(() => null) : null
-  if (account && chat.externalThreadId && run.externalTurnId) {
+  if (account && chat.externalThreadId) {
     await getProviderAdapter(chat.providerId).interrupt(account, chat.externalThreadId, run.externalTurnId).catch(() => undefined)
   }
   await prisma.chatRun.update({ where: { id: run.id }, data: { status: "CANCELLED", endedAt: new Date(), interruptRequestedAt: new Date() } })
@@ -747,7 +956,9 @@ export async function updateQueuedChatRun(
       } as Prisma.InputJsonObject,
     },
   })
-  const message = serializeRunMessage(chatId, updatedRun, "USER", content, "PENDING", 1)
+  const messageId = runMessageId(updatedRun, "USER")
+  const sequence = knownMessageSequence(chatId, messageId) ?? nextKnownMessageSequence(chatId)
+  const message = serializeRunMessage(chatId, updatedRun, "USER", content, "PENDING", sequence)
   publishMessageCreated(chatId, message)
   await publishMessageDeltas(chatId)
   return { chatId, runId, status: "QUEUED", message }
@@ -816,6 +1027,26 @@ export async function readChatContext(chatId: string): Promise<ChatContextRespon
   return { usage: null }
 }
 
+async function requireProviderBackedChat(chatId: string, action: string) {
+  const chat = await getChat(chatId)
+  if (!chat.externalThreadId) {
+    throw new HttpError(400, `Start this chat before using ${action}.`)
+  }
+  if (!chat.accountId) {
+    throw new HttpError(400, `Choose a provider account before using ${action}.`)
+  }
+  const account = await requireConnectedAccount(chat.accountId)
+  if (account.providerId !== chat.providerId) {
+    throw new HttpError(400, "Chat provider must match the selected account provider.")
+  }
+  return {
+    account,
+    adapter: getProviderAdapter(chat.providerId),
+    chat,
+    externalThreadId: chat.externalThreadId,
+  }
+}
+
 async function requireQueuedRun(chatId: string, runId: string): Promise<ChatRun> {
   const run = await prisma.chatRun.findFirst({ where: { chatId, id: runId, status: "QUEUED" } })
   if (!run) {
@@ -863,7 +1094,9 @@ async function steerQueuedRun(chat: Chat, queuedRun: ChatRun): Promise<QueuedCha
       status: "COMPLETED",
     },
   })
-  const message = serializeRunMessage(chat.id, updatedRun, "USER", content, "COMPLETED", 1)
+  const messageId = runMessageId(updatedRun, "USER")
+  const sequence = knownMessageSequence(chat.id, messageId) ?? await nextMessageSequenceForChat(chat)
+  const message = serializeRunMessage(chat.id, updatedRun, "USER", content, "COMPLETED", sequence)
   publishMessageCreated(chat.id, message)
   await publishMessageDeltas(chat.id)
   publishProviderEvent({ threadId: chat.id, type: "run.status", payload: { runId: queuedRun.id, status: "COMPLETED" } })
@@ -902,7 +1135,7 @@ async function runProviderTurn({
   publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "RUNNING" } })
   try {
     const liveMessageSequences = new Map<string, number>()
-    let nextLiveMessageSequence = 3
+    let nextLiveMessageSequence = nextKnownMessageSequence(chatId)
     const result = await adapter.sendMessage(account, {
       attachments,
       collaborationMode: requestedCollaborationMode ?? chat.collaborationMode,
@@ -940,18 +1173,21 @@ async function runProviderTurn({
     const completedAt = new Date()
     const currentRun = await prisma.chatRun.findUnique({ where: { id: runId }, select: { status: true } })
     if (!currentRun || currentRun.status !== "RUNNING") {
+      const hasOtherRunningRun = await hasRunningChatRunExcept(chatId, runId)
       const updatedChat = await prisma.chat.update({
         where: { id: chatId },
         data: {
           externalThreadId: result.threadId,
           lastActivityAt: completedAt,
-          status: "IDLE",
+          status: hasOtherRunningRun ? "RUNNING" : "IDLE",
         },
       })
       await adapter.syncThreadFromAccount(result.threadId, account)
       publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
       await publishMessageDeltas(chatId)
-      await startNextQueuedRun(chatId)
+      if (!hasOtherRunningRun) {
+        await startNextQueuedRun(chatId)
+      }
       return
     }
     const updatedChat = await prisma.chat.update({
@@ -976,6 +1212,20 @@ async function runProviderTurn({
     publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "COMPLETED" } })
     await startNextQueuedRun(chatId)
   } catch (error) {
+    const currentRun = await prisma.chatRun.findUnique({ where: { id: runId }, select: { status: true } })
+    if (!currentRun || currentRun.status !== "RUNNING") {
+      const hasOtherRunningRun = await hasRunningChatRunExcept(chatId, runId)
+      if (!hasOtherRunningRun) {
+        const settledAt = new Date()
+        const updatedChat = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE", lastActivityAt: settledAt } })
+        publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
+      }
+      await publishMessageDeltas(chatId)
+      if (!hasOtherRunningRun) {
+        await startNextQueuedRun(chatId)
+      }
+      return
+    }
     const message = error instanceof Error ? error.message : "Provider run failed."
     const failedAt = new Date()
     const updatedChat = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE", lastActivityAt: failedAt } })
@@ -988,6 +1238,9 @@ async function runProviderTurn({
 }
 
 async function startNextQueuedRun(chatId: string): Promise<boolean> {
+  if (await hasRunningChatRunExcept(chatId, "")) {
+    return false
+  }
   const queuedRun = sortQueuedRuns(await prisma.chatRun.findMany({
     orderBy: { createdAt: "asc" },
     where: { chatId, status: "QUEUED" },
@@ -1228,7 +1481,7 @@ function serializeRunMessage(
   sequence: number,
 ): ChatMessageResponse {
   return serializeProviderMessage(chatId, {
-    id: `run:${run.id}:${role.toLowerCase()}`,
+    id: runMessageId(run, role),
     runId: run.id,
     role,
     content,
@@ -1236,6 +1489,14 @@ function serializeRunMessage(
     completedAt: status === "COMPLETED" ? run.createdAt.toISOString() : null,
     status,
   }, sequence)
+}
+
+function runMessageId(run: Pick<ChatRun, "id">, role: "USER" | "ASSISTANT"): string {
+  return `run:${run.id}:${role.toLowerCase()}`
+}
+
+function isCodexFunctionCallRequestId(requestId: string): boolean {
+  return /^call_[A-Za-z0-9_-]+$/u.test(requestId)
 }
 
 export function serializeChat(chat: Chat, stats?: ChatStatsResponse | null): ChatResponse {
@@ -1279,7 +1540,7 @@ function serializeProviderMessage(
     role: message.role,
     kind: message.kind ?? "CHAT",
     status,
-    turnId: null,
+    turnId: message.turnId ?? null,
     itemId: message.itemId,
     requestId: message.requestId ?? null,
     content: message.content,
@@ -1308,4 +1569,8 @@ function parseProviderDate(value: string | null | undefined): Date | null {
   }
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? null : date
+}
+
+function readErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? "Unknown error")
 }

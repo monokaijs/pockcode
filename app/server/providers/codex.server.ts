@@ -37,6 +37,7 @@ const codexLogReadLimit = 5000
 const codexSessionSummaryTailBytes = 1024 * 1024
 const codexInstructionsFileName = "AGENTS.md"
 const codexTurnCompletionTimeoutMs = 30 * 60 * 1000
+const codexMessageReadTimeoutMs = 5_000
 const codexStoredRunningFreshnessMs = 30 * 60 * 1000
 type CodexPersonality = "friendly" | "pragmatic"
 
@@ -44,10 +45,12 @@ const codexDefaultModel = "gpt-5.5"
 const codexDefaultReasoningEffort = "medium"
 const codexDefaultServiceTier = "standard"
 const codexSupportedReasoningEfforts = [
+  { description: "None", reasoningEffort: "none" },
+  { description: "Minimal", reasoningEffort: "minimal" },
   { description: "Low", reasoningEffort: "low" },
   { description: "Medium", reasoningEffort: "medium" },
   { description: "High", reasoningEffort: "high" },
-  { description: "Extra High", reasoningEffort: "extra-high" },
+  { description: "Extra High", reasoningEffort: "xhigh" },
 ]
 const codexDefaultModelOptions: ProviderModelListResponse["data"] = [
   {
@@ -84,7 +87,29 @@ const definition: ProviderDefinition = {
   id: "codex",
   label: "OpenAI Codex",
   icon: "codex",
-  capabilities: ["auth", "chat", "history", "limits", "models", "accountSwitchHooks", "localRuntime"],
+  capabilities: [
+    "auth",
+    "chat",
+    "history",
+    "limits",
+    "models",
+    "accountSwitchHooks",
+    "localRuntime",
+    "threadLifecycle",
+    "fork",
+    "archive",
+    "review",
+    "compact",
+    "usage",
+    "skills",
+    "hooks",
+    "plugins",
+    "mcp",
+    "config",
+    "commandExec",
+    "shellCommand",
+    "providerSwitch",
+  ],
   composerFeatures: ["accessMode", "fileAttachment", "folderAttachment", "goal", "imageAttachment", "planMode"],
   defaultSettings: defaultCodexSettings(),
   settingsFields: [
@@ -232,9 +257,93 @@ export const codexProviderAdapter: ProviderAdapter = {
   readCachedChatStates(account, externalThreadIds) {
     return readCodexStoredChatStates(account, externalThreadIds)
   },
+  async forkThread(account, externalThreadId, request, workingDirectory) {
+    const runtime = await prepareCodexThreadForLifecycleAction(account, externalThreadId, workingDirectory)
+    const response = await requestCodexRuntime(runtime, "thread/fork", {
+      threadId: externalThreadId,
+      lastTurnId: request?.lastTurnId ?? null,
+      excludeTurns: true,
+      threadSource: "appServer",
+    }, 60_000)
+    const result = asJsonObject(response.result)
+    const thread = asJsonObject(result?.thread)
+    const nextThreadId = readString(thread?.id) ?? readString(result?.threadId) ?? readString(result?.thread_id)
+    if (!nextThreadId) {
+      throw new Error("Codex did not return a forked thread id.")
+    }
+    await syncAccountThreadToCanonical(nextThreadId, account)
+    return {
+      externalThreadId: nextThreadId,
+      title: readString(thread?.name) ?? readString(thread?.preview) ?? null,
+      workingDirectory: readString(result?.cwd) ?? readString(thread?.cwd) ?? null,
+      raw: jsonFromUnknown(response),
+    }
+  },
+  async archiveThread(account, externalThreadId, workingDirectory) {
+    const runtime = await prepareCodexThreadForLifecycleAction(account, externalThreadId, workingDirectory)
+    return requestCodexOptional(runtime, "thread/archive", { threadId: externalThreadId }, 30_000)
+  },
+  async deleteThread(account, externalThreadId) {
+    return requestCodexOptional(runtimeForAccount(account), "thread/delete", { threadId: externalThreadId }, 30_000)
+  },
+  async renameThread(account, externalThreadId, title, workingDirectory) {
+    const runtime = await prepareCodexThreadForLifecycleAction(account, externalThreadId, workingDirectory)
+    return requestCodexOptional(runtime, "thread/name/set", { threadId: externalThreadId, name: title }, 30_000)
+  },
+  async compactThread(account, externalThreadId, _request, workingDirectory) {
+    const runtime = await prepareCodexThreadForLifecycleAction(account, externalThreadId, workingDirectory)
+    const response = await requestCodexRuntime(runtime, "thread/compact/start", { threadId: externalThreadId }, 30_000)
+    return {
+      externalThreadId,
+      raw: jsonFromUnknown(response),
+    }
+  },
+  async reviewThread(account, externalThreadId, request, workingDirectory) {
+    const runtime = await prepareCodexThreadForLifecycleAction(account, externalThreadId, workingDirectory)
+    const response = await requestCodexRuntime(runtime, "review/start", {
+      threadId: externalThreadId,
+      delivery: request?.delivery ?? "inline",
+      target: codexReviewTargetPayload(request),
+    }, 30_000)
+    const result = asJsonObject(response.result)
+    const turn = asJsonObject(result?.turn)
+    return {
+      externalThreadId: readString(result?.reviewThreadId) ?? readString(result?.review_thread_id) ?? externalThreadId,
+      turnId: readString(turn?.id) ?? readString(result?.turnId) ?? readString(result?.turn_id) ?? null,
+      raw: jsonFromUnknown(response),
+    }
+  },
+  async readUsage(account) {
+    const response = await requestCodexRuntime(runtimeForAccount(account), "account/usage/read", undefined, 30_000)
+    return jsonFromUnknown(response.result)
+  },
+  async readConfig(account, workingDirectory) {
+    const response = await requestCodexRuntime(runtimeForAccount(account, workingDirectory), "config/read", {
+      cwd: workingDirectory ?? null,
+      includeLayers: true,
+    }, 30_000)
+    return jsonFromUnknown(response.result)
+  },
+  async listSkills(account, workingDirectory) {
+    const response = await requestCodexRuntime(runtimeForAccount(account, workingDirectory), "skills/list", {
+      cwds: workingDirectory ? [workingDirectory] : [],
+      forceReload: false,
+    }, 30_000)
+    return jsonFromUnknown(response.result)
+  },
+  async listHooks(account, workingDirectory) {
+    const response = await requestCodexRuntime(runtimeForAccount(account, workingDirectory), "hooks/list", {
+      cwds: workingDirectory ? [workingDirectory] : [],
+    }, 30_000)
+    return jsonFromUnknown(response.result)
+  },
+  async listPlugins(account) {
+    const response = await requestCodexRuntime(runtimeForAccount(account), "plugin/list", {}, 30_000)
+    return jsonFromUnknown(response.result)
+  },
   async sendMessage(account, input) {
     if (input.threadId) {
-      await hydrateCanonicalThreadToAccount(input.threadId, account)
+      await hydrateKnownCodexThreadToAccount(input.threadId, account)
     }
     const runtime = runtimeForAccount(account, input.workingDirectory)
     const threadId = await ensureCodexThread(runtime, input.threadId ?? null, input.workingDirectory, input.collaborationMode)
@@ -250,6 +359,7 @@ export const codexProviderAdapter: ProviderAdapter = {
     }
     const accessMode = codexAccessMode(input.permissionMode)
     let turnId: string | null = null
+    const livePlanContentByItemId = new Map<string, string>()
     const completionAbort = new AbortController()
     const unsubscribeLiveMessages = input.onMessage
       ? runtime.onEvent((message) => {
@@ -271,10 +381,19 @@ export const codexProviderAdapter: ProviderAdapter = {
           }
           return
         }
+        const planUpdateMessage = readCodexPlanUpdateMessage(message, threadId, turnId)
+        if (planUpdateMessage) {
+          try {
+            input.onMessage?.(planUpdateMessage)
+          } catch {
+            // Live notifications are best-effort; final history sync remains authoritative.
+          }
+          return
+        }
         const liveMessage = readCodexLiveThreadItemMessage(message, threadId, turnId)
         if (liveMessage) {
           try {
-            input.onMessage?.(liveMessage)
+            input.onMessage?.(accumulateLivePlanMessage(liveMessage, livePlanContentByItemId))
           } catch {
             // Live notifications are best-effort; final history sync remains authoritative.
           }
@@ -327,7 +446,19 @@ export const codexProviderAdapter: ProviderAdapter = {
     return runtimeForAccount(account).respondToServerRequest(requestId, response.result ?? serverRequestResultFromResponse(response))
   },
   async interrupt(account, threadId, turnId) {
-    await runtimeForAccount(account).request("turn/interrupt", { threadId, turnId }, 30_000)
+    const runtime = runtimeForAccount(account)
+    const activeTurnId = turnId ?? await readCodexActiveTurnId(runtime, threadId).catch(() => null)
+    try {
+      await runtime.request("turn/interrupt", {
+        threadId,
+        ...(activeTurnId ? { turnId: activeTurnId } : {}),
+      }, 30_000)
+    } catch (error) {
+      runtimeService.stopRuntime(account.id)
+      if (activeTurnId) {
+        throw error
+      }
+    }
   },
   async steerMessage(account, input) {
     const response = await runtimeForAccount(account, input.workingDirectory).request(
@@ -631,6 +762,22 @@ async function hydrateCanonicalThreadToAccount(threadId: string, account: Provid
   return copyCodexThread(resolveCanonicalHistoryHome(), target, threadId, { preserveExistingTarget: true })
 }
 
+async function hydrateKnownCodexThreadToAccount(threadId: string, account: ProviderAccount): Promise<boolean> {
+  if (await hydrateCanonicalThreadToAccount(threadId, account)) {
+    return true
+  }
+  if (usesSharedCodexHome(account)) {
+    return true
+  }
+  const target = resolveAccountCodexHome(account)
+  ensureCodexHome(target)
+  const copied = await copyCodexThread(resolveSharedCodexHome(), target, threadId, { preserveExistingTarget: true })
+  if (copied) {
+    await copyCodexThread(resolveSharedCodexHome(), resolveCanonicalHistoryHome(), threadId, { preserveExistingTarget: true })
+  }
+  return copied
+}
+
 async function removeAccountThread(threadId: string, account: ProviderAccount): Promise<boolean> {
   if (usesSharedCodexHome(account)) {
     return true
@@ -711,11 +858,27 @@ async function listCodexChats(account: ProviderAccount): Promise<ProviderChatLis
   return chats
 }
 
+function accumulateLivePlanMessage(
+  message: ProviderChatMessageItem,
+  contentByItemId: Map<string, string>,
+): ProviderChatMessageItem {
+  if (message.kind !== "PLAN" || !message.itemId) {
+    return message
+  }
+  if (message.status === "STREAMING") {
+    const content = `${contentByItemId.get(message.itemId) ?? ""}${message.content}`
+    contentByItemId.set(message.itemId, content)
+    return { ...message, content }
+  }
+  contentByItemId.set(message.itemId, message.content)
+  return message
+}
+
 async function loadCodexChatMessages(
   account: ProviderAccount,
   externalThreadId: string,
 ): Promise<ProviderChatMessageItem[]> {
-  const appServerResult = await loadCodexChatMessagesFromAppServer(account, externalThreadId).catch(() => null)
+  const appServerResult = await loadCodexChatMessagesFromAppServer(account, externalThreadId, codexMessageReadTimeoutMs).catch(() => null)
   if (appServerResult) {
     const storedStatus = appServerResult.status === "RUNNING"
       ? null
@@ -737,6 +900,14 @@ async function readCodexChatStatus(account: ProviderAccount, externalThreadId: s
   }
   const storedStatus = await readCodexStoredChatStatus(account, externalThreadId)
   return storedStatus === "RUNNING" ? "RUNNING" : appServerStatus ?? storedStatus
+}
+
+async function readCodexActiveTurnId(
+  runtime: Pick<CodexRuntime, "request">,
+  externalThreadId: string,
+): Promise<string | null> {
+  const thread = await readCodexAppServerThread(runtime, externalThreadId)
+  return readCodexAppServerOpenTurnId(thread)
 }
 
 async function loadCodexStoredChatMessages(
@@ -865,8 +1036,9 @@ function readCodexAppServerChat(value: unknown): ProviderChatListItem | null {
 async function loadCodexChatMessagesFromAppServer(
   account: ProviderAccount,
   externalThreadId: string,
+  timeoutMs = 30_000,
 ): Promise<{ messages: ProviderChatMessageItem[]; status: "IDLE" | "RUNNING" | null } | null> {
-  const thread = await readCodexAppServerThread(runtimeForAccount(account), externalThreadId)
+  const thread = await readCodexAppServerThread(runtimeForAccount(account), externalThreadId, timeoutMs)
   if (!thread) {
     return null
   }
@@ -895,6 +1067,7 @@ async function refreshCodexAppServerLiveStatuses(
 async function readCodexAppServerThread(
   runtime: Pick<CodexRuntime, "request">,
   externalThreadId: string,
+  timeoutMs = 30_000,
 ): Promise<JsonObject | null> {
   const response = await runtime.request(
     "thread/read",
@@ -902,7 +1075,7 @@ async function readCodexAppServerThread(
       threadId: externalThreadId,
       includeTurns: true,
     },
-    30_000,
+    timeoutMs,
   )
   return asJsonObject(asJsonObject(response.result)?.thread) ?? null
 }
@@ -917,12 +1090,13 @@ function readCodexAppServerThreadMessages(thread: JsonObject): ProviderChatMessa
     if (!turn || !Array.isArray(turn.items)) {
       continue
     }
+    const turnId = readString(turn.id) ?? readString(turn.turnId) ?? readString(turn.turn_id) ?? null
     const startedAt = readCodexAppServerTimestamp(turn.startedAt)
     const completedAt = readCodexAppServerTimestamp(turn.completedAt)
     for (const itemValue of turn.items) {
       const message = readCodexAppServerThreadItemMessage(itemValue, startedAt, completedAt)
       if (message) {
-        messages.push(message)
+        messages.push(turnId && !message.turnId ? { ...message, turnId } : message)
       }
     }
   }
@@ -966,18 +1140,22 @@ function readCodexAppServerThreadItemMessage(
     }
   }
 
-  if (type === "plan") {
-    const content = readString(item.text)
+  if (type === "reasoning") {
+    const content = formatCodexReasoning(item)
     if (!content) {
       return null
     }
     return {
       role: "ASSISTANT",
-      kind: "PLAN",
+      kind: "THINKING",
       content,
       itemId: readString(item.id) ?? null,
       createdAt: turnStartedAt,
     }
+  }
+
+  if (isCodexPlanItemType(type)) {
+    return codexPlanItemMessage(item, turnStartedAt)
   }
 
   if (type === "commandExecution") {
@@ -993,6 +1171,10 @@ function readCodexAppServerThreadItemMessage(
   }
 
   if (type === "dynamicToolCall") {
+    const userInputMessage = readCodexUserInputPromptFromToolItem(item, turnStartedAt, turnCompletedAt)
+    if (userInputMessage) {
+      return userInputMessage
+    }
     return codexActionMessage(item, "TOOL_ACTIVITY", formatCodexDynamicToolCall(item), turnCompletedAt ?? turnStartedAt)
   }
 
@@ -1000,7 +1182,27 @@ function readCodexAppServerThreadItemMessage(
     return codexActionMessage(item, "TOOL_ACTIVITY", formatCodexWebSearch(item), turnCompletedAt ?? turnStartedAt)
   }
 
-  if (type === "imageView" || type === "imageGeneration" || type === "sleep" || type === "contextCompaction") {
+  if (type === "collabAgentToolCall") {
+    return codexActionMessage(item, "SUBAGENT_ACTIVITY", formatCodexCollabAgentToolCall(item), turnCompletedAt ?? turnStartedAt)
+  }
+
+  if (type === "subAgentActivity") {
+    return codexActionMessage(item, "SUBAGENT_ACTIVITY", formatCodexSubAgentActivity(item), turnCompletedAt ?? turnStartedAt)
+  }
+
+  if (type === "enteredReviewMode" || type === "exitedReviewMode") {
+    return codexActionMessage(item, "REVIEW", formatCodexReviewMode(item), turnCompletedAt ?? turnStartedAt)
+  }
+
+  if (type === "warning") {
+    return codexActionMessage(item, "WARNING", formatCodexWarning(item), turnCompletedAt ?? turnStartedAt)
+  }
+
+  if (type === "contextCompaction") {
+    return codexActionMessage(item, "COMPACTION", formatCodexSimpleToolItem(item), turnCompletedAt ?? turnStartedAt)
+  }
+
+  if (type === "imageView" || type === "imageGeneration" || type === "sleep") {
     return codexActionMessage(item, "TOOL_ACTIVITY", formatCodexSimpleToolItem(item), turnCompletedAt ?? turnStartedAt)
   }
 
@@ -1027,6 +1229,52 @@ function codexActionMessage(
     content,
     itemId: readString(item.id) ?? null,
     createdAt,
+  }
+}
+
+function readCodexUserInputPromptFromToolItem(
+  item: JsonObject,
+  turnStartedAt: string | null,
+  turnCompletedAt: string | null,
+): ProviderChatMessageItem | null {
+  const tool = readString(item.tool) ?? readString(item.name)
+  if (!tool || !isCodexRequestUserInputName(tool)) {
+    return null
+  }
+  const requestId = readString(item.requestId) ?? readString(item.request_id)
+  const payload = asJsonObject(item.arguments) ?? item
+  return codexUserInputPromptMessage({
+    createdAt: turnStartedAt ?? turnCompletedAt,
+    itemId: readString(item.id) ?? requestId ?? null,
+    payload,
+    requestId: requestId ?? null,
+    status: readString(item.status),
+  })
+}
+
+function codexUserInputPromptMessage({
+  createdAt,
+  itemId,
+  payload,
+  requestId,
+  status,
+}: {
+  createdAt: string | null
+  itemId: string | null
+  payload: JsonObject
+  requestId: string | null
+  status?: string
+}): ProviderChatMessageItem {
+  return {
+    role: "TOOL",
+    kind: "USER_INPUT_PROMPT",
+    status: codexUserInputPromptStatus(status),
+    content: formatCodexUserInputPrompt(payload),
+    itemId,
+    createdAt,
+    metadata: { serverRequestMethod: "item/tool/requestUserInput" },
+    rawPayload: jsonFromUnknown(payload),
+    requestId,
   }
 }
 
@@ -1119,6 +1367,19 @@ function formatCodexDynamicToolCall(item: JsonObject): string | null {
   return parts.join("\n\n")
 }
 
+function formatCodexUserInputPrompt(payload: JsonObject): string {
+  const questions = Array.isArray(payload.questions)
+    ? payload.questions.map((entry) => asJsonObject(entry)).filter((entry): entry is JsonObject => Boolean(entry))
+    : []
+  const questionText = questions
+    .map((question) => readString(question.question) ?? readString(question.prompt) ?? readString(question.header))
+    .filter((text): text is string => Boolean(text))
+  if (questionText.length) {
+    return ["User input requested", ...questionText.map((text) => `- ${text}`)].join("\n")
+  }
+  return readString(payload.question) ?? readString(payload.prompt) ?? readString(payload.message) ?? "User input requested"
+}
+
 function formatCodexWebSearch(item: JsonObject): string | null {
   const query = readString(item.query)
   const parts = [`Web search${codexStatusSuffix(item.status)}`]
@@ -1127,6 +1388,58 @@ function formatCodexWebSearch(item: JsonObject): string | null {
   }
   addJsonBlock(parts, "Action", item.action)
   return parts.join("\n\n")
+}
+
+function formatCodexReasoning(item: JsonObject): string | null {
+  const summary = readCodexTextLike(item.summary)
+  const content = readCodexTextLike(item.content)
+  const text = [summary, content].filter(Boolean).join("\n\n").trim()
+  return text || (readString(item.status) === "inProgress" ? "Thinking" : null)
+}
+
+function formatCodexCollabAgentToolCall(item: JsonObject): string | null {
+  const tool = readString(item.tool)
+  const receivers = Array.isArray(item.receiverThreadIds)
+    ? item.receiverThreadIds.map(readString).filter(Boolean)
+    : []
+  const parts = [`Subagent ${tool ?? "activity"}${codexStatusSuffix(item.status)}`]
+  const metadata = [
+    readString(item.senderThreadId) ? `from: \`${readString(item.senderThreadId)}\`` : null,
+    receivers.length ? `to: ${receivers.map((id) => `\`${id}\``).join(", ")}` : null,
+    readString(item.model) ? `model: \`${readString(item.model)}\`` : null,
+    readString(item.reasoningEffort) ? `reasoning: \`${readString(item.reasoningEffort)}\`` : null,
+  ].filter(Boolean)
+  if (metadata.length) {
+    parts.push(metadata.join(" | "))
+  }
+  const prompt = readString(item.prompt)
+  if (prompt) {
+    parts.push(fencedBlock("text", prompt))
+  }
+  addJsonBlock(parts, "Agents", item.agentsStates)
+  return parts.join("\n\n")
+}
+
+function formatCodexSubAgentActivity(item: JsonObject): string | null {
+  const kind = readString(item.kind)
+  const path = readString(item.agentPath)
+  const threadId = readString(item.agentThreadId)
+  return [
+    `Subagent ${kind ? humanizeCodexItemType(kind).toLowerCase() : "activity"}`,
+    path ? `path: \`${path}\`` : null,
+    threadId ? `thread: \`${threadId}\`` : null,
+  ].filter(Boolean).join("\n\n")
+}
+
+function formatCodexReviewMode(item: JsonObject): string | null {
+  const type = readString(item.type)
+  const review = readString(item.review)
+  const label = type === "enteredReviewMode" ? "Review started" : "Review completed"
+  return review ? `${label}\n\n${review}` : label
+}
+
+function formatCodexWarning(item: JsonObject): string | null {
+  return readString(item.message) ?? readString(item.text) ?? readString(item.warning) ?? formatCodexFallbackToolItem(item)
 }
 
 function formatCodexSimpleToolItem(item: JsonObject): string | null {
@@ -1172,7 +1485,7 @@ function formatCodexFallbackToolItem(item: JsonObject): string | null {
 }
 
 function isCodexVisibleFallbackItem(type: string): boolean {
-  return type !== "reasoning" && type !== "hookPrompt"
+  return type !== "hookPrompt"
 }
 
 function humanizeCodexItemType(type: string): string {
@@ -1219,6 +1532,8 @@ function isCodexHeavyDetailKey(key: string): boolean {
     "diff",
     "encrypted_content",
     "output",
+    "replacement_history",
+    "result",
     "stderr",
     "stdout",
     "text",
@@ -1343,6 +1658,27 @@ function readCodexAppServerUserMessageText(value: unknown): string | null {
   return text || null
 }
 
+function readCodexTextLike(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value.trim() || null
+  }
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const text = value
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry
+      }
+      const object = asJsonObject(entry)
+      return readString(object?.text) ?? readString(object?.content) ?? ""
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim()
+  return text || null
+}
+
 function readCodexAppServerTimestamp(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return new Date(value * 1000).toISOString()
@@ -1376,6 +1712,23 @@ function readCodexAppServerOpenTurnStatus(thread: JsonObject | null): "IDLE" | "
     return status === "RUNNING" && isFreshCodexThreadActivity(thread, lastTurn) ? "RUNNING" : "IDLE"
   }
   return isFreshCodexThreadActivity(thread, lastTurn) ? "RUNNING" : "IDLE"
+}
+
+function readCodexAppServerOpenTurnId(thread: JsonObject | null): string | null {
+  if (!thread || readCodexAppServerOpenTurnStatus(thread) !== "RUNNING" || !Array.isArray(thread.turns)) {
+    return null
+  }
+  for (const turnValue of [...thread.turns].reverse()) {
+    const turn = asJsonObject(turnValue)
+    if (!turn || readCodexAppServerTimestamp(turn.completedAt)) {
+      continue
+    }
+    const turnId = readString(turn.id) ?? readString(turn.turnId) ?? readString(turn.turn_id)
+    if (turnId) {
+      return turnId
+    }
+  }
+  return null
 }
 
 function isFreshCodexThreadActivity(thread: JsonObject, turn: JsonObject): boolean {
@@ -1413,6 +1766,11 @@ function readCodexLiveThreadItemMessage(
   threadId: string,
   turnId: string | null,
 ): ProviderChatMessageItem | null {
+  const planDeltaMessage = readCodexPlanDeltaMessage(message, threadId, turnId)
+  if (planDeltaMessage) {
+    return planDeltaMessage
+  }
+
   const started = message.method === "item/started"
   const completed = message.method === "item/completed"
   if (!started && !completed) {
@@ -1442,6 +1800,124 @@ function readCodexLiveThreadItemMessage(
   return providerMessage
 }
 
+function readCodexPlanUpdateMessage(
+  message: CodexJsonRpcResponse,
+  threadId: string,
+  turnId: string | null,
+): ProviderChatMessageItem | null {
+  if (message.method !== "turn/plan/updated") {
+    return null
+  }
+  const params = asJsonObject(message.params)
+  if (!params || (readString(params.threadId) ?? readString(params.thread_id)) !== threadId) {
+    return null
+  }
+  const eventTurnId = readString(params.turnId) ?? readString(params.turn_id)
+  if (turnId && eventTurnId && eventTurnId !== turnId) {
+    return null
+  }
+  return codexPlanUpdateMessage({
+    createdAt: new Date().toISOString(),
+    explanation: readString(params.explanation) ?? null,
+    itemId: eventTurnId ? `plan-update:${eventTurnId}` : `plan-update:${threadId}`,
+    status: "STREAMING",
+    steps: readCodexPlanSteps(params.plan),
+    turnId: eventTurnId ?? null,
+  })
+}
+
+function readCodexPlanDeltaMessage(
+  message: CodexJsonRpcResponse,
+  threadId: string,
+  turnId: string | null,
+): ProviderChatMessageItem | null {
+  if (message.method !== "item/plan/delta") {
+    return null
+  }
+  const params = asJsonObject(message.params)
+  if (!params || (readString(params.threadId) ?? readString(params.thread_id)) !== threadId) {
+    return null
+  }
+  const eventTurnId = readString(params.turnId) ?? readString(params.turn_id)
+  if (turnId && eventTurnId && eventTurnId !== turnId) {
+    return null
+  }
+  const itemId = readString(params.itemId) ?? readString(params.item_id)
+  const delta = readString(params.delta)
+  if (!itemId || !delta) {
+    return null
+  }
+  return {
+    role: "ASSISTANT",
+    kind: "PLAN",
+    status: "STREAMING",
+    content: delta,
+    itemId,
+    createdAt: new Date().toISOString(),
+    turnId: eventTurnId ?? null,
+  }
+}
+
+function codexPlanUpdateMessage({
+  createdAt,
+  explanation,
+  itemId,
+  status,
+  steps,
+  turnId,
+}: {
+  createdAt: string | null
+  explanation: string | null
+  itemId: string | null
+  status: NonNullable<ProviderChatMessageItem["status"]>
+  steps: CodexPlanStep[]
+  turnId?: string | null
+}): ProviderChatMessageItem {
+  return {
+    role: "ASSISTANT",
+    kind: "PLAN",
+    status,
+    content: explanation?.trim() ?? "",
+    itemId,
+    createdAt,
+    turnId: turnId ?? null,
+    metadata: {
+      planPresentation: "update",
+      planSteps: jsonFromUnknown(steps),
+    },
+  }
+}
+
+type CodexPlanStep = {
+  status: "completed" | "inProgress" | "pending"
+  step: string
+}
+
+function readCodexPlanSteps(value: unknown): CodexPlanStep[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .map((entry) => {
+      const record = asJsonObject(entry)
+      const step = readString(record?.step)
+      const status = readCodexPlanStepStatus(record?.status)
+      return step ? { step, status } : null
+    })
+    .filter((step): step is CodexPlanStep => Boolean(step))
+}
+
+function readCodexPlanStepStatus(value: unknown): CodexPlanStep["status"] {
+  const status = readString(value)
+  if (status === "completed" || status === "inProgress" || status === "pending") {
+    return status
+  }
+  if (status === "in_progress") {
+    return "inProgress"
+  }
+  return "pending"
+}
+
 function readCodexServerRequestMessage(
   message: CodexJsonRpcResponse,
   threadId: string,
@@ -1466,7 +1942,7 @@ function readCodexServerRequestMessage(
     content: codexServerRequestContent(message.method, params),
     createdAt: timestamp,
     itemId: `request:${requestId}`,
-    kind: message.method === "item/tool/requestUserInput" ? "USER_INPUT_PROMPT" : "APPROVAL",
+    kind: isCodexRequestUserInputMethod(message.method) ? "USER_INPUT_PROMPT" : "APPROVAL",
     metadata: { serverRequestMethod: message.method },
     rawPayload: jsonFromUnknown(params),
     requestId,
@@ -1507,13 +1983,15 @@ function isCodexServerRequestMethod(method: string): boolean {
     method === "item/commandExecution/requestApproval" ||
     method === "item/fileChange/requestApproval" ||
     method === "item/permissions/requestApproval" ||
-    method === "item/tool/requestUserInput"
+    isCodexRequestUserInputMethod(method) ||
+    normalizedCodexName(method).endsWith("requestapproval")
   )
 }
 
 function codexServerRequestContent(method: string, params: JsonObject): string {
   const reason = readString(params.reason)
-  if (method === "item/commandExecution/requestApproval") {
+  const normalized = normalizedCodexName(method)
+  if (normalized.includes("commandexecutionrequestapproval")) {
     const command = readString(params.command)
     const cwd = readString(params.cwd)
     return [
@@ -1523,14 +2001,14 @@ function codexServerRequestContent(method: string, params: JsonObject): string {
       reason ? `\n${reason}` : "",
     ].filter(Boolean).join("\n")
   }
-  if (method === "item/fileChange/requestApproval") {
+  if (normalized.includes("filechangerequestapproval")) {
     return ["File change approval requested", reason].filter(Boolean).join("\n\n")
   }
-  if (method === "item/permissions/requestApproval") {
+  if (normalized.includes("permissionsrequestapproval")) {
     const cwd = readString(params.cwd)
     return ["Permissions requested", cwd ? `cwd: \`${cwd}\`` : "", reason].filter(Boolean).join("\n")
   }
-  return "User input requested"
+  return formatCodexUserInputPrompt(params)
 }
 
 function serverRequestResultFromResponse(response: ServerRequestResponseRequest): JsonObject {
@@ -1544,7 +2022,17 @@ function serverRequestResultFromResponse(response: ServerRequestResponseRequest)
 }
 
 function isCodexLiveActionMessage(message: ProviderChatMessageItem): boolean {
-  return message.role === "TOOL" || message.kind === "PLAN" || message.kind === "APPROVAL" || message.kind === "USER_INPUT_PROMPT"
+  return (
+    message.role === "TOOL" ||
+    message.kind === "THINKING" ||
+    message.kind === "PLAN" ||
+    message.kind === "APPROVAL" ||
+    message.kind === "USER_INPUT_PROMPT" ||
+    message.kind === "REVIEW" ||
+    message.kind === "WARNING" ||
+    message.kind === "COMPACTION" ||
+    message.kind === "SUBAGENT_ACTIVITY"
+  )
 }
 
 function readCodexAppServerMillisTimestamp(value: unknown): string | null {
@@ -1832,6 +2320,22 @@ function readCodexSessionFunctionOutputs(text: string): Map<string, CodexSession
     const payload = asJsonObject(record?.payload)
     const recordType = readString(record?.type)
     const payloadType = readString(payload?.type)
+    if (recordType === "event_msg" && payloadType === "exec_command_end") {
+      const callId = readCodexSessionCallId(payload)
+      const output = readCodexSessionExecCommandEndOutput(payload)
+      if (callId && output) {
+        outputs.set(callId, mergeCodexSessionFunctionOutput(outputs.get(callId), output))
+      }
+      continue
+    }
+    if (recordType === "event_msg" && payloadType === "mcp_tool_call_end") {
+      const callId = readCodexSessionCallId(payload)
+      const output = readCodexSessionMcpToolEndOutput(payload)
+      if (callId && output) {
+        outputs.set(callId, mergeCodexSessionFunctionOutput(outputs.get(callId), output))
+      }
+      continue
+    }
     if (
       recordType !== "response_item" ||
       (payloadType !== "function_call_output" && payloadType !== "custom_tool_call_output")
@@ -1881,6 +2385,38 @@ function readCodexSessionFunctionOutput(payload: JsonObject | undefined): CodexS
     exitCode: Number.isFinite(exitCode) ? exitCode : null,
     output: output?.trim() ? output.trim() : null,
   }
+}
+
+function readCodexSessionExecCommandEndOutput(payload: JsonObject | undefined): CodexSessionFunctionOutput | null {
+  const output = readString(payload?.aggregated_output)
+    ?? [readString(payload?.stdout), readString(payload?.stderr)].filter(Boolean).join("\n").trim()
+    ?? null
+  const exitCode = readNumber(payload?.exit_code) ?? readNumber(payload?.exitCode) ?? null
+  const durationMs = readCodexDurationMs(payload?.duration) ?? readNumber(payload?.duration_ms) ?? readNumber(payload?.durationMs) ?? null
+  if (!output && exitCode === null && durationMs === null) {
+    return null
+  }
+  return { durationMs, exitCode, output }
+}
+
+function readCodexSessionMcpToolEndOutput(payload: JsonObject | undefined): CodexSessionFunctionOutput | null {
+  const result = payload?.result === undefined ? null : sanitizeCodexToolDetails(payload.result)
+  const output = result === null ? null : JSON.stringify(result, null, 2)
+  const durationMs = readCodexDurationMs(payload?.duration)
+  if (!output && durationMs === null) {
+    return null
+  }
+  return { durationMs, exitCode: null, output }
+}
+
+function readCodexDurationMs(value: unknown): number | null {
+  const duration = asJsonObject(value)
+  const seconds = readNumber(duration?.secs) ?? readNumber(duration?.seconds)
+  const nanos = readNumber(duration?.nanos) ?? readNumber(duration?.nanoseconds)
+  if (seconds === undefined && nanos === undefined) {
+    return null
+  }
+  return Math.round((seconds ?? 0) * 1000 + (nanos ?? 0) / 1_000_000)
 }
 
 function readCodexSessionOutputBody(rawOutput: string): string | null {
@@ -2005,6 +2541,7 @@ function readCodexSubmissionMessage(row: CodexLogRow): ProviderChatMessageItem |
     role: "USER",
     content: inputText,
     itemId: turnId ? `${turnId}:user` : null,
+    turnId: turnId ?? null,
     createdAt: codexLogRowDate(row),
   }
 }
@@ -2027,10 +2564,17 @@ function readCodexReceivedMessage(row: CodexLogRow): ProviderChatMessageItem | n
   if (!role || !content) {
     return null
   }
+  const turnId = readString(event?.turn_id) ??
+    readString(event?.turnId) ??
+    readString(item?.turn_id) ??
+    readString(item?.turnId) ??
+    extractCodexTurnIds(body)[0] ??
+    null
   return {
     role,
     content,
     itemId: readString(item?.id) ?? null,
+    turnId,
     createdAt: codexLogRowDate(row),
   }
 }
@@ -2124,6 +2668,10 @@ function readCodexSessionRecordMessage(
   const recordType = readString(record?.type)
   const payloadType = readString(payload?.type)
   const createdAt = readIsoString(record?.timestamp) ?? null
+  if (recordType === "compacted") {
+    return readCodexSessionCompactionMessage(payload, createdAt)
+  }
+
   if (recordType === "response_item" && payloadType === "message") {
     const role = codexMessageRole(payload?.role)
     const content = readCodexMessageText(payload?.content)
@@ -2136,6 +2684,14 @@ function readCodexSessionRecordMessage(
       itemId: readString(payload?.id) ?? null,
       createdAt,
     }
+  }
+
+  if (recordType === "response_item" && payloadType === "reasoning") {
+    return readCodexSessionReasoningMessage(payload, createdAt)
+  }
+
+  if (recordType === "response_item" && payloadType && isCodexPlanItemType(payloadType)) {
+    return codexPlanItemMessage(payload ?? {}, createdAt)
   }
 
   if (recordType === "event_msg" && payloadType === "user_message") {
@@ -2164,12 +2720,51 @@ function readCodexSessionRecordMessage(
     }
   }
 
-  if (recordType === "response_item" && payloadType === "function_call") {
+  if (recordType === "response_item" && (payloadType === "function_call" || payloadType === "custom_tool_call")) {
+    if (payloadType === "custom_tool_call" && readString(payload?.name) === "apply_patch") {
+      return null
+    }
     return readCodexSessionFunctionCallMessage(payload, createdAt, pendingCallIds, outputByCallId)
+  }
+
+  if (recordType === "response_item" && payloadType === "web_search_call") {
+    return readCodexSessionWebSearchMessage(payload, createdAt)
+  }
+
+  if (recordType === "response_item" && payloadType === "image_generation_call") {
+    return readCodexSessionImageGenerationMessage(payload, createdAt)
   }
 
   if (recordType === "event_msg" && payloadType === "patch_apply_end") {
     return readCodexSessionPatchMessage(payload, createdAt)
+  }
+
+  if (recordType === "event_msg" && payloadType === "web_search_end") {
+    return readCodexSessionWebSearchMessage(payload, createdAt)
+  }
+
+  if (recordType === "event_msg" && payloadType === "image_generation_end") {
+    return readCodexSessionImageGenerationMessage(payload, createdAt)
+  }
+
+  if (recordType === "event_msg" && payloadType === "mcp_tool_call_end") {
+    return readCodexSessionMcpToolMessage(payload, createdAt)
+  }
+
+  if (recordType === "event_msg" && payloadType === "context_compacted") {
+    return readCodexSessionCompactionMessage(payload, createdAt)
+  }
+
+  if (recordType === "event_msg" && payloadType === "item_completed") {
+    return readCodexSessionCompletedItemMessage(payload, createdAt)
+  }
+
+  if (recordType === "event_msg" && payloadType === "error") {
+    return readCodexSessionErrorMessage(payload, createdAt)
+  }
+
+  if (recordType === "event_msg" && (payloadType === "turn_aborted" || payloadType === "thread_rolled_back")) {
+    return readCodexSessionThreadWarningMessage(payload, createdAt)
   }
 
   if (recordType === "response_item") {
@@ -2177,6 +2772,23 @@ function readCodexSessionRecordMessage(
   }
 
   return null
+}
+
+function readCodexSessionReasoningMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const content = formatCodexReasoning(payload ?? {})
+  if (!content) {
+    return null
+  }
+  return {
+    role: "ASSISTANT",
+    kind: "THINKING",
+    content,
+    itemId: readString(payload?.id) ?? null,
+    createdAt,
+  }
 }
 
 function readCodexSessionFunctionCallMessage(
@@ -2206,6 +2818,27 @@ function readCodexSessionFunctionCallMessage(
       durationMs: toolOutput?.durationMs ?? null,
     }
     return codexActionMessage(item, "COMMAND_EXECUTION", formatCodexCommandExecution(item), createdAt)
+  }
+
+  if (name === "update_plan") {
+    return codexPlanUpdateMessage({
+      createdAt,
+      explanation: readString(argumentsObject?.explanation) ?? null,
+      itemId: callId ?? `plan-update:${createdAt ?? name}`,
+      status: status === "inProgress" ? "STREAMING" : "COMPLETED",
+      steps: readCodexPlanSteps(argumentsObject?.plan),
+    })
+  }
+
+  if (name && isCodexRequestUserInputName(name)) {
+    const payload = argumentsObject ?? {}
+    return codexUserInputPromptMessage({
+      createdAt,
+      itemId: callId ?? `tool:${createdAt ?? name}`,
+      payload,
+      requestId: null,
+      status: "completed",
+    })
   }
 
   if (!name) {
@@ -2255,6 +2888,171 @@ function readCodexSessionPatchMessage(
   return codexActionMessage(item, "FILE_CHANGE", formatCodexFileChange(item), createdAt)
 }
 
+function readCodexSessionWebSearchMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const item: JsonObject = {
+    type: "webSearch",
+    id: readString(payload?.call_id) ?? readString(payload?.id) ?? `web-search:${createdAt ?? "unknown"}`,
+    query: readString(payload?.query) ?? null,
+    action: payload?.action ?? null,
+    status: readString(payload?.status) ?? "completed",
+  }
+  return codexActionMessage(item, "TOOL_ACTIVITY", formatCodexWebSearch(item), createdAt)
+}
+
+function readCodexSessionImageGenerationMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const item: JsonObject = {
+    type: "imageGeneration",
+    id: readString(payload?.call_id) ?? readString(payload?.id) ?? `image-generation:${createdAt ?? "unknown"}`,
+    revisedPrompt: readString(payload?.revised_prompt) ?? readString(payload?.revisedPrompt) ?? null,
+    savedPath: readString(payload?.saved_path) ?? readString(payload?.savedPath) ?? null,
+    status: readString(payload?.status) ?? "completed",
+  }
+  return codexActionMessage(item, "TOOL_ACTIVITY", formatCodexSimpleToolItem(item), createdAt)
+}
+
+function readCodexSessionMcpToolMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const invocation = asJsonObject(payload?.invocation)
+  const item: JsonObject = {
+    type: "mcpToolCall",
+    id: readString(payload?.call_id) ?? `mcp:${createdAt ?? "unknown"}`,
+    server: readString(invocation?.server) ?? null,
+    tool: readString(invocation?.tool) ?? null,
+    arguments: invocation?.arguments ?? null,
+    result: payload?.result ?? null,
+    status: readString(payload?.status) ?? "completed",
+  }
+  return codexActionMessage(item, "TOOL_ACTIVITY", formatCodexMcpToolCall(item), createdAt)
+}
+
+function readCodexSessionCompactionMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const item: JsonObject = {
+    type: "contextCompaction",
+    id: readString(payload?.call_id) ?? readString(payload?.id) ?? `compaction:${createdAt ?? "unknown"}`,
+    status: readString(payload?.status) ?? "completed",
+  }
+  return codexActionMessage(item, "COMPACTION", formatCodexSimpleToolItem(item), createdAt)
+}
+
+function readCodexSessionCompletedItemMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const item = asJsonObject(payload?.item)
+  const type = readString(item?.type)
+  if (!isCodexPlanItemType(type)) {
+    return null
+  }
+  return codexPlanItemMessage(item ?? {}, createdAt, readString(payload?.call_id) ?? null)
+}
+
+function isCodexPlanItemType(type: string | null | undefined): boolean {
+  const normalized = (type ?? "").toLowerCase().replace(/[-_\s]+/gu, "")
+  return normalized === "plan" || normalized === "proposedplan"
+}
+
+function codexPlanItemMessage(
+  item: JsonObject,
+  createdAt: string | null,
+  fallbackItemId: string | null = null,
+): ProviderChatMessageItem | null {
+  const steps = readCodexPlanItemSteps(item)
+  const explanation = readCodexPlanItemText(item)
+  const itemId = readString(item.id) ?? fallbackItemId
+
+  if (steps.length) {
+    return codexPlanUpdateMessage({
+      createdAt,
+      explanation,
+      itemId,
+      status: "COMPLETED",
+      steps,
+    })
+  }
+
+  const content = explanation ?? formatCodexFallbackToolItem(item)
+  if (!content) {
+    return null
+  }
+
+  return {
+    role: "ASSISTANT",
+    kind: "PLAN",
+    content,
+    itemId,
+    createdAt,
+  }
+}
+
+function readCodexPlanItemText(item: JsonObject): string | null {
+  return (
+    readString(item.text) ??
+    readString(item.message) ??
+    readString(item.summary) ??
+    readCodexMessageText(item.content) ??
+    readString(item.plan) ??
+    null
+  )
+}
+
+function readCodexPlanItemSteps(item: JsonObject): CodexPlanStep[] {
+  const directSteps = readCodexPlanSteps(item.plan)
+  if (directSteps.length) {
+    return directSteps
+  }
+  const steps = readCodexPlanSteps(item.steps)
+  if (steps.length) {
+    return steps
+  }
+  const plan = asJsonObject(item.plan)
+  return plan ? readCodexPlanSteps(plan.steps ?? plan.plan) : []
+}
+
+function readCodexSessionErrorMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const content = readString(payload?.message) ?? "Codex error"
+  return {
+    role: "TOOL",
+    kind: "ERROR",
+    status: "FAILED",
+    content,
+    itemId: readString(payload?.call_id) ?? readString(payload?.id) ?? `error:${createdAt ?? content}`,
+    createdAt,
+    metadata: {
+      codexErrorInfo: readString(payload?.codex_error_info) ?? null,
+    },
+  }
+}
+
+function readCodexSessionThreadWarningMessage(
+  payload: JsonObject | undefined,
+  createdAt: string | null,
+): ProviderChatMessageItem | null {
+  const type = readString(payload?.type)
+  const label = type === "turn_aborted" ? "Turn aborted" : "Thread rolled back"
+  const count = readNumber(payload?.num_turns)
+  return {
+    role: "TOOL",
+    kind: "WARNING",
+    content: count === undefined ? label : `${label}\n\nturns: \`${count}\``,
+    itemId: readString(payload?.turn_id) ?? readString(payload?.turnId) ?? `warning:${createdAt ?? label}`,
+    createdAt,
+  }
+}
+
 function readCodexSessionFallbackToolMessage(
   payload: JsonObject | undefined,
   createdAt: string | null,
@@ -2273,7 +3071,10 @@ function readCodexSessionFallbackToolMessage(
 }
 
 function isCodexSessionVisibleFallbackItem(type: string): boolean {
-  return type !== "reasoning" && type !== "function_call_output" && type !== "custom_tool_call_output"
+  return type !== "reasoning" &&
+    type !== "function_call_output" &&
+    type !== "custom_tool_call" &&
+    type !== "custom_tool_call_output"
 }
 
 function readCodexSessionToolArguments(value: unknown): JsonObject | null {
@@ -2362,7 +3163,12 @@ function readCodexMessageText(value: unknown): string | null {
 }
 
 function isCodexInjectedContextMessage(content: string): boolean {
-  return content.includes("<environment_context>") || content.includes("# AGENTS.md instructions")
+  const trimmed = content.trimStart()
+  return (
+    content.includes("<environment_context>") ||
+    content.includes("# AGENTS.md instructions") ||
+    trimmed.startsWith("<user_action>")
+  )
 }
 
 function codexMessageRole(value: unknown): MessageRole | null {
@@ -2687,15 +3493,22 @@ function normalizeModelList(value: unknown): ProviderModelListResponse {
   const models = rows.map((row) => {
     const object = asJsonObject(row) ?? {}
     const id = readString(object.id) ?? readString(object.model) ?? "unknown"
+    const upgrade = readString(object.upgrade)
     return {
       id,
       model: readString(object.model) ?? id,
       displayName: readString(object.displayName) ?? readString(object.display_name) ?? id,
       hidden: Boolean(object.hidden),
       defaultReasoningEffort: readString(object.defaultReasoningEffort) ?? readString(object.default_reasoning_effort) ?? null,
+      defaultServiceTier: readString(object.defaultServiceTier) ?? readString(object.default_service_tier) ?? null,
+      inputModalities: readStringList(object.inputModalities) ?? readStringList(object.input_modalities) ?? [],
+      isDefault: readBooleanValue(object.isDefault) ?? readBooleanValue(object.is_default) ?? false,
+      serviceTiers: readModelServiceTiers(object.serviceTiers) ?? readModelServiceTiers(object.service_tiers) ?? [],
+      supportsPersonality: readBooleanValue(object.supportsPersonality) ?? readBooleanValue(object.supports_personality) ?? false,
       supportedReasoningEfforts: readSupportedReasoningEfforts(object.supportedReasoningEfforts)
         ?? readSupportedReasoningEfforts(object.supported_reasoning_efforts)
         ?? [],
+      upgradeInfo: readModelUpgradeInfo(object.upgradeInfo) ?? readModelUpgradeInfo(object.upgrade_info) ?? (upgrade ? { upgrade } : null),
     }
   })
   return {
@@ -2721,6 +3534,35 @@ function readSupportedReasoningEfforts(value: unknown): ProviderModelListRespons
     })
     .filter((entry): entry is { description?: string; reasoningEffort: string } => Boolean(entry))
   return efforts.length ? efforts : null
+}
+
+function readModelServiceTiers(value: unknown): ProviderModelListResponse["data"][number]["serviceTiers"] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const tiers = value
+    .map((entry) => {
+      const object = asJsonObject(entry)
+      const id = readString(object?.id)
+      if (!id) {
+        return null
+      }
+      return {
+        id,
+        name: readString(object?.name) ?? id,
+        description: readString(object?.description) ?? "",
+      }
+    })
+    .filter((entry): entry is { description: string; id: string; name: string } => Boolean(entry))
+  return tiers.length ? tiers : null
+}
+
+function readModelUpgradeInfo(value: unknown): JsonSerializable | null {
+  if (value === undefined || value === null) {
+    return null
+  }
+  const object = asJsonObject(value)
+  return object ? jsonFromUnknown(object) : null
 }
 
 function mergeCodexModelOptions(options: ProviderModelListResponse["data"]): ProviderModelListResponse["data"] {
@@ -2805,6 +3647,27 @@ async function ensureCodexThread(
   return nextThreadId
 }
 
+async function prepareCodexThreadForLifecycleAction(
+  account: ProviderAccount,
+  externalThreadId: string,
+  workingDirectory?: string | null,
+): Promise<Pick<CodexRuntime, "request">> {
+  const runtime = runtimeForAccount(account, workingDirectory)
+  try {
+    const hydrated = await hydrateKnownCodexThreadToAccount(externalThreadId, account)
+    if (!hydrated) {
+      throw new Error(codexThreadNotFoundMessage(externalThreadId))
+    }
+    await ensureCodexThread(runtime, externalThreadId, workingDirectory ?? null, "default")
+    return runtime
+  } catch (error) {
+    if (isCodexThreadNotFoundError(error)) {
+      throw new Error(codexThreadNotFoundMessage(externalThreadId))
+    }
+    throw error
+  }
+}
+
 async function setCodexThreadGoal(
   runtime: Pick<CodexRuntime, "request">,
   threadId: string,
@@ -2819,6 +3682,102 @@ async function setCodexThreadGoal(
     },
     30_000,
   )
+}
+
+async function requestCodexRuntime(
+  runtime: Pick<CodexRuntime, "request">,
+  method: string,
+  params?: JsonObject,
+  timeoutMs = 30_000,
+): Promise<CodexJsonRpcResponse> {
+  try {
+    return await runtime.request(method, params, timeoutMs)
+  } catch (error) {
+    if (isUnsupportedCodexMethodError(error)) {
+      throw new Error(`Codex method ${method} is not supported by this Codex binary.`)
+    }
+    throw error
+  }
+}
+
+async function requestCodexOptional(
+  runtime: Pick<CodexRuntime, "request">,
+  method: string,
+  params?: JsonObject,
+  timeoutMs = 30_000,
+): Promise<boolean> {
+  try {
+    await runtime.request(method, params, timeoutMs)
+    return true
+  } catch (error) {
+    if (isUnsupportedCodexMethodError(error)) {
+      return false
+    }
+    throw error
+  }
+}
+
+function isUnsupportedCodexMethodError(error: unknown): boolean {
+  const message = readErrorMessage(error).toLowerCase()
+  return (
+    message.includes("method not found") ||
+    message.includes("unknown method") ||
+    message.includes("unsupported method") ||
+    message.includes("-32601")
+  )
+}
+
+function isCodexRequestUserInputMethod(method: string): boolean {
+  const normalized = normalizedCodexName(method)
+  return normalized === "itemtoolrequestuserinput" || normalized.endsWith("requestuserinput")
+}
+
+function isCodexRequestUserInputName(name: string): boolean {
+  return normalizedCodexName(name) === "requestuserinput"
+}
+
+function normalizedCodexName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/gu, "")
+}
+
+function codexUserInputPromptStatus(value: string | null | undefined): NonNullable<ProviderChatMessageItem["status"]> {
+  if (value === "completed") {
+    return "COMPLETED"
+  }
+  if (value === "failed" || value === "declined") {
+    return "FAILED"
+  }
+  return "PENDING"
+}
+
+function isCodexThreadNotFoundError(error: unknown): boolean {
+  const message = readErrorMessage(error).toLowerCase()
+  return message.includes("thread not found") || (message.includes("thread") && message.includes("not found"))
+}
+
+function codexThreadNotFoundMessage(threadId: string): string {
+  return `Codex could not find thread ${threadId} in the selected account home. The local chat points at a Codex thread that is missing from that account's history; switch back to the account that owns it or refresh/sync the chat history, then try again.`
+}
+
+function codexReviewTargetPayload(request: Parameters<NonNullable<ProviderAdapter["reviewThread"]>>[2]): JsonObject {
+  const target = request?.target
+  const instructions = request?.instructions?.trim()
+  if (target === "custom" || instructions) {
+    return { type: "custom", instructions: instructions || "Review the current changes." }
+  }
+  const commitSha = request?.commitSha?.trim()
+  if (target === "commit" || commitSha) {
+    return {
+      type: "commit",
+      sha: commitSha || "HEAD",
+      title: request?.commitTitle?.trim() || null,
+    }
+  }
+  const branch = request?.baseBranch?.trim()
+  if (target === "baseBranch" || branch) {
+    return { type: "baseBranch", branch: branch || "main" }
+  }
+  return { type: "uncommittedChanges" }
 }
 
 function codexAccessMode(permissionMode: string): { approvalPolicy: string | null; sandboxPolicy: JsonObject | null } {
@@ -2881,15 +3840,16 @@ async function resolveCollaborationSettings(
   reasoningEffort: string | null,
   serviceTier: string | null,
 ): Promise<{ model?: string | null; reasoningEffort?: string | null; serviceTier?: string | null } | null> {
+  const normalizedReasoningEffort = normalizeCodexReasoningEffort(reasoningEffort)
   if (model) {
-    return { model, reasoningEffort, serviceTier }
+    return { model, reasoningEffort: normalizedReasoningEffort, serviceTier }
   }
   try {
     const response = await runtime.request("config/read", {}, 30_000)
     const config = asJsonObject(asJsonObject(response.result)?.config)
     const configuredModel = readString(config?.model)
     if (configuredModel) {
-      return { model: configuredModel, reasoningEffort, serviceTier }
+      return { model: configuredModel, reasoningEffort: normalizedReasoningEffort, serviceTier }
     }
   } catch {
     return null
@@ -2901,18 +3861,36 @@ function collaborationModePayload(
   collaborationMode: string,
   settings: { model?: string | null; reasoningEffort?: string | null; serviceTier?: string | null } | null,
 ): JsonObject {
+  const reasoningEffort = normalizeCodexReasoningEffort(settings?.reasoningEffort)
   return {
     mode: collaborationMode || "default",
     ...(settings?.model
       ? {
           settings: {
             model: settings.model,
-            reasoning_effort: settings.reasoningEffort ?? null,
+            reasoning_effort: reasoningEffort,
             service_tier: settings.serviceTier ?? null,
           },
         }
       : {}),
   }
+}
+
+function normalizeCodexReasoningEffort(value: string | null | undefined): string | null {
+  const normalized = value?.trim()
+  if (!normalized) {
+    return null
+  }
+  if (normalized === "extraHigh" || normalized === "extra-high" || normalized === "extra_high") {
+    return "xhigh"
+  }
+  if (normalized === "fast") {
+    return "low"
+  }
+  if (normalized === "deep") {
+    return "high"
+  }
+  return normalized
 }
 
 async function maybeMarkInvalidated(accountId: string, error: unknown): Promise<void> {
@@ -2934,6 +3912,14 @@ function isAuthInvalidatedError(error: unknown): boolean {
 
 function readStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string") ? value : undefined
+}
+
+function readStringList(value: unknown): string[] | null {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string") ? value : null
+}
+
+function readBooleanValue(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null
 }
 
 function readStringRecord(value: unknown): Record<string, string> {

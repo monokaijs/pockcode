@@ -8,7 +8,20 @@ export type MessageScheduleStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVE
 export type MessageScheduleRunStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED"
 export type MessageRole = "USER" | "ASSISTANT" | "SYSTEM" | "TOOL"
 export type MessageStatus = "PENDING" | "STREAMING" | "COMPLETED" | "FAILED"
-export type MessageKind = "CHAT" | "THINKING" | "TOOL_ACTIVITY" | "COMMAND_EXECUTION" | "FILE_CHANGE" | "PLAN" | "APPROVAL" | "USER_INPUT_PROMPT" | "ERROR"
+export type MessageKind =
+  | "CHAT"
+  | "THINKING"
+  | "TOOL_ACTIVITY"
+  | "COMMAND_EXECUTION"
+  | "FILE_CHANGE"
+  | "PLAN"
+  | "APPROVAL"
+  | "USER_INPUT_PROMPT"
+  | "REVIEW"
+  | "WARNING"
+  | "COMPACTION"
+  | "SUBAGENT_ACTIVITY"
+  | "ERROR"
 
 export type ProviderCapability =
   | "auth"
@@ -18,6 +31,20 @@ export type ProviderCapability =
   | "models"
   | "accountSwitchHooks"
   | "localRuntime"
+  | "threadLifecycle"
+  | "fork"
+  | "archive"
+  | "review"
+  | "compact"
+  | "usage"
+  | "skills"
+  | "hooks"
+  | "plugins"
+  | "mcp"
+  | "config"
+  | "commandExec"
+  | "shellCommand"
+  | "providerSwitch"
 
 export type ProviderComposerFeature =
   | "accessMode"
@@ -114,12 +141,18 @@ export type CompleteProviderAccountLoginRequest = {
 }
 
 export type ProviderModelOption = {
+  defaultServiceTier?: string | null
   defaultReasoningEffort?: string | null
   displayName: string
   hidden?: boolean
   id: string
+  inputModalities?: string[]
+  isDefault?: boolean
   model: string
+  serviceTiers?: { description?: string; id: string; name?: string }[]
+  supportsPersonality?: boolean
   supportedReasoningEfforts?: { description?: string; reasoningEffort: string }[]
+  upgradeInfo?: JsonSerializable | null
 }
 
 export type ProviderModelListResponse = {
@@ -354,6 +387,36 @@ export type QueuedChatRunResponse = {
   message?: ChatMessageResponse | null
   runId: string
   status: Extract<RunStatus, "QUEUED" | "RUNNING" | "COMPLETED" | "CANCELLED">
+}
+
+export type ForkChatRequest = {
+  lastTurnId?: string | null
+}
+
+export type CompactChatRequest = {}
+
+export type ReviewChatRequest = {
+  baseBranch?: string | null
+  commitSha?: string | null
+  commitTitle?: string | null
+  delivery?: "inline" | "detached" | null
+  instructions?: string | null
+  target?: "uncommittedChanges" | "baseBranch" | "commit" | "custom" | null
+}
+
+export type RefreshChatResponse = {
+  chat: ChatResponse
+  messages: MessagePageResponse
+}
+
+export type ChatAccountSwitchPhase = "preparing" | "syncingSource" | "hydratingTarget" | "refreshingMessages" | "completed" | "failed"
+
+export type ChatAccountSwitchEvent = {
+  chatId: string
+  error?: string | null
+  fromAccountId?: string | null
+  phase: ChatAccountSwitchPhase
+  toAccountId: string
 }
 
 export type InterruptChatRunResponse = {

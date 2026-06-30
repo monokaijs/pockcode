@@ -4,13 +4,18 @@ import {
   ChevronDown,
   ChevronRight,
   Cpu,
+  Archive,
+  Copy,
   FileText,
   Folder,
+  GitBranch,
   GripVertical,
-  ListFilter,
   LoaderCircle,
+  Pencil,
   Plus,
+  Route,
   Search,
+  Send,
   Shield,
   SlidersHorizontal,
   Square,
@@ -21,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { MarkdownContent } from "@/components/session/chat-markdown"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, ReactNode } from "react"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
@@ -29,6 +35,7 @@ import { ProviderMark } from "@/components/session/provider-icons"
 import { useProviderQuotas } from "@/components/session/provider-quota-context"
 import {
   apiClient,
+  type ChatAccountSwitchPhase,
   type ChatMessageResponse,
   type ChatResponse,
   type ProviderAccountResponse,
@@ -36,10 +43,10 @@ import {
   type ProviderModelListResponse,
 } from "@/lib/api-client"
 import {
-  accessModeLabel,
   attachmentOnlyPrompt,
   attachmentsFromFiles,
   chatRenderEntryId,
+  matchingChatSlashCommands,
   composerReasoningEffortLabel,
   composerReasoningEffortOptions,
   composerReasoningEffortValue,
@@ -57,6 +64,7 @@ import {
   groupChatRenderEntries,
   groupFileChanges,
   groupWorkMessages,
+  parseChatSlashCommand,
   isOptimisticMessage,
   isPendingUserInputPrompt,
   isRunningPlaceholderMessage,
@@ -67,6 +75,8 @@ import {
   readComposerAccessMode,
   readComposerReasoningEffort,
   readComposerServiceTier,
+  readError,
+  readRecord,
   readRecordString,
   mergeProviderModelOptions,
   readUserInputQuestions,
@@ -76,6 +86,7 @@ import {
   stripInlineCode,
   workDurationLabel,
   workspaceRelativeDisplayPath,
+  type ChatSlashCommand,
 } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import type {
@@ -114,14 +125,24 @@ type ChatPaneProps = {
   isLoading: boolean
   isMessagesLoading: boolean
   isSwitchingAccount: boolean
+  accountSwitchPhase: ChatAccountSwitchPhase | null
   messages: ChatMessageResponse[]
   preferredAccountId: string | null
   providerDefinitions: ProviderDefinitionResponse[]
   workspace: Workspace
+  onArchiveChat: (chatId: string) => Promise<void>
+  onCompactChat: (chatId: string) => Promise<void>
   onDeleteQueuedMessage: (chatId: string, runId: string) => Promise<void>
   onEditQueuedMessage: (chatId: string, runId: string, content: string) => Promise<void>
   onFileLinkOpen: (href: string) => boolean
+  onForkChat: (chatId: string, lastTurnId?: string | null) => Promise<void>
+  onNewChat: () => void
+  onOpenMcpServers: () => void
   onOpenProviders: () => void
+  onOpenPlugins: () => void
+  onRefreshChat: (chatId: string) => Promise<void>
+  onRenameChat: (chatId: string, title: string) => Promise<void>
+  onReviewChat: (chatId: string, instructions?: string | null) => Promise<void>
   onToggleMode: () => void
   onReorderQueuedMessages: (chatId: string, runIds: string[]) => Promise<void>
   onPermissionModeChange: (chatId: string, permissionMode: ChatComposerAccessMode) => Promise<void>
@@ -155,14 +176,24 @@ function useChatPaneState({
   isLoading,
   isMessagesLoading,
   isSwitchingAccount,
+  accountSwitchPhase,
   messages,
   preferredAccountId,
   providerDefinitions,
   workspace,
+  onArchiveChat,
+  onCompactChat,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onFileLinkOpen,
+  onForkChat,
+  onNewChat,
+  onOpenMcpServers,
   onOpenProviders,
+  onOpenPlugins,
+  onRefreshChat,
+  onRenameChat,
+  onReviewChat,
   onToggleMode,
   onReorderQueuedMessages,
   onPermissionModeChange,
@@ -180,14 +211,19 @@ function useChatPaneState({
   const [planMode, setPlanMode] = useState(false)
   const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false)
   const [sending, setSending] = useState(false)
+  const [threadAction, setThreadAction] = useState<"archive" | "compact" | "fork" | "refresh" | "rename" | "review" | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [dismissedServerRequestIds, setDismissedServerRequestIds] = useState<Set<string>>(new Set())
   const [userInputAnswers, setUserInputAnswers] = useState<Record<string, Record<string, string>>>({})
+  const [userInputFreeform, setUserInputFreeform] = useState<Record<string, Record<string, boolean>>>({})
+  const [userInputStageIndex, setUserInputStageIndex] = useState(0)
   const [userInputSubmitting, setUserInputSubmitting] = useState(false)
   const [dragOverQueuedRunId, setDragOverQueuedRunId] = useState<string | null>(null)
   const [model, setModel] = useState("")
   const [modelOptions, setModelOptions] = useState<ProviderModelListResponse["data"]>([])
   const [reasoningEffort, setReasoningEffort] = useState<ChatComposerReasoningEffort>("medium")
   const [serviceTier, setServiceTier] = useState<ChatComposerServiceTier>("standard")
+  const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const runtimeSettingsRef = useRef<HTMLDivElement>(null)
@@ -218,7 +254,7 @@ function useChatPaneState({
   const appendedEntryIds = useAppendAnimationIds(renderEntryIds, chat?.id ?? null)
   const fileLinkContext = useMemo(() => ({ openFileLink: onFileLinkOpen }), [onFileLinkOpen])
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0
-  const canSend = hasComposerContent && !sending && !isSwitchingAccount
+  const canSend = hasComposerContent && !sending && !threadAction && !isSwitchingAccount
   const showStopAction = running && !hasComposerContent
   const supportsAccessMode = composerFeatures.includes("accessMode")
   const supportsFiles = composerFeatures.includes("fileAttachment")
@@ -230,6 +266,7 @@ function useChatPaneState({
   const supportsReasoningEffort = Boolean(providerDefinition?.runtimeFields.some((field) => field.key === "reasoningEffort"))
   const supportsServiceTier = Boolean(providerDefinition?.runtimeFields.some((field) => field.key === "serviceTier"))
   const pendingUserInputRequestId = pendingUserInputPrompt?.requestId ?? null
+  const pendingUserInputStateKey = pendingUserInputPrompt?.id ?? null
   const mergedModelOptions = mergeProviderModelOptions(account?.providerId, modelOptions)
   const visibleModelOptions = (
     model && !mergedModelOptions.some((option) => option.model === model || option.id === model)
@@ -237,6 +274,15 @@ function useChatPaneState({
       : mergedModelOptions
   ).filter((option) => !option.hidden)
   const selectedModelOption = visibleModelOptions.find((option) => option.model === model || option.id === model) ?? visibleModelOptions[0] ?? null
+  const slashMatches = useMemo(() => matchingChatSlashCommands(draft), [draft])
+
+  useEffect(() => {
+    setUserInputStageIndex(0)
+  }, [pendingUserInputPrompt?.id])
+
+  useEffect(() => {
+    setUserInputStageIndex((current) => Math.min(current, Math.max(0, pendingUserInputQuestions.length - 1)))
+  }, [pendingUserInputQuestions.length])
 
   useEffect(() => {
     const defaultPermissionMode = readRecordString(account?.runtimeDefaults, "permissionMode") || defaultRuntimeDefaultValue(account?.providerId, "permissionMode")
@@ -288,6 +334,36 @@ function useChatPaneState({
   }, [account?.id, supportsModels])
 
   useEffect(() => {
+    let cancelled = false
+    const loadTelegramDeepLink = () => {
+      setTelegramDeepLink(null)
+      if (!chat?.id) {
+        return
+      }
+      apiClient.plugins.list()
+        .then((plugins) => {
+          if (cancelled) {
+            return
+          }
+          const telegram = plugins.find((plugin) => plugin.id === "telegram" && plugin.enabled)
+          const botUsername = readRecordString(readRecord(telegram?.stateSummary), "botUsername")
+          setTelegramDeepLink(botUsername ? `https://t.me/${botUsername}?start=${encodeURIComponent("sub_" + chat.id)}` : null)
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setTelegramDeepLink(null)
+          }
+        })
+    }
+    loadTelegramDeepLink()
+    window.addEventListener("pockcode:plugins-changed", loadTelegramDeepLink)
+    return () => {
+      cancelled = true
+      window.removeEventListener("pockcode:plugins-changed", loadTelegramDeepLink)
+    }
+  }, [chat?.id])
+
+  useEffect(() => {
     if (!runtimeSettingsOpen) {
       return
     }
@@ -311,7 +387,7 @@ function useChatPaneState({
     window.requestAnimationFrame(() => {
       element.scrollTop = element.scrollHeight
     })
-  }, [chat?.id, messages.length, messages.at(-1)?.id, messages.at(-1)?.content])
+  }, [actionError, chat?.id, messages.length, messages.at(-1)?.id, messages.at(-1)?.content])
 
   useEffect(() => {
     const element = textareaRef.current
@@ -338,23 +414,28 @@ function useChatPaneState({
     void onReorderQueuedMessages(chat.id, nextRunIds)
   }, [chat, onReorderQueuedMessages, queuedRunIds])
 
-  const submit = async () => {
-    if (!canSend) {
-      return
-    }
-    const content = draft.trim() || attachmentOnlyPrompt(attachments)
+  const sendComposerMessage = async (
+    content: string,
+    overrides: {
+      attachments?: ChatComposerAttachment[]
+      collaborationMode?: string | null
+      goalObjective?: string | null
+      serviceTier?: string | null
+    } = {},
+  ) => {
     setSending(true)
+    setActionError(null)
     try {
       await onSendMessage({
-        attachments: attachments.map(({ id: _id, ...attachment }) => attachment),
-        collaborationMode: supportsPlanMode ? (planMode ? "plan" : "default") : null,
+        attachments: (overrides.attachments ?? attachments).map(({ id: _id, ...attachment }) => attachment),
+        collaborationMode: overrides.collaborationMode ?? (supportsPlanMode ? (planMode ? "plan" : "default") : null),
         content,
         delivery: running ? "queue" : undefined,
-        goalObjective,
+        goalObjective: "goalObjective" in overrides ? overrides.goalObjective ?? null : goalObjective,
         model: supportsModels ? model || selectedModelOption?.model || null : null,
         permissionMode: accessMode,
         reasoningEffort: supportsReasoningEffort ? composerReasoningEffortValue(reasoningEffort) : null,
-        serviceTier: supportsServiceTier ? composerServiceTierValue(serviceTier) : null,
+        serviceTier: overrides.serviceTier ?? (supportsServiceTier ? composerServiceTierValue(serviceTier) : null),
       })
       setDraft("")
       setAttachments([])
@@ -362,6 +443,162 @@ function useChatPaneState({
     } finally {
       setSending(false)
     }
+  }
+
+  const acceptPlan = async () => {
+    try {
+      await sendComposerMessage("Implement the plan.", {
+        attachments: [],
+        collaborationMode: "default",
+        goalObjective: null,
+      })
+      setPlanMode(false)
+    } catch (error) {
+      setActionError(readError(error))
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.scrollIntoView({ block: "end" })
+        textareaRef.current?.focus()
+      })
+      throw error
+    }
+  }
+
+  const keepPlanning = () => {
+    if (supportsPlanMode) {
+      setPlanMode(true)
+    }
+    setActionError(null)
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.scrollIntoView({ block: "end" })
+      textareaRef.current?.focus()
+    })
+  }
+
+  const runThreadAction = async (
+    action: NonNullable<typeof threadAction>,
+    callback: () => Promise<void>,
+  ) => {
+    if (threadAction) {
+      return
+    }
+    setThreadAction(action)
+    setActionError(null)
+    try {
+      await callback()
+    } catch (error) {
+      setActionError(readError(error))
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.scrollIntoView({ block: "end" })
+        textareaRef.current?.focus()
+      })
+    } finally {
+      setThreadAction(null)
+    }
+  }
+
+  const runSlashCommand = async (parsed: NonNullable<ReturnType<typeof parseChatSlashCommand>>): Promise<boolean> => {
+    const argument = parsed.argument
+    switch (parsed.command.id) {
+      case "model":
+        if (argument) {
+          changeModel(argument)
+        } else {
+          setRuntimeSettingsOpen(true)
+        }
+        setDraft("")
+        return true
+      case "fast":
+        changeServiceTier("fast")
+        setDraft("")
+        return true
+      case "permissions":
+        changeAccessMode(argument.toLowerCase().includes("full") ? "fullAccess" : "askForApproval")
+        setDraft("")
+        return true
+      case "plan":
+        if (argument) {
+          await sendComposerMessage(argument, { collaborationMode: "plan" })
+        } else {
+          setPlanMode((current) => !current)
+          setDraft("")
+        }
+        return true
+      case "goal":
+        if (argument) {
+          setGoalObjective(argument)
+        } else {
+          promptForGoal()
+        }
+        setDraft("")
+        return true
+      case "review":
+        if (chat) {
+          await runThreadAction("review", () => onReviewChat(chat.id, argument || null))
+        }
+        setDraft("")
+        return true
+      case "compact":
+        if (chat) {
+          await runThreadAction("compact", () => onCompactChat(chat.id))
+        }
+        setDraft("")
+        return true
+      case "fork":
+        if (chat) {
+          await runThreadAction("fork", () => onForkChat(chat.id))
+        }
+        setDraft("")
+        return true
+      case "new":
+        onNewChat()
+        setDraft("")
+        setAttachments([])
+        setGoalObjective(null)
+        return true
+      case "status":
+        if (chat) {
+          await runThreadAction("refresh", () => onRefreshChat(chat.id))
+        }
+        setDraft("")
+        return true
+      case "usage":
+        onOpenProviders()
+        setDraft("")
+        return true
+      case "mcp":
+        onOpenMcpServers()
+        setDraft("")
+        return true
+      case "plugins":
+        onOpenPlugins()
+        setDraft("")
+        return true
+      case "skills":
+        await sendComposerMessage("List the available Codex skills for this workspace.")
+        return true
+      case "hooks":
+        await sendComposerMessage("List the active Codex hooks for this workspace.")
+        return true
+      case "diff":
+        await sendComposerMessage(argument || "Show the current diff.")
+        return true
+      case "clear":
+        setDraft("")
+        setAttachments([])
+        return true
+    }
+  }
+
+  const submit = async () => {
+    if (!canSend) {
+      return
+    }
+    const parsedSlashCommand = parseChatSlashCommand(draft)
+    if (parsedSlashCommand && await runSlashCommand(parsedSlashCommand)) {
+      return
+    }
+    const content = draft.trim() || attachmentOnlyPrompt(attachments)
+    await sendComposerMessage(content)
   }
 
   const changeAccessMode = (value: string) => {
@@ -445,54 +682,157 @@ function useChatPaneState({
     setComposerMenuOpen(false)
   }
 
-  const userInputAnswerValue = (question: UserInputQuestion): string => {
-    const requestAnswers = pendingUserInputPrompt ? userInputAnswers[pendingUserInputPrompt.id] : undefined
-    return requestAnswers?.[question.id] ?? question.options[0]?.label ?? ""
+  const userInputAnswerValue = (question: UserInputQuestion, overrides: Record<string, string> = {}): string => {
+    const requestAnswers = pendingUserInputStateKey ? userInputAnswers[pendingUserInputStateKey] : undefined
+    return overrides[question.id] ?? requestAnswers?.[question.id] ?? ""
   }
 
-  const updateUserInputAnswer = (questionId: string, value: string) => {
-    if (!pendingUserInputPrompt) {
+  const userInputUsesFreeform = (question: UserInputQuestion): boolean => {
+    if (!question.options.length) {
+      return true
+    }
+    const answer = userInputAnswerValue(question)
+    const requestFreeform = pendingUserInputStateKey ? userInputFreeform[pendingUserInputStateKey] : undefined
+    return Boolean(requestFreeform?.[question.id]) || Boolean(answer && !question.options.some((option) => option.label === answer))
+  }
+
+  const updateUserInputAnswer = (questionId: string, value: string, options: { freeform?: boolean } = {}) => {
+    if (!pendingUserInputStateKey) {
       return
     }
     setUserInputAnswers((current) => ({
       ...current,
-      [pendingUserInputPrompt.id]: {
-        ...current[pendingUserInputPrompt.id],
+      [pendingUserInputStateKey]: {
+        ...current[pendingUserInputStateKey],
         [questionId]: value,
+      },
+    }))
+    setUserInputFreeform((current) => ({
+      ...current,
+      [pendingUserInputStateKey]: {
+        ...current[pendingUserInputStateKey],
+        [questionId]: options.freeform === true,
       },
     }))
   }
 
-  const submitUserInput = async () => {
+  const submitUserInput = async (overrides: Record<string, string> = {}) => {
     if (!chat || !pendingUserInputRequestId || !pendingUserInputQuestions.length) {
       return
     }
     const answers = Object.fromEntries(
-      pendingUserInputQuestions.map((question) => [question.id, { answers: [userInputAnswerValue(question)] }]),
+      pendingUserInputQuestions.map((question) => [question.id, { answers: [userInputAnswerValue(question, overrides)] }]),
     )
     setUserInputSubmitting(true)
+    setActionError(null)
     try {
       await apiClient.chats.respondToServerRequest(chat.id, pendingUserInputRequestId, {
         kind: "userInput",
         result: { answers },
       })
       setDismissedServerRequestIds((current) => new Set(current).add(pendingUserInputRequestId))
+      setUserInputStageIndex(0)
+    } catch (error) {
+      setActionError(readError(error))
     } finally {
       setUserInputSubmitting(false)
     }
+  }
+
+  const activeUserInputQuestion = pendingUserInputQuestions[userInputStageIndex] ?? pendingUserInputQuestions[0] ?? null
+  const userInputIsLastStage = pendingUserInputQuestions.length > 0 && userInputStageIndex >= pendingUserInputQuestions.length - 1
+  const canContinueUserInput = activeUserInputQuestion ? Boolean(userInputAnswerValue(activeUserInputQuestion).trim()) : false
+
+  const goToPreviousUserInputStage = () => {
+    setUserInputStageIndex((current) => Math.max(0, current - 1))
+  }
+
+  const goToNextUserInputStage = () => {
+    if (!canContinueUserInput) {
+      return
+    }
+    if (userInputIsLastStage) {
+      void submitUserInput()
+      return
+    }
+    setUserInputStageIndex((current) => Math.min(pendingUserInputQuestions.length - 1, current + 1))
+  }
+
+  const chooseUserInputOption = (question: UserInputQuestion, value: string) => {
+    if (userInputSubmitting) {
+      return
+    }
+    updateUserInputAnswer(question.id, value, { freeform: false })
+    if (userInputIsLastStage) {
+      void submitUserInput({ [question.id]: value })
+      return
+    }
+    setUserInputStageIndex((current) => Math.min(pendingUserInputQuestions.length - 1, current + 1))
+  }
+
+  const chooseUserInputFreeform = (question: UserInputQuestion) => {
+    const currentAnswer = userInputAnswerValue(question)
+    const nextAnswer = question.options.some((option) => option.label === currentAnswer) ? "" : currentAnswer
+    updateUserInputAnswer(question.id, nextAnswer, { freeform: true })
   }
 
   const removeAttachment = (attachmentId: string) => {
     setAttachments((current) => current.filter((item) => item.id !== attachmentId))
   }
 
+  const archiveChat = async () => {
+    if (chat) {
+      await runThreadAction("archive", () => onArchiveChat(chat.id))
+    }
+  }
+
+  const compactChat = async () => {
+    if (chat) {
+      await runThreadAction("compact", () => onCompactChat(chat.id))
+    }
+  }
+
+  const forkChat = async (lastTurnId?: string | null) => {
+    if (chat) {
+      await runThreadAction("fork", () => onForkChat(chat.id, lastTurnId))
+    }
+  }
+
+  const refreshChat = async () => {
+    if (chat) {
+      await runThreadAction("refresh", () => onRefreshChat(chat.id))
+    }
+  }
+
+  const renameChat = async () => {
+    if (!chat) {
+      return
+    }
+    const nextTitle = window.prompt("Rename chat", chat.title)
+    if (nextTitle === null || !nextTitle.trim() || nextTitle.trim() === chat.title) {
+      return
+    }
+    await runThreadAction("rename", () => onRenameChat(chat.id, nextTitle.trim()))
+  }
+
+  const reviewChat = async () => {
+    if (chat) {
+      await runThreadAction("review", () => onReviewChat(chat.id, null))
+    }
+  }
+
   return {
     accessMode,
+    acceptPlan,
     account,
+    accountSwitchPhase,
     accountLimits,
     accountQuota,
     accounts,
+    actionError,
+    activeUserInputQuestion,
     appendedEntryIds,
+    archiveChat,
     attachFiles,
     attachFolder,
     attachments,
@@ -502,6 +842,9 @@ function useChatPaneState({
     changeReasoningEffort,
     changeServiceTier,
     chat,
+    canContinueUserInput,
+    chooseUserInputFreeform,
+    chooseUserInputOption,
     composerMenuOpen,
     draft,
     dragOverQueuedRunId,
@@ -515,6 +858,7 @@ function useChatPaneState({
     isSwitchingAccount,
     messages,
     model,
+    keepPlanning,
     onDeleteQueuedMessage,
     onEditQueuedMessage,
     onOpenProviders,
@@ -524,6 +868,8 @@ function useChatPaneState({
     onToggleMode,
     pendingUserInputPrompt,
     pendingUserInputQuestions,
+    goToNextUserInputStage,
+    goToPreviousUserInputStage,
     planMode,
     promptForGoal,
     providerDefinition,
@@ -532,6 +878,11 @@ function useChatPaneState({
     removeAttachment,
     renderEntries,
     reorderQueuedMessage,
+    compactChat,
+    forkChat,
+    refreshChat,
+    renameChat,
+    reviewChat,
     running,
     runtimeSettingsOpen,
     runtimeSettingsRef,
@@ -548,6 +899,7 @@ function useChatPaneState({
     setPlanMode,
     setRuntimeSettingsOpen,
     showStopAction,
+    slashMatches,
     submit,
     submitUserInput,
     supportsAccessMode,
@@ -558,10 +910,15 @@ function useChatPaneState({
     supportsPlanMode,
     supportsReasoningEffort,
     supportsServiceTier,
+    telegramDeepLink,
     textareaRef,
+    threadAction,
     updateUserInputAnswer,
     userInputAnswerValue,
+    userInputIsLastStage,
     userInputSubmitting,
+    userInputStageIndex,
+    userInputUsesFreeform,
     visibleModelOptions,
     workspace,
   }
@@ -575,9 +932,77 @@ function ChatPaneHeader() {
       <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
         {pane.chat?.title ?? pane.workspace.name}
       </div>
+      {pane.accountSwitchPhase ? (
+        <span className="hidden shrink-0 items-center gap-1 rounded-md border border-info/30 bg-info/10 px-1.5 py-0.5 text-[11px] font-medium text-info sm:flex">
+          {pane.accountSwitchPhase === "failed" ? "Switch failed" : accountSwitchPhaseLabel(pane.accountSwitchPhase)}
+        </span>
+      ) : null}
+      {pane.chat ? <ChatHeaderActionsMenu /> : null}
       {pane.selectableAccounts.length ? <ChatAccountSelect /> : <ChatProvidersButton />}
+      {pane.telegramDeepLink ? (
+        <a
+          aria-label="Subscribe in Telegram"
+          className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          href={pane.telegramDeepLink}
+          rel="noreferrer"
+          target="_blank"
+          title="Subscribe in Telegram"
+        >
+          <Send className="size-3.5" />
+        </a>
+      ) : null}
       <ModeToggleButton mode="chat" onClick={pane.onToggleMode} />
     </header>
+  )
+}
+
+function accountSwitchPhaseLabel(phase: ChatAccountSwitchPhase): string {
+  if (phase === "preparing") {
+    return "Preparing"
+  }
+  if (phase === "syncingSource") {
+    return "Syncing"
+  }
+  if (phase === "hydratingTarget") {
+    return "Hydrating"
+  }
+  if (phase === "refreshingMessages") {
+    return "Refreshing"
+  }
+  return "Switching"
+}
+
+function ChatHeaderActionsMenu() {
+  const pane = useChatPane()
+  const actionsDisabled = !pane.chat || pane.running || pane.isSwitchingAccount || Boolean(pane.threadAction)
+  const loading = pane.threadAction === "rename" || pane.threadAction === "archive"
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            aria-label="Chat actions"
+            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={actionsDisabled}
+            title="Chat actions"
+            type="button"
+          />
+        }
+      >
+        {loading ? <LoaderCircle className="size-3.5 animate-spin" /> : <Pencil className="size-3.5" />}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuItem className="text-[12px]" disabled={actionsDisabled} onClick={() => void pane.renameChat()}>
+          <Pencil className="size-3.5" />
+          <span>Edit chat name</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="text-[12px]" disabled={actionsDisabled} onClick={() => void pane.archiveChat()}>
+          <Archive className="size-3.5" />
+          <span>Archive chat</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -617,7 +1042,11 @@ function ChatAccountSelect() {
           title={pane.account ? pane.account.displayName + " · " + pane.account.providerId : undefined}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <ProviderMark icon={pane.providerDefinition?.icon} className="size-3.5 shrink-0 text-muted-foreground" />
+            {pane.isSwitchingAccount ? (
+              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-info" />
+            ) : (
+              <ProviderMark icon={pane.providerDefinition?.icon} className="size-3.5 shrink-0 text-muted-foreground" />
+            )}
             <span className="min-w-0 truncate">{pane.account?.displayName ?? "Provider"}</span>
           </span>
         </SelectTrigger>
@@ -655,15 +1084,10 @@ function ChatMessageList() {
 
   return (
     <div className="min-h-0 overflow-auto px-4 py-4 ide-scrollbar" ref={pane.scrollRef}>
-      {pane.error ? (
-        <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
-          {pane.error}
-        </div>
-      ) : null}
       {(pane.isLoading || pane.isMessagesLoading) && !pane.messages.length ? (
         <ChatMessageLoadingIndicator />
       ) : pane.renderEntries.length ? (
-        <div className="mx-auto grid max-w-3xl gap-3">
+        <div className="mx-auto grid w-full max-w-3xl gap-3">
           {pane.renderEntries.map((entry) => <ChatRenderEntryView entry={entry} key={chatRenderEntryId(entry)} />)}
         </div>
       ) : (
@@ -732,6 +1156,7 @@ function ChatComposer() {
   return (
     <footer className="px-3 pb-3">
       <div className="mx-auto rounded-lg border border-border bg-secondary p-3 shadow-inner">
+        <ChatErrorNotice />
         <PendingUserInputPrompt />
         <ChatAttachmentList attachments={pane.attachments} onRemove={pane.removeAttachment} />
         <textarea
@@ -747,31 +1172,96 @@ function ChatComposer() {
             }
           }}
         />
+        <SlashCommandPalette />
         <ComposerControls />
       </div>
     </footer>
   )
 }
 
-function PendingUserInputPrompt() {
+function ChatErrorNotice() {
   const pane = useChatPane()
-
-  if (!pane.pendingUserInputPrompt || !pane.pendingUserInputQuestions.length) {
+  const message = pane.actionError ?? pane.error
+  if (!message) {
     return null
   }
   return (
-    <div className="mb-3 grid gap-2 rounded-md border border-border bg-card p-2.5 text-[12px] text-foreground">
-      {pane.pendingUserInputQuestions.map((question) => (
-        <PendingUserInputQuestion key={question.id} question={question} />
+    <div className="mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] font-medium leading-5 text-destructive">
+      {message}
+    </div>
+  )
+}
+
+function SlashCommandPalette() {
+  const pane = useChatPane()
+  if (!pane.slashMatches.length || !pane.draft.trim().startsWith("/")) {
+    return null
+  }
+  return (
+    <div className="mb-2 max-h-56 overflow-auto rounded-md border border-border bg-popover p-1 text-foreground shadow-lg">
+      {pane.slashMatches.map((command) => (
+        <SlashCommandButton command={command} key={command.id} />
       ))}
-      <div className="flex justify-end">
+    </div>
+  )
+}
+
+function SlashCommandButton({ command }: { command: ChatSlashCommand }) {
+  const pane = useChatPane()
+  const commandText = `/${command.id}`
+  const needsArgument = command.usage.includes("<") || command.usage.includes("[")
+  return (
+    <button
+      className="grid min-h-8 w-full grid-cols-[minmax(5rem,auto)_minmax(0,1fr)] items-center gap-2 rounded-sm px-2 text-left text-[12px] hover:bg-accent"
+      type="button"
+      onClick={() => {
+        pane.setDraft(needsArgument ? `${commandText} ` : commandText)
+        pane.textareaRef.current?.focus()
+      }}
+    >
+      <span className="font-semibold text-foreground">{command.usage}</span>
+      <span className="min-w-0 truncate text-muted-foreground">{command.description}</span>
+    </button>
+  )
+}
+
+function PendingUserInputPrompt() {
+  const pane = useChatPane()
+  const question = pane.activeUserInputQuestion
+
+  if (!pane.pendingUserInputPrompt || !question) {
+    return null
+  }
+  const stageCount = pane.pendingUserInputQuestions.length
+  return (
+    <div className="mb-3 grid gap-2.5 rounded-md border border-border bg-card p-2.5 text-[12px] text-foreground">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="min-w-0 truncate font-semibold text-muted-foreground">
+          {question.header || "User input"}
+        </span>
+        {stageCount > 1 ? (
+          <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+            {pane.userInputStageIndex + 1}/{stageCount}
+          </span>
+        ) : null}
+      </div>
+      <PendingUserInputQuestion question={question} />
+      <div className="flex items-center justify-between gap-2">
+        <button
+          className="h-7 rounded-md border border-border px-2.5 text-[11px] font-semibold text-muted-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={pane.userInputStageIndex === 0 || pane.userInputSubmitting}
+          type="button"
+          onClick={pane.goToPreviousUserInputStage}
+        >
+          Back
+        </button>
         <button
           className="h-7 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={pane.userInputSubmitting}
+          disabled={!pane.canContinueUserInput || pane.userInputSubmitting}
           type="button"
-          onClick={() => void pane.submitUserInput()}
+          onClick={pane.goToNextUserInputStage}
         >
-          {pane.userInputSubmitting ? "Sending" : "Submit"}
+          {pane.userInputSubmitting ? "Sending" : pane.userInputIsLastStage ? "Submit" : "Next"}
         </button>
       </div>
     </div>
@@ -780,18 +1270,20 @@ function PendingUserInputPrompt() {
 
 function PendingUserInputQuestion({ question }: { question: UserInputQuestion }) {
   const pane = useChatPane()
+  const answer = pane.userInputAnswerValue(question)
+  const freeform = pane.userInputUsesFreeform(question)
 
   return (
-    <div className="grid gap-1.5">
-      <div className="font-medium text-foreground">{question.question}</div>
+    <div className="grid gap-2">
+      <div className="font-medium leading-5 text-foreground">{question.question}</div>
       {question.options.length ? (
-        <div className="flex flex-wrap gap-1">
+        <div className="grid gap-1.5">
           {question.options.map((option) => {
-            const selected = pane.userInputAnswerValue(question) === option.label
+            const selected = answer === option.label && !freeform
             return (
               <button
                 className={cn(
-                  "h-7 rounded-md border px-2 text-[11px] font-medium",
+                  "grid min-h-9 w-full gap-0.5 rounded-md border px-2.5 py-1.5 text-left text-[11px] font-medium",
                   selected
                     ? "border-primary bg-primary/20 text-foreground"
                     : "border-border bg-secondary text-muted-foreground hover:bg-accent",
@@ -799,21 +1291,42 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
                 key={option.label}
                 title={option.description}
                 type="button"
-                onClick={() => pane.updateUserInputAnswer(question.id, option.label)}
+                onClick={() => pane.chooseUserInputOption(question, option.label)}
               >
-                {option.label}
+                <span className="text-[12px] text-foreground">{option.label}</span>
+                {option.description ? <span className="text-[11px] text-muted-foreground">{option.description}</span> : null}
               </button>
             )
           })}
+          <button
+            className={cn(
+              "grid min-h-9 w-full gap-0.5 rounded-md border px-2.5 py-1.5 text-left text-[11px] font-medium",
+              freeform
+                ? "border-primary bg-primary/20 text-foreground"
+                : "border-border bg-secondary text-muted-foreground hover:bg-accent",
+            )}
+            type="button"
+            onClick={() => pane.chooseUserInputFreeform(question)}
+          >
+            <span className="text-[12px] text-foreground">Other</span>
+          </button>
         </div>
-      ) : (
+      ) : null}
+      {freeform ? (
         <input
           className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-primary"
+          autoFocus
           type={question.isSecret ? "password" : "text"}
-          value={pane.userInputAnswerValue(question)}
-          onChange={(event) => pane.updateUserInputAnswer(question.id, event.target.value)}
+          value={answer}
+          onChange={(event) => pane.updateUserInputAnswer(question.id, event.target.value, { freeform: true })}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && pane.canContinueUserInput && !pane.userInputSubmitting) {
+              event.preventDefault()
+              pane.goToNextUserInputStage()
+            }
+          }}
         />
-      )}
+      ) : null}
     </div>
   )
 }
@@ -845,12 +1358,12 @@ function ComposerControls() {
   const pane = useChatPane()
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-muted-foreground -mb-2 -mx-2">
+    <div className="flex flex-wrap items-center gap-1 text-[12px] font-medium text-muted-foreground -mb-2 -mx-1 sm:gap-1.5 sm:-mx-2">
       <ComposerContextMenu />
       {pane.supportsAccessMode ? <ComposerAccessModeSelect /> : null}
       <ComposerGoalChip />
       <ComposerPlanChip />
-      <div className="ml-auto flex min-w-0 items-center gap-1.5">
+      <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5">
         {pane.supportsModels || pane.supportsReasoningEffort || pane.supportsServiceTier ? <ComposerRuntimeSettingsMenu /> : null}
         <ComposerSendButton />
       </div>
@@ -866,7 +1379,7 @@ function ComposerContextMenu() {
       <button
         aria-expanded={pane.composerMenuOpen}
         aria-label="Add context"
-        className="grid size-7 place-items-center rounded-md text-foreground hover:bg-accent"
+        className="grid size-7 shrink-0 place-items-center rounded-md text-foreground hover:bg-accent"
         type="button"
         onClick={() => pane.setComposerMenuOpen((current) => !current)}
       >
@@ -900,7 +1413,7 @@ function ComposerContextMenuItems() {
         pane.folderInputRef.current?.click()
       }} />
       <ComposerMenuButton disabled={!pane.supportsGoal} icon={<Shield className="size-3.5" />} label="Goal" onClick={pane.promptForGoal} />
-      <ComposerMenuButton disabled={!pane.supportsPlanMode} icon={<ListFilter className="size-3.5" />} label="Plan mode" suffix={pane.planMode ? "On" : null} onClick={() => {
+      <ComposerMenuButton disabled={!pane.supportsPlanMode} icon={<Route className="size-3.5" />} label="Plan mode" suffix={pane.planMode ? "On" : null} onClick={() => {
         pane.setPlanMode((current) => !current)
         pane.setComposerMenuOpen(false)
       }} />
@@ -937,21 +1450,36 @@ function ComposerMenuButton({
 
 function ComposerAccessModeSelect() {
   const pane = useChatPane()
+  const isFullAccess = pane.accessMode === "fullAccess"
 
   return (
-    <Select className="min-w-0" disabled={pane.sending || pane.isSwitchingAccount} value={pane.accessMode} onValueChange={pane.changeAccessMode}>
-      <SelectTrigger aria-label="Access mode" className="h-7 w-auto border-transparent bg-transparent px-2 text-[12px] font-medium text-foreground shadow-none hover:bg-accent">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Shield className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 truncate">{accessModeLabel(pane.accessMode)}</span>
+    <Select className="!size-7 shrink-0 lg:!w-auto" disabled={pane.sending || pane.isSwitchingAccount} value={pane.accessMode} onValueChange={pane.changeAccessMode}>
+      <SelectTrigger
+        aria-label="Access mode"
+        className={cn(
+          "!size-7 shrink-0 justify-center gap-0 !rounded-md border p-0 text-[12px] font-semibold shadow-none [&>svg:last-child]:hidden lg:!h-7 lg:!w-auto lg:gap-1.5 lg:px-2 lg:[&>svg:last-child]:block",
+          isFullAccess
+            ? "border-warning/35 bg-warning/15 text-warning hover:bg-warning/20"
+            : "border-success/35 bg-success/15 text-success hover:bg-success/20",
+        )}
+        size="sm"
+        title={composerAccessModeLabel(pane.accessMode)}
+      >
+        <span className="flex min-w-0 items-center justify-center gap-0 lg:justify-start lg:gap-1.5">
+          <Shield className="size-3.5 shrink-0" />
+          <span className="hidden min-w-0 truncate lg:inline">{composerAccessModeLabel(pane.accessMode)}</span>
         </span>
       </SelectTrigger>
       <SelectContent align="start" className="border-border bg-popover text-foreground">
-        <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="askForApproval">Ask for approval</SelectItem>
+        <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="askForApproval">Normal access</SelectItem>
         <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="fullAccess">Full access</SelectItem>
       </SelectContent>
     </Select>
   )
+}
+
+function composerAccessModeLabel(value: ChatComposerAccessMode): string {
+  return value === "fullAccess" ? "Full access" : "Normal access"
 }
 
 function ComposerRuntimeSettingsMenu() {
@@ -961,6 +1489,11 @@ function ComposerRuntimeSettingsMenu() {
     pane.supportsReasoningEffort ? composerReasoningEffortLabel(pane.reasoningEffort) : null,
     pane.supportsServiceTier ? composerServiceTierLabel(pane.serviceTier) : null,
   ].filter(Boolean).join(" / ")
+  const compactRuntimeLabel = [
+    pane.supportsModels ? compactComposerModelLabel(pane.selectedModelOption?.displayName ?? pane.model) : null,
+    pane.supportsReasoningEffort ? compactComposerReasoningEffortLabel(pane.reasoningEffort) : null,
+    pane.supportsServiceTier ? compactComposerServiceTierLabel(pane.serviceTier) : null,
+  ].filter(Boolean).join(" / ")
   const disabled = pane.sending || pane.running || pane.isSwitchingAccount
 
   return (
@@ -968,13 +1501,15 @@ function ComposerRuntimeSettingsMenu() {
       <button
         aria-expanded={pane.runtimeSettingsOpen}
         aria-label="Runtime settings"
-        className="flex h-7 max-w-[16rem] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55"
+        className="flex h-7 max-w-[11rem] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55 lg:max-w-[16rem]"
         disabled={disabled}
+        title={runtimeLabel}
         type="button"
         onClick={() => pane.setRuntimeSettingsOpen((open) => !open)}
       >
         <SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate">{runtimeLabel}</span>
+        <span className="min-w-0 truncate lg:hidden">{compactRuntimeLabel}</span>
+        <span className="hidden min-w-0 truncate lg:inline">{runtimeLabel}</span>
         <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", pane.runtimeSettingsOpen && "rotate-180")} />
       </button>
       {pane.runtimeSettingsOpen ? (
@@ -1020,6 +1555,33 @@ function ComposerRuntimeSettingsMenu() {
       ) : null}
     </div>
   )
+}
+
+function compactComposerModelLabel(value: string): string {
+  return value.trim().replace(/^gpt[-\s]?/iu, "")
+}
+
+function compactComposerReasoningEffortLabel(value: ChatComposerReasoningEffort): string {
+  if (value === "none") {
+    return "None"
+  }
+  if (value === "minimal") {
+    return "Min"
+  }
+  if (value === "low") {
+    return "Low"
+  }
+  if (value === "high") {
+    return "High"
+  }
+  if (value === "extraHigh") {
+    return "XHigh"
+  }
+  return "Med"
+}
+
+function compactComposerServiceTierLabel(value: ChatComposerServiceTier): string {
+  return value === "fast" ? "F" : "S"
 }
 
 function ComposerRuntimeMenuSection({ children, icon, label }: { children: ReactNode; icon: ReactNode; label: string }) {
@@ -1088,13 +1650,15 @@ function ComposerPlanChip() {
   }
   return (
     <button
-      className="flex h-7 items-center gap-1 rounded-md border border-primary/20 bg-primary/15 px-2 text-[11px] text-primary hover:bg-primary/20"
+      aria-label="Turn off Plan mode"
+      className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/15 px-0 text-[11px] text-primary hover:bg-primary/20 lg:w-auto lg:gap-1 lg:px-2"
+      title="Plan mode"
       type="button"
       onClick={() => pane.setPlanMode(false)}
     >
-      <ListFilter className="size-3.5 shrink-0" />
-      <span>Plan mode</span>
-      <X className="size-3 shrink-0" />
+      <Route className="size-3.5 shrink-0" />
+      <span className="hidden lg:inline">Plan mode</span>
+      <X className="hidden size-3 shrink-0 lg:block" />
     </button>
   )
 }
@@ -1143,6 +1707,10 @@ function ChatMessageRow({
 }) {
   const fileLinks = useContext(ChatFileLinkContext)
 
+  if (message.kind === "PLAN") {
+    return <PlanMessageRow animateIn={animateIn} message={message} />
+  }
+
   if (isToolMessage(message)) {
     return <ToolCallMessageRow animateIn={animateIn} message={message} />
   }
@@ -1154,11 +1722,12 @@ function ChatMessageRow({
   const content = message.content || (message.status === "STREAMING" ? "Running" : "")
   const queueSortingEnabled = queued && Boolean(onQueuedDrop)
   const draggingOver = queued && message.runId === dragOverQueuedRunId
+  const showMessageActions = message.role === "ASSISTANT" && message.kind === "CHAT" && message.status === "COMPLETED"
 
   return (
     <article
       className={cn(
-        "grid gap-1",
+        "grid min-w-0 gap-1",
         animateIn && "chat-append-enter",
         user && "justify-items-end",
         optimistic && "opacity-60 transition-opacity",
@@ -1199,7 +1768,7 @@ function ChatMessageRow({
     >
       <div
         className={cn(
-          "min-w-0 text-[13px] leading-6",
+          "min-w-0 max-w-full text-[13px] leading-6",
           user
             ? "max-w-[min(680px,100%)] rounded-md bg-muted px-3 py-2 text-foreground"
             : error
@@ -1215,6 +1784,7 @@ function ChatMessageRow({
           scopeKey={message.id}
         />
       </div>
+      {showMessageActions ? <ChatMessageActionRail message={message} /> : null}
       {queued && message.runId ? (
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
           <span className="grid size-5 cursor-grab place-items-center rounded text-muted-foreground" title="Drag to reorder">
@@ -1244,6 +1814,207 @@ function ChatMessageRow({
         </div>
       ) : null}
     </article>
+  )
+}
+
+function ChatMessageActionRail({ message }: { message: ChatMessageResponse }) {
+  const pane = useChatPane()
+  const [copied, setCopied] = useState(false)
+  const [forking, setForking] = useState(false)
+  const canCopy = Boolean(message.content.trim())
+  const canFork = Boolean(message.turnId) && !pane.running && !pane.isSwitchingAccount && !pane.threadAction
+
+  const copyMessage = async () => {
+    if (!canCopy) {
+      return
+    }
+    await copyTextToClipboard(message.content)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1400)
+  }
+
+  const forkFromMessage = async () => {
+    if (!canFork) {
+      return
+    }
+    setForking(true)
+    try {
+      await pane.forkChat(message.turnId)
+    } finally {
+      setForking(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-6 items-center gap-1 text-[11px] font-medium text-muted-foreground">
+      <button
+        aria-label="Copy response"
+        className="inline-flex h-6 items-center gap-1 rounded px-1.5 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        disabled={!canCopy}
+        title="Copy response"
+        type="button"
+        onClick={() => void copyMessage()}
+      >
+        {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+        <span>{copied ? "Copied" : "Copy"}</span>
+      </button>
+      <button
+        aria-label="Fork chat from this response"
+        className="inline-flex h-6 items-center gap-1 rounded px-1.5 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        disabled={!canFork}
+        title={message.turnId ? "Fork chat from this response" : "Fork point unavailable"}
+        type="button"
+        onClick={() => void forkFromMessage()}
+      >
+        {forking ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitBranch className="size-3.5" />}
+        <span>{forking ? "Forking" : "Fork chat"}</span>
+      </button>
+    </div>
+  )
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement("textarea")
+  textarea.value = text
+  textarea.style.left = "-9999px"
+  textarea.style.position = "fixed"
+  textarea.style.top = "0"
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  try {
+    document.execCommand("copy")
+  } finally {
+    document.body.removeChild(textarea)
+  }
+}
+
+function PlanMessageRow({ animateIn, message }: { animateIn?: boolean; message: ChatMessageResponse }) {
+  const pane = useChatPane()
+  const [acceptingPlan, setAcceptingPlan] = useState(false)
+  const fileLinks = useContext(ChatFileLinkContext)
+  const content = message.content.trim()
+  const streaming = message.status === "STREAMING"
+  const steps = readPlanMessageSteps(message)
+  const title = steps.length ? "Updated Plan" : "Plan"
+  const showPlanActions = !streaming && message.status === "COMPLETED" && Boolean(content) && !steps.length
+  const planActionDisabled = acceptingPlan || pane.sending || pane.running || pane.isSwitchingAccount || Boolean(pane.threadAction)
+
+  const accept = async () => {
+    if (planActionDisabled) {
+      return
+    }
+    setAcceptingPlan(true)
+    try {
+      await pane.acceptPlan()
+    } catch {
+      // The pane writes the recoverable error into the composer notice.
+    } finally {
+      setAcceptingPlan(false)
+    }
+  }
+
+  return (
+    <article className={cn("min-w-0 rounded-md border border-border bg-card p-3 text-[13px] text-foreground", animateIn && "chat-append-enter")}>
+      <div className="mb-2 flex min-h-6 items-center gap-2 text-[12px] font-semibold text-muted-foreground">
+        {streaming ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-info" /> : <Route className="size-3.5 shrink-0 text-info" />}
+        <span>{title}</span>
+      </div>
+      {content ? (
+        <MarkdownContent
+          animateChanges={streaming}
+          content={content}
+          openFileLink={fileLinks?.openFileLink}
+          scopeKey={message.id}
+        />
+      ) : steps.length ? null : (
+        <div className="text-[12px] text-muted-foreground">Planning</div>
+      )}
+      {steps.length ? (
+        <div className={cn("grid gap-1.5", content && "mt-3")}>
+          {steps.map((step, index) => (
+            <PlanStepRow key={`${step.status}:${index}:${step.step}`} step={step} />
+          ))}
+        </div>
+      ) : null}
+      {showPlanActions ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          <button
+            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-semibold text-primary-foreground hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={planActionDisabled}
+            title="Switch to Default mode and implement this plan"
+            type="button"
+            onClick={() => void accept()}
+          >
+            {acceptingPlan ? <LoaderCircle className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+            <span>{acceptingPlan ? "Accepting" : "Accept plan"}</span>
+          </button>
+          <button
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-secondary px-2.5 text-[12px] font-semibold text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={planActionDisabled}
+            title="Stay in Plan mode and revise with your next message"
+            type="button"
+            onClick={pane.keepPlanning}
+          >
+            <Pencil className="size-3.5" />
+            <span>Keep planning</span>
+          </button>
+        </div>
+      ) : null}
+    </article>
+  )
+}
+
+type RenderPlanStep = {
+  status: "completed" | "inProgress" | "pending"
+  step: string
+}
+
+function readPlanMessageSteps(message: ChatMessageResponse): RenderPlanStep[] {
+  const metadata = readRecord(message.metadata)
+  const steps = metadata.planSteps
+  if (!Array.isArray(steps)) {
+    return []
+  }
+  return steps
+    .map((value) => {
+      const record = readRecord(value)
+      const step = readRecordString(record, "step")
+      const rawStatus = readRecordString(record, "status")
+      const status = rawStatus === "completed" || rawStatus === "inProgress" || rawStatus === "pending"
+        ? rawStatus
+        : "pending"
+      return step ? { status, step } : null
+    })
+    .filter((step): step is RenderPlanStep => Boolean(step))
+}
+
+function PlanStepRow({ step }: { step: RenderPlanStep }) {
+  const completed = step.status === "completed"
+  const inProgress = step.status === "inProgress"
+  return (
+    <div className={cn(
+      "grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-2 text-[12px] leading-5",
+      completed ? "text-muted-foreground" : "text-foreground",
+    )}>
+      <span className="mt-0.5 grid size-4 place-items-center">
+        {completed ? (
+          <Check className="size-3.5 text-success" />
+        ) : inProgress ? (
+          <LoaderCircle className="size-3.5 animate-spin text-info" />
+        ) : (
+          <Square className="size-3 text-muted-foreground" />
+        )}
+      </span>
+      <span className={cn("min-w-0", completed && "line-through decoration-muted-foreground/70")}>
+        {step.step}
+      </span>
+    </div>
   )
 }
 

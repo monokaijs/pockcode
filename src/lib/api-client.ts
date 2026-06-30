@@ -1,6 +1,7 @@
 import type {
   AccountAuthMode,
   AuthenticateProviderAccountResponse,
+  CompactChatRequest,
   ChatResponse,
   CodexInstructionsResponse,
   CreateChatRequest,
@@ -8,6 +9,8 @@ import type {
   CreateProviderAccountRequest,
   ExecuteChatRequest,
   ExecuteChatResponse,
+  ForkChatRequest,
+  InterruptChatRunResponse,
   MessageScheduleResponse,
   MessageScheduleRunResponse,
   MessagePageResponse,
@@ -18,6 +21,8 @@ import type {
   QueuedChatRunResponse,
   ReorderQueuedChatRunsRequest,
   ReorderQueuedChatRunsResponse,
+  RefreshChatResponse,
+  ReviewChatRequest,
   ServerRequestResponseRequest,
   UpdateMessageScheduleRequest,
   UpdateQueuedChatRunRequest,
@@ -35,10 +40,17 @@ import type {
   SyncMcpServerRequest,
   UpdateMcpServerRequest,
 } from "../../app/types/mcp"
+import type {
+  PluginActionResponse,
+  PluginResponse,
+  PluginSettingsUpdateRequest,
+} from "../../app/types/plugins"
 
 export type {
   AccountAuthMode,
   ChatAttachmentRequest,
+  ChatAccountSwitchEvent,
+  ChatAccountSwitchPhase,
   ChatMessageResponse,
   ChatResponse,
   CreateMessageScheduleRequest,
@@ -53,6 +65,7 @@ export type {
   ProviderComposerFeature,
   ProviderDefinitionResponse,
   ProviderLimitsResponse,
+  RefreshChatResponse,
   CodexInstructionsResponse,
   ProviderModelListResponse,
   ServerRequestResponseRequest,
@@ -73,6 +86,14 @@ export type {
   SyncMcpServerRequest,
   UpdateMcpServerRequest,
 } from "../../app/types/mcp"
+export type {
+  PluginActionResponse,
+  PluginDefinition,
+  PluginFieldDefinition,
+  PluginResponse,
+  PluginSettingsUpdateRequest,
+  PluginStatus,
+} from "../../app/types/plugins"
 
 export type BrowserEntry = {
   children?: BrowserEntry[]
@@ -92,6 +113,36 @@ export type BrowserDirectoryResponse = {
 
 export type BrowserResourceResponse = BrowserEntry & {
   content: string
+}
+
+export type CloudflaredNamedTunnel = {
+  connectionCount: number
+  createdAt?: string
+  id: string
+  name: string
+  status: "active" | "inactive" | "unknown"
+}
+
+export type CloudflaredTemporaryTunnel = {
+  createdAt: string
+  exitCode?: number | null
+  id: string
+  logs: string[]
+  originUrl: string
+  publicUrl?: string
+  signal?: string | null
+  status: "exited" | "running" | "starting" | "stopped"
+  stoppedAt?: string
+}
+
+export type CloudflaredStatusResponse = {
+  installed: boolean
+  message?: string
+  namedTunnels: CloudflaredNamedTunnel[]
+  namedTunnelsAuthRequired?: boolean
+  namedTunnelsError?: string
+  temporaryTunnels: CloudflaredTemporaryTunnel[]
+  version?: string
 }
 
 export type GitFileChange = {
@@ -121,17 +172,6 @@ export type GitStatusResponse = {
   upstream?: string
 }
 
-export type LanguageServerInfo = {
-  available: boolean
-  command: string
-  displayName: string
-  extensions: string[]
-  id: string
-  languages: string[]
-  message?: string
-  running: number
-}
-
 export const apiClient = {
   chats: {
     create(body: CreateChatRequest) {
@@ -148,6 +188,14 @@ export const apiClient = {
         method: "DELETE",
       })
     },
+    compact(chatId: string, body: CompactChatRequest = {}) {
+      return requestJson<ChatResponse>(`/api/chats/${chatId}/compact`, {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to compact chat.",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    },
     execute(chatId: string, body: ExecuteChatRequest) {
       return requestJson<ExecuteChatResponse>(`/api/chats/${chatId}/messages`, {
         body: JSON.stringify(body),
@@ -156,8 +204,16 @@ export const apiClient = {
         method: "POST",
       })
     },
+    fork(chatId: string, body: ForkChatRequest = {}) {
+      return requestJson<ChatResponse>(`/api/chats/${chatId}/fork`, {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to fork chat.",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    },
     interrupt(chatId: string) {
-      return requestJson(`/api/chats/${chatId}/interrupt`, {
+      return requestJson<InterruptChatRunResponse>(`/api/chats/${chatId}/interrupt`, {
         fallbackMessage: "Unable to stop chat.",
         method: "POST",
       })
@@ -165,7 +221,7 @@ export const apiClient = {
     respondToServerRequest(chatId: string, requestId: string, body: ServerRequestResponseRequest) {
       return requestJson(`/api/chats/${chatId}/server-requests/${encodeURIComponent(requestId)}`, {
         body: JSON.stringify(body),
-        fallbackMessage: "Unable to respond to approval request.",
+        fallbackMessage: "Unable to respond to request.",
         headers: { "Content-Type": "application/json" },
         method: "POST",
       })
@@ -186,10 +242,24 @@ export const apiClient = {
         fallbackMessage: "Unable to load messages.",
       })
     },
+    refresh(chatId: string) {
+      return requestJson<RefreshChatResponse>(`/api/chats/${chatId}/refresh`, {
+        fallbackMessage: "Unable to refresh chat.",
+        method: "POST",
+      })
+    },
     reorderQueuedRuns(chatId: string, body: ReorderQueuedChatRunsRequest) {
       return requestJson<ReorderQueuedChatRunsResponse>(`/api/chats/${chatId}/runs/reorder`, {
         body: JSON.stringify(body),
         fallbackMessage: "Unable to reorder queued messages.",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    },
+    review(chatId: string, body: ReviewChatRequest = {}) {
+      return requestJson<ChatResponse>(`/api/chats/${chatId}/review`, {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to start review.",
         headers: { "Content-Type": "application/json" },
         method: "POST",
       })
@@ -323,6 +393,27 @@ export const apiClient = {
       })
     },
   },
+  plugins: {
+    action(pluginId: string, action: string) {
+      return requestJson<PluginActionResponse>(`/api/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(action)}`, {
+        fallbackMessage: "Unable to run plugin action.",
+        method: "POST",
+      })
+    },
+    list() {
+      return requestJson<PluginResponse[]>("/api/plugins", {
+        fallbackMessage: "Unable to load plugins.",
+      })
+    },
+    update(pluginId: string, body: PluginSettingsUpdateRequest) {
+      return requestJson<PluginResponse>(`/api/plugins/${encodeURIComponent(pluginId)}`, {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to update plugin.",
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+      })
+    },
+  },
   mcpServers: {
     create(body: CreateMcpServerRequest) {
       return requestJson<McpServerResponse>("/api/mcp-servers", {
@@ -378,6 +469,33 @@ export const apiClient = {
       })
     },
   },
+  cloudflared: {
+    deleteNamedTunnel(id: string) {
+      return requestJson<CloudflaredStatusResponse>(`/api/cloudflared/tunnels/${encodeURIComponent(id)}`, {
+        fallbackMessage: "Unable to delete tunnel.",
+        method: "DELETE",
+      })
+    },
+    startTemporary(url: string) {
+      return requestJson<CloudflaredStatusResponse>("/api/cloudflared/temporary", {
+        body: JSON.stringify({ url }),
+        fallbackMessage: "Unable to start temporary tunnel.",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    },
+    status() {
+      return requestJson<CloudflaredStatusResponse>("/api/cloudflared/status", {
+        fallbackMessage: "Unable to load cloudflared tunnels.",
+      })
+    },
+    stopTemporary(id: string) {
+      return requestJson<CloudflaredStatusResponse>(`/api/cloudflared/temporary/${encodeURIComponent(id)}`, {
+        fallbackMessage: "Unable to stop temporary tunnel.",
+        method: "DELETE",
+      })
+    },
+  },
   git: {
     commit(path: string, message: string) {
       return postGitAction("/api/git/commit", { message, path }, "Unable to commit changes.")
@@ -404,13 +522,6 @@ export const apiClient = {
     },
     unstage(path: string, paths: string[]) {
       return postGitAction("/api/git/unstage", { path, paths }, "Unable to unstage changes.")
-    },
-  },
-  lsp: {
-    listServers(workspacePath: string) {
-      return requestJson<LanguageServerInfo[]>(`/api/lsp/servers?workspacePath=${encodeURIComponent(workspacePath)}`, {
-        fallbackMessage: "Unable to load language servers.",
-      })
     },
   },
   workspaces: {

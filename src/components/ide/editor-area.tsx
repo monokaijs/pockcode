@@ -3,7 +3,7 @@ import { Circle, FileCode, PanelRightClose, X } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
-import type { MonacoApi } from "@/lib/lsp-client"
+import { configureMonacoLanguageDefaults, type MonacoApi } from "@/lib/monaco"
 import { definePockcodeMonacoTheme, pockcodeMonacoThemeName } from "@/lib/theme-colors"
 import { cn } from "@/lib/utils"
 import type { FileNode, Project } from "@/types/ide"
@@ -122,6 +122,7 @@ export function EditorArea({
             theme={monacoThemeName}
             value={activeFileContent}
             beforeMount={(monaco) => {
+              configureMonacoLanguageDefaults(monaco)
               definePockcodeMonacoTheme(monaco, resolvedTheme)
             }}
             onChange={(value) => onFileContentChange(activeFile.id, value ?? "")}
