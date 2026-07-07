@@ -1,4 +1,4 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto"
+import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto"
 import { readFile, rename, writeFile } from "node:fs/promises"
 import { promisify } from "node:util"
 import type { IncomingMessage } from "node:http"
@@ -7,7 +7,15 @@ import { ensureParentDirectory, resolvePockcodeAuthPath } from "./runtime-paths.
 const scrypt = promisify(scryptCallback)
 const passwordKeyLength = 64
 const passwordMinLength = 8
+const sessionCookieName = "pockcode_session"
+const sessionMaxAgeSeconds = 60 * 60 * 24 * 14
 const scryptOptions = { N: 16_384, maxmem: 64 * 1024 * 1024, p: 1, r: 8 }
+
+type SessionPayload = {
+  expiresAt: number
+  nonce: string
+  version: 1
+}
 
 type PasswordRecord = {
   algorithm: "scrypt"
@@ -78,15 +86,11 @@ export async function verifyBasicAuthorization(header: string | string[] | undef
   return verifyPassword(decoded.slice(separatorIndex + 1))
 }
 
-export function pockcodeAuthRealm(): string {
-  return "pockcode"
-}
-
 export async function isRequestAuthorized(req: IncomingMessage): Promise<boolean> {
-  return verifyBasicAuthorization(req.headers.authorization)
+  return await verifySessionCookie(req.headers.cookie) || await verifyBasicAuthorization(req.headers.authorization)
 }
 
-async function verifyPassword(password: string): Promise<boolean> {
+export async function verifyPassword(password: string): Promise<boolean> {
   const config = await readAuthConfig()
   if (!config) {
     return false
@@ -95,6 +99,139 @@ async function verifyPassword(password: string): Promise<boolean> {
   const salt = Buffer.from(config.password.salt, "base64")
   const key = await scrypt(password, salt, config.password.keyLength, config.password.scrypt) as Buffer
   return key.length === expectedKey.length && timingSafeEqual(key, expectedKey)
+}
+
+export async function createSessionCookie(req: IncomingMessage): Promise<string> {
+  const config = await readAuthConfig()
+  if (!config) {
+    throw new Error("Pockcode password is not configured.")
+  }
+  const payload: SessionPayload = {
+    version: 1,
+    nonce: randomBytes(16).toString("base64url"),
+    expiresAt: Date.now() + sessionMaxAgeSeconds * 1000,
+  }
+  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")
+  const signature = signSessionPayload(encodedPayload, config)
+  return serializeCookie(sessionCookieName, `${encodedPayload}.${signature}`, {
+    httpOnly: true,
+    maxAge: sessionMaxAgeSeconds,
+    path: "/",
+    sameSite: "Lax",
+    secure: isHttpsRequest(req),
+  })
+}
+
+export function clearSessionCookie(): string {
+  return serializeCookie(sessionCookieName, "", {
+    httpOnly: true,
+    maxAge: 0,
+    path: "/",
+    sameSite: "Lax",
+  })
+}
+
+async function verifySessionCookie(header: string | string[] | undefined): Promise<boolean> {
+  const token = readCookie(header, sessionCookieName)
+  if (!token) {
+    return false
+  }
+  const [encodedPayload, signature, extra] = token.split(".")
+  if (!encodedPayload || !signature || extra !== undefined) {
+    return false
+  }
+
+  const config = await readAuthConfig()
+  if (!config) {
+    return false
+  }
+  const expectedSignature = signSessionPayload(encodedPayload, config)
+  const signatureBuffer = Buffer.from(signature)
+  const expectedBuffer = Buffer.from(expectedSignature)
+  if (signatureBuffer.length !== expectedBuffer.length || !timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    return false
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<SessionPayload>
+    return payload.version === 1 &&
+      typeof payload.nonce === "string" &&
+      typeof payload.expiresAt === "number" &&
+      payload.expiresAt > Date.now()
+  } catch {
+    return false
+  }
+}
+
+function signSessionPayload(encodedPayload: string, config: AuthConfig): string {
+  return createHmac("sha256", sessionSecret(config))
+    .update(encodedPayload)
+    .digest("base64url")
+}
+
+function sessionSecret(config: AuthConfig): Buffer {
+  return Buffer.concat([
+    Buffer.from(config.password.key, "base64"),
+    Buffer.from(config.password.salt, "base64"),
+    Buffer.from(config.password.createdAt, "utf8"),
+  ])
+}
+
+function readCookie(header: string | string[] | undefined, name: string): string | null {
+  const value = Array.isArray(header) ? header.join(";") : header
+  if (!value) {
+    return null
+  }
+  for (const part of value.split(";")) {
+    const separatorIndex = part.indexOf("=")
+    if (separatorIndex < 0) {
+      continue
+    }
+    const key = part.slice(0, separatorIndex).trim()
+    if (key !== name) {
+      continue
+    }
+    return part.slice(separatorIndex + 1).trim() || null
+  }
+  return null
+}
+
+function serializeCookie(
+  name: string,
+  value: string,
+  options: {
+    httpOnly?: boolean
+    maxAge?: number
+    path?: string
+    sameSite?: "Lax" | "Strict" | "None"
+    secure?: boolean
+  },
+): string {
+  const parts = [`${name}=${value}`]
+  if (options.maxAge !== undefined) {
+    parts.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`)
+  }
+  if (options.path) {
+    parts.push(`Path=${options.path}`)
+  }
+  if (options.httpOnly) {
+    parts.push("HttpOnly")
+  }
+  if (options.sameSite) {
+    parts.push(`SameSite=${options.sameSite}`)
+  }
+  if (options.secure) {
+    parts.push("Secure")
+  }
+  return parts.join("; ")
+}
+
+function isHttpsRequest(req: IncomingMessage): boolean {
+  const forwardedProto = Array.isArray(req.headers["x-forwarded-proto"])
+    ? req.headers["x-forwarded-proto"][0]
+    : req.headers["x-forwarded-proto"]
+  return forwardedProto?.split(",")[0]?.trim() === "https" ||
+    (req.socket as IncomingMessage["socket"] & { encrypted?: boolean }).encrypted === true
 }
 
 async function readAuthConfig(): Promise<AuthConfig | null> {

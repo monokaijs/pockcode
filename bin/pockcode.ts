@@ -89,26 +89,47 @@ async function handleAuthGate(
   url: URL,
   auth: typeof import("../app/server/auth.server"),
 ): Promise<boolean> {
-  if (!await auth.hasConfiguredPassword()) {
+  const hasPassword = await auth.hasConfiguredPassword()
+  if (!hasPassword) {
     if (url.pathname === "/auth/setup" && req.method === "POST") {
       await handlePasswordSetup(req, res, auth)
       return true
     }
     if (req.method === "GET" || req.method === "HEAD") {
-      sendSetupPage(res)
+      sendSetupPage(res, { returnTo: returnToFor(url) })
       return true
     }
     sendJson(res, 428, { error: "Pockcode password setup is required." })
     return true
   }
 
+  if (url.pathname === "/auth/login" && req.method === "POST") {
+    await handlePasswordLogin(req, res, auth)
+    return true
+  }
+  if (url.pathname === "/auth/logout" && req.method === "POST") {
+    handlePasswordLogout(req, res, auth)
+    return true
+  }
+
   if (await auth.isRequestAuthorized(req)) {
+    if (url.pathname === "/auth/login" && (req.method === "GET" || req.method === "HEAD")) {
+      redirect(res, safeReturnTo(url.searchParams.get("returnTo")))
+      return true
+    }
     return false
   }
-  res.statusCode = 401
-  res.setHeader("WWW-Authenticate", `Basic realm="${auth.pockcodeAuthRealm()}", charset="UTF-8"`)
-  res.setHeader("Content-Type", "text/plain; charset=utf-8")
-  res.end("Authentication required.")
+
+  if (url.pathname === "/auth/login" && (req.method === "GET" || req.method === "HEAD")) {
+    sendLoginPage(res, { returnTo: safeReturnTo(url.searchParams.get("returnTo")) })
+    return true
+  }
+  if (url.pathname.startsWith("/api/") || requestWantsJson(req) || (req.method !== "GET" && req.method !== "HEAD")) {
+    sendJson(res, 401, { error: "Authentication required." })
+    return true
+  }
+
+  sendLoginPage(res, { returnTo: returnToFor(url) }, 401)
   return true
 }
 
@@ -118,11 +139,17 @@ async function handlePasswordSetup(
   auth: typeof import("../app/server/auth.server"),
 ) {
   const body = await readRequestBody(req, 32_000)
-  const contentType = req.headers["content-type"] ?? ""
-  const wantsJson = req.headers.accept?.includes("application/json") || contentType.includes("application/json")
-  const password = contentType.includes("application/json")
-    ? readJsonPassword(body)
-    : new URLSearchParams(body).get("password") ?? ""
+  const wantsJson = requestWantsJson(req)
+  const { confirmPassword, password, returnTo } = readPasswordBody(req, body)
+  if (confirmPassword !== undefined && password !== confirmPassword) {
+    const message = "Passwords do not match."
+    if (wantsJson) {
+      sendJson(res, 400, { error: message })
+    } else {
+      sendSetupPage(res, { error: message, returnTo }, 400)
+    }
+    return
+  }
   try {
     await auth.setupPassword(password)
   } catch (error) {
@@ -130,18 +157,57 @@ async function handlePasswordSetup(
     if (wantsJson) {
       sendJson(res, 400, { error: message })
     } else {
-      sendSetupPage(res, message, 400)
+      sendSetupPage(res, { error: message, returnTo }, 400)
     }
     return
   }
 
+  res.setHeader("Set-Cookie", await auth.createSessionCookie(req))
   if (wantsJson) {
     sendJson(res, 201, { ok: true })
     return
   }
-  res.statusCode = 303
-  res.setHeader("Location", "/")
-  res.end()
+  redirect(res, returnTo)
+}
+
+async function handlePasswordLogin(
+  req: IncomingMessage,
+  res: ServerResponse,
+  auth: typeof import("../app/server/auth.server"),
+) {
+  const body = await readRequestBody(req, 32_000)
+  const wantsJson = requestWantsJson(req)
+  const { password, returnTo } = readPasswordBody(req, body)
+
+  if (!await auth.verifyPassword(password)) {
+    const message = "Password is not correct."
+    if (wantsJson) {
+      sendJson(res, 401, { error: message })
+    } else {
+      sendLoginPage(res, { error: message, returnTo }, 401)
+    }
+    return
+  }
+
+  res.setHeader("Set-Cookie", await auth.createSessionCookie(req))
+  if (wantsJson) {
+    sendJson(res, 200, { ok: true })
+    return
+  }
+  redirect(res, returnTo)
+}
+
+function handlePasswordLogout(
+  req: IncomingMessage,
+  res: ServerResponse,
+  auth: typeof import("../app/server/auth.server"),
+): void {
+  res.setHeader("Set-Cookie", auth.clearSessionCookie())
+  if (requestWantsJson(req)) {
+    sendJson(res, 200, { ok: true })
+    return
+  }
+  redirect(res, "/auth/login")
 }
 
 async function serveClientAsset(req: IncomingMessage, res: ServerResponse, url: URL, clientRoot: string) {
@@ -225,15 +291,72 @@ async function readRequestBody(req: IncomingMessage, limit: number): Promise<str
   return Buffer.concat(chunks).toString("utf8")
 }
 
-function readJsonPassword(body: string): string {
+function readPasswordBody(req: IncomingMessage, body: string): {
+  confirmPassword?: string
+  password: string
+  returnTo: string
+} {
+  if (headerIncludes(req.headers["content-type"], "application/json")) {
+    return readJsonPasswordBody(body)
+  }
+
+  const values = new URLSearchParams(body)
+  return {
+    confirmPassword: values.get("confirmPassword") ?? undefined,
+    password: values.get("password") ?? "",
+    returnTo: safeReturnTo(values.get("returnTo")),
+  }
+}
+
+function readJsonPasswordBody(body: string): {
+  confirmPassword?: string
+  password: string
+  returnTo: string
+} {
   try {
     const value = JSON.parse(body) as unknown
-    return value && typeof value === "object" && !Array.isArray(value) && typeof (value as { password?: unknown }).password === "string"
-      ? (value as { password: string }).password
-      : ""
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { password: "", returnTo: "/" }
+    }
+    const record = value as { confirmPassword?: unknown; password?: unknown; returnTo?: unknown }
+    return {
+      confirmPassword: typeof record.confirmPassword === "string" ? record.confirmPassword : undefined,
+      password: typeof record.password === "string" ? record.password : "",
+      returnTo: safeReturnTo(typeof record.returnTo === "string" ? record.returnTo : null),
+    }
   } catch {
-    return ""
+    return { password: "", returnTo: "/" }
   }
+}
+
+function requestWantsJson(req: IncomingMessage): boolean {
+  return headerIncludes(req.headers.accept, "application/json") ||
+    headerIncludes(req.headers["content-type"], "application/json")
+}
+
+function headerIncludes(value: string | string[] | undefined, needle: string): boolean {
+  const normalizedNeedle = needle.toLowerCase()
+  return (Array.isArray(value) ? value.join(",") : value ?? "").toLowerCase().includes(normalizedNeedle)
+}
+
+function redirect(res: ServerResponse, location: string, status = 303): void {
+  res.statusCode = status
+  res.setHeader("Location", location)
+  res.end()
+}
+
+function returnToFor(url: URL): string {
+  if (url.pathname === "/auth/login" || url.pathname === "/auth/setup" || url.pathname === "/auth/logout") {
+    return safeReturnTo(url.searchParams.get("returnTo"))
+  }
+  return safeReturnTo(`${url.pathname}${url.search}`)
+}
+
+function safeReturnTo(value: string | null | undefined): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\0")) {
+    return "/"
+  }
+  return value
 }
 
 function parseArgs(argv: string[]): CliOptions | "help" | "version" {
@@ -295,7 +418,50 @@ function invalidPort(option: string): never {
   throw new Error(`${option} requires a port between 1 and 65535.`)
 }
 
-function sendSetupPage(res: ServerResponse, error?: string, status = 200): void {
+type AuthPageOptions = {
+  error?: string
+  returnTo: string
+}
+
+function sendSetupPage(res: ServerResponse, options: AuthPageOptions, status = 200): void {
+  sendAuthPage(res, {
+    ...options,
+    action: "/auth/setup",
+    confirmPassword: true,
+    heading: "Create local password",
+    lead: "Choose the password for this pockcode workspace.",
+    passwordAutocomplete: "new-password",
+    submitLabel: "Save and continue",
+    title: "pockcode setup",
+  }, status)
+}
+
+function sendLoginPage(res: ServerResponse, options: AuthPageOptions, status = 200): void {
+  sendAuthPage(res, {
+    ...options,
+    action: "/auth/login",
+    confirmPassword: false,
+    heading: "Sign in",
+    lead: "Enter the local password for this pockcode workspace.",
+    passwordAutocomplete: "current-password",
+    submitLabel: "Continue",
+    title: "pockcode login",
+  }, status)
+}
+
+function sendAuthPage(
+  res: ServerResponse,
+  options: AuthPageOptions & {
+    action: string
+    confirmPassword: boolean
+    heading: string
+    lead: string
+    passwordAutocomplete: "current-password" | "new-password"
+    submitLabel: string
+    title: string
+  },
+  status = 200,
+): void {
   res.statusCode = status
   res.setHeader("Content-Type", "text/html; charset=utf-8")
   res.end(`<!doctype html>
@@ -303,31 +469,215 @@ function sendSetupPage(res: ServerResponse, error?: string, status = 200): void 
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>pockcode setup</title>
+  <title>${escapeHtml(options.title)}</title>
   <style>
-    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #0f1115; color: #f6f7fb; }
-    main { width: min(420px, calc(100vw - 32px)); border: 1px solid #2a2f3a; border-radius: 10px; background: #161922; padding: 24px; box-shadow: 0 24px 80px rgb(0 0 0 / 0.35); }
-    h1 { margin: 0 0 8px; font-size: 20px; }
-    p { margin: 0 0 18px; color: #aeb6c5; font-size: 14px; line-height: 1.5; }
-    label { display: grid; gap: 8px; font-size: 13px; font-weight: 600; }
-    input { height: 38px; border-radius: 8px; border: 1px solid #343b49; background: #0f1115; color: #f6f7fb; padding: 0 12px; font: inherit; }
-    button { margin-top: 16px; height: 38px; width: 100%; border: 0; border-radius: 8px; background: #f6f7fb; color: #111318; font-weight: 700; cursor: pointer; }
-    .error { margin-bottom: 14px; color: #ff9a9a; font-size: 13px; }
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #111314;
+      color: #f3f4ef;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(90deg, rgb(255 255 255 / 0.03) 1px, transparent 1px),
+        linear-gradient(180deg, rgb(255 255 255 / 0.03) 1px, transparent 1px),
+        #111314;
+      background-size: 42px 42px;
+      color: #f3f4ef;
+    }
+    main {
+      width: min(880px, calc(100vw - 32px));
+      min-height: 520px;
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(340px, 1fr);
+      overflow: hidden;
+      border: 1px solid #303433;
+      border-radius: 8px;
+      background: #181b1b;
+      box-shadow: 0 28px 90px rgb(0 0 0 / 0.42);
+    }
+    .brand {
+      display: flex;
+      min-height: 100%;
+      flex-direction: column;
+      justify-content: space-between;
+      border-right: 1px solid #303433;
+      background: #151716;
+      padding: 28px;
+    }
+    .mark {
+      display: grid;
+      width: 40px;
+      height: 40px;
+      place-items: center;
+      border: 1px solid #3d4641;
+      border-radius: 8px;
+      background: #d7ff6b;
+      color: #111314;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .brand h1 {
+      margin: 18px 0 6px;
+      font-size: 30px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .brand p, .panel p {
+      margin: 0;
+      color: #aeb7b1;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .console {
+      display: grid;
+      gap: 10px;
+      margin-top: 30px;
+      color: #cfd7d1;
+      font-family: "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+      font-size: 12px;
+    }
+    .console div {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px solid #2a2e2c;
+      padding-bottom: 10px;
+    }
+    .console span:last-child { color: #d7ff6b; }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 44px;
+      background: #1c2020;
+    }
+    .eyebrow {
+      margin-bottom: 10px;
+      color: #8fd0ff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 26px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+    form {
+      display: grid;
+      gap: 14px;
+      margin-top: 28px;
+    }
+    label {
+      display: grid;
+      gap: 8px;
+      color: #f3f4ef;
+      font-size: 13px;
+      font-weight: 650;
+    }
+    input {
+      width: 100%;
+      height: 42px;
+      border: 1px solid #3a4140;
+      border-radius: 6px;
+      background: #111314;
+      color: #f3f4ef;
+      padding: 0 12px;
+      font: inherit;
+      outline: none;
+    }
+    input:focus {
+      border-color: #8fd0ff;
+      box-shadow: 0 0 0 3px rgb(143 208 255 / 0.18);
+    }
+    button {
+      height: 42px;
+      border: 0;
+      border-radius: 6px;
+      background: #d7ff6b;
+      color: #111314;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 800;
+    }
+    button:focus-visible {
+      outline: 3px solid rgb(143 208 255 / 0.38);
+      outline-offset: 2px;
+    }
+    .error {
+      margin-top: 18px;
+      border: 1px solid #8d3d3d;
+      border-radius: 6px;
+      background: #351c1e;
+      color: #ffb9b9;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    @media (max-width: 760px) {
+      body { place-items: stretch; background-size: 34px 34px; }
+      main {
+        width: 100%;
+        min-height: 100vh;
+        grid-template-columns: 1fr;
+        border: 0;
+        border-radius: 0;
+      }
+      .brand {
+        min-height: auto;
+        border-right: 0;
+        border-bottom: 1px solid #303433;
+        padding: 24px;
+      }
+      .brand h1 { font-size: 26px; }
+      .console { display: none; }
+      .panel {
+        justify-content: start;
+        padding: 28px 24px;
+      }
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Set up pockcode</h1>
-    <p>Create the password used for HTTP Basic authentication.</p>
-    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
-    <form method="post" action="/auth/setup">
+    <section class="brand" aria-label="pockcode">
+      <div>
+        <div class="mark">pc</div>
+        <h1>pockcode</h1>
+        <p>Local access for your workspace.</p>
+      </div>
+      <div class="console" aria-hidden="true">
+        <div><span>host</span><span>localhost</span></div>
+        <div><span>session</span><span>locked</span></div>
+        <div><span>auth</span><span>local</span></div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="eyebrow">Workspace auth</div>
+      <h2>${escapeHtml(options.heading)}</h2>
+      <p>${escapeHtml(options.lead)}</p>
+      ${options.error ? `<div class="error" role="alert">${escapeHtml(options.error)}</div>` : ""}
+      <form method="post" action="${escapeHtml(options.action)}">
+        <input name="returnTo" type="hidden" value="${escapeHtml(options.returnTo)}" />
       <label>
         Password
-        <input name="password" type="password" minlength="8" autocomplete="new-password" autofocus required />
+          <input name="password" type="password" minlength="8" autocomplete="${options.passwordAutocomplete}" autofocus required />
       </label>
-      <button type="submit">Save password</button>
-    </form>
+        ${options.confirmPassword ? `<label>
+          Confirm password
+          <input name="confirmPassword" type="password" minlength="8" autocomplete="new-password" required />
+        </label>` : ""}
+        <button type="submit">${escapeHtml(options.submitLabel)}</button>
+      </form>
+    </section>
   </main>
 </body>
 </html>`)
