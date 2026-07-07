@@ -474,8 +474,25 @@ function sendAuthPage(
     :root {
       color-scheme: dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #111314;
-      color: #f3f4ef;
+      --background: oklch(0.15 0.003 285);
+      --foreground: oklch(0.88 0.006 285);
+      --card: oklch(0.19 0.004 285);
+      --card-foreground: oklch(0.88 0.006 285);
+      --primary: oklch(0.58 0.16 276);
+      --primary-foreground: oklch(0.985 0.004 285);
+      --muted: oklch(0.23 0.004 285);
+      --muted-foreground: oklch(0.67 0.006 285);
+      --accent: oklch(0.27 0.006 285);
+      --accent-foreground: oklch(0.91 0.006 285);
+      --border: oklch(0.3 0.005 285);
+      --input: oklch(0.34 0.008 285);
+      --ring: oklch(0.61 0.15 276);
+      --destructive: oklch(0.66 0.2 25);
+      --destructive-foreground: oklch(0.985 0 0);
+      --sidebar: oklch(0.13 0.003 285);
+      --auth-grid: rgb(255 255 255 / 0.03);
+      background: var(--background);
+      color: var(--foreground);
     }
     * { box-sizing: border-box; }
     body {
@@ -484,11 +501,11 @@ function sendAuthPage(
       display: grid;
       place-items: center;
       background:
-        linear-gradient(90deg, rgb(255 255 255 / 0.03) 1px, transparent 1px),
-        linear-gradient(180deg, rgb(255 255 255 / 0.03) 1px, transparent 1px),
-        #111314;
+        linear-gradient(90deg, var(--auth-grid) 1px, transparent 1px),
+        linear-gradient(180deg, var(--auth-grid) 1px, transparent 1px),
+        var(--background);
       background-size: 42px 42px;
-      color: #f3f4ef;
+      color: var(--foreground);
     }
     main {
       width: min(880px, calc(100vw - 32px));
@@ -496,9 +513,9 @@ function sendAuthPage(
       display: grid;
       grid-template-columns: minmax(0, 0.9fr) minmax(340px, 1fr);
       overflow: hidden;
-      border: 1px solid #303433;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      background: #181b1b;
+      background: var(--card);
       box-shadow: 0 28px 90px rgb(0 0 0 / 0.42);
     }
     .brand {
@@ -506,8 +523,8 @@ function sendAuthPage(
       min-height: 100%;
       flex-direction: column;
       justify-content: space-between;
-      border-right: 1px solid #303433;
-      background: #151716;
+      border-right: 1px solid var(--border);
+      background: var(--sidebar);
       padding: 28px;
     }
     .mark {
@@ -515,10 +532,10 @@ function sendAuthPage(
       width: 40px;
       height: 40px;
       place-items: center;
-      border: 1px solid #3d4641;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      background: #d7ff6b;
-      color: #111314;
+      background: var(--primary);
+      color: var(--primary-foreground);
       font-weight: 800;
       letter-spacing: 0;
     }
@@ -530,7 +547,7 @@ function sendAuthPage(
     }
     .brand p, .panel p {
       margin: 0;
-      color: #aeb7b1;
+      color: var(--muted-foreground);
       font-size: 14px;
       line-height: 1.55;
     }
@@ -538,7 +555,7 @@ function sendAuthPage(
       display: grid;
       gap: 10px;
       margin-top: 30px;
-      color: #cfd7d1;
+      color: var(--card-foreground);
       font-family: "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
       font-size: 12px;
     }
@@ -546,20 +563,20 @@ function sendAuthPage(
       display: flex;
       justify-content: space-between;
       gap: 18px;
-      border-bottom: 1px solid #2a2e2c;
+      border-bottom: 1px solid var(--border);
       padding-bottom: 10px;
     }
-    .console span:last-child { color: #d7ff6b; }
+    .console span:last-child { color: var(--primary); }
     .panel {
       display: flex;
       flex-direction: column;
       justify-content: center;
       padding: 44px;
-      background: #1c2020;
+      background: var(--card);
     }
     .eyebrow {
       margin-bottom: 10px;
-      color: #8fd0ff;
+      color: var(--primary);
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0;
@@ -579,45 +596,45 @@ function sendAuthPage(
     label {
       display: grid;
       gap: 8px;
-      color: #f3f4ef;
+      color: var(--foreground);
       font-size: 13px;
       font-weight: 650;
     }
     input {
       width: 100%;
       height: 42px;
-      border: 1px solid #3a4140;
+      border: 1px solid var(--input);
       border-radius: 6px;
-      background: #111314;
-      color: #f3f4ef;
+      background: var(--background);
+      color: var(--foreground);
       padding: 0 12px;
       font: inherit;
       outline: none;
     }
     input:focus {
-      border-color: #8fd0ff;
-      box-shadow: 0 0 0 3px rgb(143 208 255 / 0.18);
+      border-color: var(--ring);
+      box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 28%, transparent);
     }
     button {
       height: 42px;
       border: 0;
       border-radius: 6px;
-      background: #d7ff6b;
-      color: #111314;
+      background: var(--primary);
+      color: var(--primary-foreground);
       cursor: pointer;
       font: inherit;
       font-weight: 800;
     }
     button:focus-visible {
-      outline: 3px solid rgb(143 208 255 / 0.38);
+      outline: 3px solid color-mix(in oklch, var(--ring) 42%, transparent);
       outline-offset: 2px;
     }
     .error {
       margin-top: 18px;
-      border: 1px solid #8d3d3d;
+      border: 1px solid color-mix(in oklch, var(--destructive) 58%, var(--border));
       border-radius: 6px;
-      background: #351c1e;
-      color: #ffb9b9;
+      background: color-mix(in oklch, var(--destructive) 22%, var(--card));
+      color: var(--destructive-foreground);
       padding: 10px 12px;
       font-size: 13px;
       line-height: 1.45;
@@ -634,7 +651,7 @@ function sendAuthPage(
       .brand {
         min-height: auto;
         border-right: 0;
-        border-bottom: 1px solid #303433;
+        border-bottom: 1px solid var(--border);
         padding: 24px;
       }
       .brand h1 { font-size: 26px; }
