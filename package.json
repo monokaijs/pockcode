@@ -2,6 +2,13 @@
   "name": "pockcode",
   "version": "0.0.1",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monokaijs/pockcode.git"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "bin": {
     "pockcode": "./dist/pockcode.js"
   },
@@ -10,6 +17,9 @@
     "dist",
     "prisma/schema.prisma"
   ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "packageManager": "pnpm@10.17.1",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

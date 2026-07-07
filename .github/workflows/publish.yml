@@ -1,0 +1,136 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: Semver update to publish
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+env:
+  CI: true
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check release ref
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" != "branch" ]; then
+            echo "::error::Run this workflow from the branch you want to release from."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org/"
+          package-manager-cache: false
+
+      - name: Use current npm for trusted publishing
+        run: |
+          set -euo pipefail
+          npm install --global npm@latest
+          node --version
+          npm --version
+
+      - name: Enable pnpm from packageManager
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure release git identity
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump package version
+        id: version
+        run: |
+          set -euo pipefail
+          npm version "${{ inputs.version_bump }}" --message "chore(release): v%s"
+          package_name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure npm version is not published
+        run: |
+          set -euo pipefail
+          package_name="${{ steps.version.outputs.package_name }}"
+          version="${{ steps.version.outputs.version }}"
+          if npm view "${package_name}@${version}" version >/tmp/npm-view-version 2>/tmp/npm-view-error; then
+            published_version="$(cat /tmp/npm-view-version)"
+            echo "::error::${package_name}@${published_version} already exists on npm."
+            exit 1
+          fi
+          if ! grep -Eiq "(E404|404 Not Found)" /tmp/npm-view-error; then
+            cat /tmp/npm-view-error
+            exit 1
+          fi
+
+      - name: Test and build production assets
+        run: |
+          set -euo pipefail
+          pnpm test
+          pnpm build
+          test -s build/client/index.html
+          test -s dist/pockcode.js
+
+      - name: Pack and smoke-test npx command
+        id: pack
+        run: |
+          set -euo pipefail
+          pack_output="$(npm pack)"
+          printf '%s\n' "$pack_output"
+          tarball="$(printf '%s\n' "$pack_output" | awk '/\.tgz$/ { file=$0 } END { print file }')"
+          if [ -z "$tarball" ] || [ ! -f "$tarball" ]; then
+            echo "::error::npm pack did not produce a tarball."
+            exit 1
+          fi
+          tar -tf "$tarball" | grep -qx "package/dist/pockcode.js"
+          tar -tf "$tarball" | grep -qx "package/build/client/index.html"
+          tar -tf "$tarball" | grep -qx "package/prisma/schema.prisma"
+          actual_version="$(npm exec --yes --package "./$tarball" -- pockcode --version)"
+          expected_version="${{ steps.version.outputs.version }}"
+          if [ "$actual_version" != "$expected_version" ]; then
+            echo "::error::Packed pockcode reported $actual_version, expected $expected_version."
+            exit 1
+          fi
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: Push release commit and tag
+        run: git push origin "HEAD:${GITHUB_REF_NAME}" --follow-tags
+
+      - name: Publish to npm with trusted publishing
+        run: npm publish "${{ steps.pack.outputs.tarball }}"
