@@ -6,6 +6,7 @@ import {
   readChatAccountSwitchEvent,
   readUserInputQuestions,
   renderAssistantSegment,
+  workDurationLabel,
 } from "@/lib/session"
 import type { ChatMessageResponse } from "@/lib/api-client"
 
@@ -99,6 +100,52 @@ describe("tool message grouping", () => {
     expect(isToolMessage(planMessage)).toBe(false)
     expect(renderAssistantSegment([planMessage], null, false)).toEqual([{ type: "message", message: planMessage }])
   })
+
+  it("treats completed warning-only segments as finished work", () => {
+    const userMessage = chatMessage({
+      content: "Run something slow",
+      createdAt: new Date(0).toISOString(),
+      id: "user-1",
+      role: "USER",
+      sequence: 1,
+    })
+    const warningMessage = chatMessage({
+      content: "Turn aborted",
+      createdAt: new Date(14_285).toISOString(),
+      id: "warning-1",
+      kind: "WARNING",
+      role: "TOOL",
+      sequence: 2,
+    })
+
+    expect(renderAssistantSegment([warningMessage], userMessage, false)).toEqual([{
+      type: "work",
+      completedAt: warningMessage.completedAt,
+      finished: true,
+      id: "work:warning-1",
+      messages: [warningMessage],
+      startedAt: userMessage.createdAt,
+    }])
+  })
+
+  it("uses the warning timestamp instead of now for aborted work duration", () => {
+    const warningMessage = chatMessage({
+      content: "Turn aborted",
+      createdAt: new Date(14_285).toISOString(),
+      id: "warning-1",
+      kind: "WARNING",
+      role: "TOOL",
+      sequence: 1,
+    })
+
+    expect(workDurationLabel(
+      [warningMessage],
+      new Date(0).toISOString(),
+      warningMessage.completedAt,
+      true,
+      1_000_000,
+    )).toBe("14s")
+  })
 })
 
 describe("user input prompts", () => {
@@ -134,3 +181,25 @@ describe("user input prompts", () => {
     }])
   })
 })
+
+function chatMessage(overrides: Partial<ChatMessageResponse>): ChatMessageResponse {
+  const createdAt = overrides.createdAt ?? new Date(0).toISOString()
+  const status = overrides.status ?? "COMPLETED"
+  return {
+    chatId: "chat-1",
+    completedAt: overrides.completedAt ?? (status === "COMPLETED" || status === "FAILED" ? createdAt : null),
+    content: overrides.content ?? "",
+    createdAt,
+    id: overrides.id ?? "message-1",
+    itemId: overrides.itemId ?? null,
+    kind: overrides.kind ?? "CHAT",
+    metadata: overrides.metadata ?? null,
+    rawPayload: overrides.rawPayload ?? null,
+    requestId: overrides.requestId ?? null,
+    role: overrides.role ?? "ASSISTANT",
+    runId: overrides.runId ?? null,
+    sequence: overrides.sequence ?? 1,
+    status,
+    turnId: overrides.turnId ?? null,
+  }
+}

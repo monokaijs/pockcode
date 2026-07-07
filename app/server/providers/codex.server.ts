@@ -3167,6 +3167,7 @@ function isCodexInjectedContextMessage(content: string): boolean {
   return (
     content.includes("<environment_context>") ||
     content.includes("# AGENTS.md instructions") ||
+    trimmed.startsWith("<turn_aborted>") ||
     trimmed.startsWith("<user_action>")
   )
 }

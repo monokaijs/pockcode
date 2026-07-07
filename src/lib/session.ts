@@ -638,10 +638,13 @@ export function renderAssistantSegment(
   userMessage: ChatMessageResponse | null,
   running: boolean,
 ): ChatRenderEntry[] {
-  const finalAssistantIndex = findLastIndex(messages, isFinalAssistantMessage)
+  const finalAssistantIndex = findLastIndex(messages, (message) => isFinalAssistantMessage(message) && isFinishedMessage(message))
   const finalAssistant = finalAssistantIndex >= 0 ? messages[finalAssistantIndex] : null
   const finalPlanIndex = findLastIndex(messages, (message) => message.kind === "PLAN" && isFinishedMessage(message))
-  const terminalMessage = finalAssistant ?? (finalPlanIndex >= 0 ? messages[finalPlanIndex] ?? null : null)
+  const finalTerminalWorkIndex = findLastIndex(messages, isTerminalWorkMessage)
+  const terminalMessage = finalAssistant ??
+    (finalPlanIndex >= 0 ? messages[finalPlanIndex] ?? null : null) ??
+    (finalTerminalWorkIndex >= 0 ? messages[finalTerminalWorkIndex] ?? null : null)
   const finished = !running && Boolean(terminalMessage && isFinishedMessage(terminalMessage))
   const workMessages: ChatMessageResponse[] = []
   const fileChangeMessages: ChatMessageResponse[] = []
@@ -728,6 +731,10 @@ export function isDisplayAssistantMessage(message: ChatMessageResponse): boolean
 
 export function isFinishedMessage(message: ChatMessageResponse): boolean {
   return message.status === "COMPLETED" || message.status === "FAILED"
+}
+
+export function isTerminalWorkMessage(message: ChatMessageResponse): boolean {
+  return isFinishedMessage(message) && (message.kind === "ERROR" || message.kind === "WARNING")
 }
 
 export function isFileChangeMessage(message: ChatMessageResponse): boolean {
