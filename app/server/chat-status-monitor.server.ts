@@ -32,6 +32,23 @@ export function startChatStatusMonitor(): void {
   void refreshCodexWatchers().then(() => syncProviderState({ publishExisting: false }))
 }
 
+export function stopChatStatusMonitor(): void {
+  started = false
+  initialized = false
+  syncAgain = false
+  pendingAllMessages = false
+  pendingExternalThreadIds = new Set()
+  snapshots = new Map()
+  if (syncTimer) {
+    clearTimeout(syncTimer)
+    syncTimer = null
+  }
+  for (const watcher of watchers.values()) {
+    watcher.close()
+  }
+  watchers.clear()
+}
+
 function scheduleProviderSync(change?: { filename: string | Buffer | null }): void {
   if (change) {
     const threadId = readCodexThreadId(change.filename)

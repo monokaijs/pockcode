@@ -3902,6 +3902,10 @@ async function maybeMarkInvalidated(accountId: string, error: unknown): Promise<
   runtimeService.stopRuntime(accountId)
 }
 
+export function stopAllCodexRuntimes(): void {
+  runtimeService.stopAllRuntimes()
+}
+
 function isAuthInvalidatedError(error: unknown): boolean {
   const message = readErrorMessage(error).toLowerCase()
   return (
@@ -4168,6 +4172,17 @@ class CodexRuntimeService {
   stopRuntime(accountId: string): void {
     this.runtimes.get(accountId)?.shutdown()
     this.runtimes.delete(accountId)
+  }
+
+  stopAllRuntimes(): void {
+    for (const runtime of this.runtimes.values()) {
+      try {
+        runtime.shutdown()
+      } catch {
+        // Keep shutting down other runtimes.
+      }
+    }
+    this.runtimes.clear()
   }
 }
 

@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from "node:http"
 import type { IncomingMessage } from "node:http"
 import { Server } from "socket.io"
-import { installTerminalSocketHandlers } from "./terminal.server"
+import { closeAllHostedTerminals, installTerminalSocketHandlers } from "./terminal.server"
 
 export type ProviderSocketEvent = {
   payload: unknown
@@ -72,6 +72,21 @@ export function installProviderSocketServer(
       if (workspacePathsBySocket.delete(socket.id)) {
         notifyWorkspaceWatchListeners()
       }
+    })
+  })
+}
+
+export function closeProviderSocketServer(): Promise<void> {
+  closeAllHostedTerminals()
+  workspacePathsBySocket.clear()
+  if (!io) {
+    return Promise.resolve()
+  }
+  const currentIo = io
+  io = null
+  return new Promise((resolve) => {
+    currentIo.close(() => {
+      resolve()
     })
   })
 }

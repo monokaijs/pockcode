@@ -81,6 +81,20 @@ export function installTerminalSocketHandlers(socket: Socket): void {
   })
 }
 
+export function closeAllHostedTerminals(): void {
+  for (const sessions of terminalSessionsBySocket.values()) {
+    for (const session of sessions.values()) {
+      try {
+        closeHostedTerminal(session)
+      } catch {
+        // Shutdown should continue even if a terminal has already exited.
+      }
+    }
+    sessions.clear()
+  }
+  terminalSessionsBySocket.clear()
+}
+
 async function createTerminal(
   socket: Socket,
   sessions: Map<string, HostedTerminal>,

@@ -43,6 +43,12 @@ export function startPluginRuntimeManager(): void {
   })
 }
 
+export async function stopPluginRuntimeManager(): Promise<void> {
+  managerState.unsubscribeProviderEvents?.()
+  managerState.unsubscribeProviderEvents = null
+  await Promise.allSettled([...activePlugins.keys()].map((pluginId) => stopPlugin(pluginId)))
+}
+
 export async function reconcilePlugins(): Promise<void> {
   for (const registration of listPluginRegistrations()) {
     await restartPlugin(registration.definition.id)

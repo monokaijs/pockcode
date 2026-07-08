@@ -133,6 +133,24 @@ export async function stopTemporaryCloudflaredTunnel(id: string): Promise<Cloudf
   return readCloudflaredStatus()
 }
 
+export function stopAllTemporaryCloudflaredTunnels(): void {
+  for (const record of temporaryTunnels.values()) {
+    record.stopRequested = true
+    record.stoppedAt ??= new Date().toISOString()
+    if (record.status === "starting" || record.status === "running") {
+      record.status = "stopped"
+    }
+    if (record.child && !record.child.killed) {
+      record.child.kill("SIGTERM")
+      setTimeout(() => {
+        if (record.child && !record.child.killed) {
+          record.child.kill("SIGKILL")
+        }
+      }, 2_000).unref()
+    }
+  }
+}
+
 export async function deleteNamedCloudflaredTunnel(identifier: string): Promise<CloudflaredStatusResponse> {
   const tunnelIdentifier = normalizeTunnelIdentifier(identifier)
   await ensureCloudflaredInstalled()

@@ -18,6 +18,14 @@ export function startMessageScheduleMonitor(): void {
   timer.unref?.()
 }
 
+export function stopMessageScheduleMonitor(): void {
+  started = false
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+
 async function tick(): Promise<void> {
   if (processing) {
     return

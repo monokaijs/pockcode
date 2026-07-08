@@ -2,6 +2,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { createReadStream } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
+import type { Socket } from "node:net"
 import { dirname, extname, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -37,6 +38,8 @@ async function main() {
     chatMonitor,
     scheduleMonitor,
     pluginManager,
+    cloudflared,
+    codexProvider,
   ] = await Promise.all([
     import("../app/server/api.server"),
     import("../app/server/auth.server"),
@@ -44,8 +47,11 @@ async function main() {
     import("../app/server/chat-status-monitor.server"),
     import("../app/server/message-schedule-monitor.server"),
     import("../app/server/plugins/manager.server"),
+    import("../app/server/cloudflared.service"),
+    import("../app/server/providers/codex.server"),
   ])
   const clientRoot = await resolveClientRoot()
+  const connections = new Set<Socket>()
 
   const server = createServer((req, res) => {
     void (async () => {
@@ -62,6 +68,12 @@ async function main() {
       sendText(res, 500, error instanceof Error ? error.message : "Request failed.")
     })
   })
+  server.on("connection", (connection) => {
+    connections.add(connection)
+    connection.on("close", () => {
+      connections.delete(connection)
+    })
+  })
 
   socket.installProviderSocketServer(server, {
     authenticateRequest: async (req: IncomingMessage) =>
@@ -76,11 +88,104 @@ async function main() {
     console.log("First visit will ask you to set a password if one is not configured.")
   })
 
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      server.close(() => process.exit(0))
+  let shutdownPromise: Promise<void> | null = null
+  const handleShutdownSignal = (signal: NodeJS.Signals) => {
+    if (shutdownPromise) {
+      console.error(`\nReceived ${signal} again, forcing shutdown.`)
+      process.exit(1)
+    }
+    shutdownPromise = shutdownServer({
+      chatMonitor,
+      cloudflared,
+      codexProvider,
+      connections,
+      pluginManager,
+      scheduleMonitor,
+      server,
+      signal,
+      socket,
     })
   }
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, handleShutdownSignal)
+  }
+}
+
+async function shutdownServer({
+  chatMonitor,
+  cloudflared,
+  codexProvider,
+  connections,
+  pluginManager,
+  scheduleMonitor,
+  server,
+  signal,
+  socket,
+}: {
+  chatMonitor: typeof import("../app/server/chat-status-monitor.server")
+  cloudflared: typeof import("../app/server/cloudflared.service")
+  codexProvider: typeof import("../app/server/providers/codex.server")
+  connections: Set<Socket>
+  pluginManager: typeof import("../app/server/plugins/manager.server")
+  scheduleMonitor: typeof import("../app/server/message-schedule-monitor.server")
+  server: ReturnType<typeof createServer>
+  signal: NodeJS.Signals
+  socket: typeof import("../app/server/socket.server")
+}): Promise<void> {
+  console.log(`\nReceived ${signal}, shutting down pockcode...`)
+  const forceTimer = setTimeout(() => {
+    console.error("Shutdown timed out, forcing exit.")
+    for (const connection of connections) {
+      connection.destroy()
+    }
+    process.exit(1)
+  }, 5_000)
+  forceTimer.unref()
+
+  try {
+    scheduleMonitor.stopMessageScheduleMonitor()
+    chatMonitor.stopChatStatusMonitor()
+    cloudflared.stopAllTemporaryCloudflaredTunnels()
+    codexProvider.stopAllCodexRuntimes()
+    await Promise.allSettled([
+      pluginManager.stopPluginRuntimeManager(),
+      socket.closeProviderSocketServer(),
+    ])
+    await closeHttpServer(server, connections)
+    clearTimeout(forceTimer)
+    process.exit(0)
+  } catch (error) {
+    clearTimeout(forceTimer)
+    console.error(error instanceof Error ? error.message : "Shutdown failed.")
+    process.exit(1)
+  }
+}
+
+function closeHttpServer(server: ReturnType<typeof createServer>, connections: Set<Socket>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const destroyTimer = setTimeout(() => {
+      server.closeAllConnections?.()
+      for (const connection of connections) {
+        connection.destroy()
+      }
+    }, 1_000)
+    destroyTimer.unref()
+
+    server.close((error) => {
+      clearTimeout(destroyTimer)
+      if (error) {
+        if ((error as NodeJS.ErrnoException).code === "ERR_SERVER_NOT_RUNNING") {
+          resolve()
+          return
+        }
+        reject(error)
+        return
+      }
+      resolve()
+    })
+    server.closeIdleConnections?.()
+  })
 }
 
 async function handleAuthGate(
