@@ -850,7 +850,9 @@ function useSessionShellController() {
       })
       setActiveChatId(chat.id)
       setChats((current) => upsertChat(current, chat))
-      const optimisticMessage = createOptimisticChatMessage(chat.id, message, messagesByChatId[chat.id] ?? [])
+      const optimisticMessage = createOptimisticChatMessage(chat.id, message, messagesByChatId[chat.id] ?? [], {
+        delivery: input.delivery,
+      })
       optimisticChatId = chat.id
       setMessagesByChatId((current) => ({
         ...current,

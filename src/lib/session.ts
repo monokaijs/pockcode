@@ -449,6 +449,7 @@ export function createOptimisticChatMessage(
   chatId: string,
   content: string,
   messages: ChatMessageResponse[],
+  options: { delivery?: "queue" | "steer" } = {},
 ): ChatMessageResponse {
   return {
     chatId,
@@ -456,7 +457,7 @@ export function createOptimisticChatMessage(
     createdAt: new Date().toISOString(),
     id: `client:${createClientId()}`,
     kind: "CHAT",
-    metadata: { optimistic: true },
+    metadata: { optimistic: true, ...(options.delivery ? { delivery: options.delivery } : {}) },
     role: "USER",
     sequence: Math.max(0, ...messages.map((message) => message.sequence)) + 1,
     status: "PENDING",
@@ -704,11 +705,21 @@ export function chatRenderEntryId(entry: ChatRenderEntry): string {
 export function queuedMessageRunIds(messages: ChatMessageResponse[]): string[] {
   const runIds: string[] = []
   for (const message of messages) {
-    if (message.role === "USER" && message.status === "PENDING" && message.runId && !runIds.includes(message.runId)) {
+    if (isQueuedUserMessage(message) && message.runId && !runIds.includes(message.runId)) {
       runIds.push(message.runId)
     }
   }
   return runIds
+}
+
+export function isQueuedUserMessage(message: ChatMessageResponse): boolean {
+  if (message.role !== "USER" || message.status !== "PENDING") {
+    return false
+  }
+  if (message.runId) {
+    return true
+  }
+  return readRecordString(message.metadata, "delivery") === "queue"
 }
 
 export function moveItemAround(items: string[], source: string, target: string, placement: "after" | "before"): string[] {

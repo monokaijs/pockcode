@@ -1,5 +1,6 @@
-import { Brain, Check, ChevronDown, Cpu, FileText, Folder, Plus, Route, Shield, SlidersHorizontal, Square, X, Zap } from "lucide-react"
-import type { ReactNode } from "react"
+import { Brain, Check, ChevronDown, Cpu, FileText, Folder, GripVertical, Pencil, Plus, Route, Shield, SlidersHorizontal, Square, Trash2, X, Zap } from "lucide-react"
+import type { DragEvent as ReactDragEvent, ReactNode } from "react"
+import type { ChatMessageResponse } from "@/lib/api-client"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import {
   composerReasoningEffortLabel,
@@ -17,6 +18,7 @@ export function ChatComposer() {
 
   return (
     <footer className="px-3 pb-3">
+      <ChatQueuedMessageList />
       <div className="mx-auto rounded-lg border border-border bg-secondary p-3 shadow-inner">
         <ChatErrorNotice />
         <PendingUserInputPrompt />
@@ -38,6 +40,131 @@ export function ChatComposer() {
         <ComposerControls />
       </div>
     </footer>
+  )
+}
+
+function ChatQueuedMessageList() {
+  const pane = useChatPane()
+
+  if (!pane.queuedMessages.length) {
+    return null
+  }
+  return (
+    <div className="mx-auto mb-2 grid max-h-44 gap-1 overflow-auto pr-0.5 ide-scrollbar" aria-label="Queued messages">
+      <div className="flex min-h-5 items-center justify-between gap-2 px-1 text-[11px] font-medium text-muted-foreground">
+        <span>Queued</span>
+        <span>{pane.queuedMessages.length}</span>
+      </div>
+      {pane.queuedMessages.map((message) => (
+        <ChatQueuedMessageItem key={message.id} message={message} />
+      ))}
+    </div>
+  )
+}
+
+function ChatQueuedMessageItem({ message }: { message: ChatMessageResponse }) {
+  const pane = useChatPane()
+  const runId = message.runId
+  const draggable = Boolean(runId)
+  const draggingOver = Boolean(runId && pane.dragOverQueuedRunId === runId)
+
+  return (
+    <article
+      className={cn(
+        "group flex min-w-0 items-start gap-2 rounded-md border border-border bg-secondary/95 px-2 py-1.5 text-[12px] shadow-sm",
+        draggingOver && "outline outline-1 outline-primary/70",
+      )}
+      draggable={draggable}
+      onDragEnd={() => pane.setDragOverQueuedRunId(null)}
+      onDragEnter={() => {
+        if (runId) {
+          pane.setDragOverQueuedRunId(runId)
+        }
+      }}
+      onDragOver={(event) => {
+        if (runId) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = "move"
+        }
+      }}
+      onDragStart={(event: ReactDragEvent<HTMLElement>) => {
+        if (!runId) {
+          event.preventDefault()
+          return
+        }
+        event.dataTransfer.effectAllowed = "move"
+        event.dataTransfer.setData("text/plain", runId)
+      }}
+      onDrop={(event) => {
+        if (!runId) {
+          return
+        }
+        event.preventDefault()
+        const sourceRunId = event.dataTransfer.getData("text/plain")
+        if (sourceRunId) {
+          const bounds = event.currentTarget.getBoundingClientRect()
+          const placement = event.clientY > bounds.top + bounds.height / 2 ? "after" : "before"
+          pane.reorderQueuedMessage(sourceRunId, runId, placement)
+        }
+      }}
+    >
+      <span
+        className={cn(
+          "grid size-6 shrink-0 place-items-center rounded text-muted-foreground",
+          draggable ? "cursor-grab hover:bg-accent hover:text-foreground" : "opacity-45",
+        )}
+        title={draggable ? "Drag to reorder" : "Queued"}
+      >
+        <GripVertical className="size-3.5" />
+      </span>
+      <div className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-5 text-foreground">
+        <div className="max-h-10 overflow-hidden">{message.content}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button
+          aria-label="Steer queued message"
+          className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={!runId}
+          title="Steer"
+          type="button"
+          onClick={() => {
+            if (runId) {
+              void pane.onSteerQueuedMessage(message.chatId, runId)
+            }
+          }}
+        >
+          <Route className="size-3.5" />
+        </button>
+        <button
+          aria-label="Edit queued message"
+          className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={!runId}
+          title="Edit"
+          type="button"
+          onClick={() => {
+            if (runId) {
+              void pane.onEditQueuedMessage(message.chatId, runId, message.content)
+            }
+          }}
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        <button
+          aria-label="Delete queued message"
+          className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-destructive disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={!runId}
+          title="Delete"
+          type="button"
+          onClick={() => {
+            if (runId) {
+              void pane.onDeleteQueuedMessage(message.chatId, runId)
+            }
+          }}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+    </article>
   )
 }
 

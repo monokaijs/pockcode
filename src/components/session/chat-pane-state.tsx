@@ -14,6 +14,7 @@ import {
   fileRelativePath,
   formatProviderQuota,
   groupChatRenderEntries,
+  isQueuedUserMessage,
   moveItemAround,
   parseChatSlashCommand,
   queuedMessageRunIds,
@@ -95,9 +96,11 @@ export function useChatPaneState({
   )
   const composerFeatures = providerDefinition?.composerFeatures ?? fallbackComposerFeatures(account?.providerId)
   const running = chat?.status === "RUNNING" || messages.some((message) => message.status === "STREAMING")
-  const renderEntries = useMemo(() => groupChatRenderEntries(messages, running), [messages, running])
+  const queuedMessages = useMemo(() => messages.filter(isQueuedUserMessage), [messages])
+  const transcriptMessages = useMemo(() => messages.filter((message) => !isQueuedUserMessage(message)), [messages])
+  const renderEntries = useMemo(() => groupChatRenderEntries(transcriptMessages, running), [running, transcriptMessages])
   const renderEntryIds = useMemo(() => renderEntries.map(chatRenderEntryId), [renderEntries])
-  const queuedRunIds = useMemo(() => queuedMessageRunIds(messages), [messages])
+  const queuedRunIds = useMemo(() => queuedMessageRunIds(queuedMessages), [queuedMessages])
   const appendedEntryIds = useAppendAnimationIds(renderEntryIds, chat?.id ?? null)
   const fileLinkContext = useMemo(() => ({ openFileLink: onFileLinkOpen }), [onFileLinkOpen])
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0
@@ -545,6 +548,7 @@ export function useChatPaneState({
     promptForGoal,
     providerDefinition,
     providerIconById,
+    queuedMessages,
     reasoningEffort,
     removeAttachment,
     renderEntries,

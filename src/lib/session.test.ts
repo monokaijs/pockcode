@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   isToolMessage,
+  isQueuedUserMessage,
+  groupChatRenderEntries,
   matchingChatSlashCommands,
   parseChatSlashCommand,
   readChatAccountSwitchEvent,
@@ -145,6 +147,69 @@ describe("tool message grouping", () => {
       true,
       1_000_000,
     )).toBe("14s")
+  })
+})
+
+describe("queued messages", () => {
+  it("detects confirmed and optimistic queued user messages", () => {
+    expect(isQueuedUserMessage(chatMessage({
+      id: "queued-1",
+      role: "USER",
+      runId: "run-queued",
+      status: "PENDING",
+    }))).toBe(true)
+
+    expect(isQueuedUserMessage(chatMessage({
+      id: "queued-optimistic",
+      metadata: { delivery: "queue", optimistic: true },
+      role: "USER",
+      status: "PENDING",
+    }))).toBe(true)
+
+    expect(isQueuedUserMessage(chatMessage({
+      id: "plain-optimistic",
+      metadata: { optimistic: true },
+      role: "USER",
+      status: "PENDING",
+    }))).toBe(false)
+  })
+
+  it("keeps active work running when queued messages are rendered separately", () => {
+    const userMessage = chatMessage({
+      content: "Start a long task",
+      id: "user-1",
+      role: "USER",
+      sequence: 1,
+    })
+    const streamingMessage = chatMessage({
+      content: "Writing files",
+      id: "assistant-1",
+      role: "ASSISTANT",
+      sequence: 2,
+      status: "STREAMING",
+    })
+    const queuedMessage = chatMessage({
+      content: "Next task",
+      id: "queued-1",
+      role: "USER",
+      runId: "run-queued",
+      sequence: 3,
+      status: "PENDING",
+    })
+
+    const transcriptMessages = [userMessage, streamingMessage, queuedMessage].filter((message) => !isQueuedUserMessage(message))
+
+    expect(groupChatRenderEntries(transcriptMessages, true)).toEqual([
+      { type: "message", message: userMessage },
+      {
+        type: "work",
+        completedAt: streamingMessage.createdAt,
+        finished: false,
+        id: "work:assistant-1",
+        messages: [streamingMessage],
+        startedAt: userMessage.createdAt,
+      },
+    ])
   })
 })
 
