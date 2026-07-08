@@ -56,6 +56,10 @@ async function main() {
   const server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`)
+      if (isPublicPwaAsset(url.pathname)) {
+        await serveClientAsset(req, res, url, clientRoot, { fallbackToIndex: false })
+        return
+      }
       if (await handleAuthGate(req, res, url, auth)) {
         return
       }
@@ -315,7 +319,13 @@ function handlePasswordLogout(
   redirect(res, "/auth/login")
 }
 
-async function serveClientAsset(req: IncomingMessage, res: ServerResponse, url: URL, clientRoot: string) {
+async function serveClientAsset(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  clientRoot: string,
+  options: { fallbackToIndex?: boolean } = {},
+) {
   if (req.method !== "GET" && req.method !== "HEAD") {
     sendText(res, 405, `${req.method ?? "METHOD"} is not supported.`)
     return
@@ -328,7 +338,15 @@ async function serveClientAsset(req: IncomingMessage, res: ServerResponse, url: 
   }
 
   const stats = await stat(filePath).catch(() => null)
-  const targetPath = stats?.isFile() ? filePath : resolve(clientRoot, "index.html")
+  const targetPath = stats?.isFile()
+    ? filePath
+    : options.fallbackToIndex === false
+      ? null
+      : resolve(clientRoot, "index.html")
+  if (!targetPath) {
+    sendText(res, 404, "Not found.")
+    return
+  }
   const targetStats = stats?.isFile() ? stats : await stat(targetPath).catch(() => null)
   if (!targetStats?.isFile()) {
     sendText(res, 404, "Pockcode client build was not found. Run pnpm build first.")
@@ -348,6 +366,14 @@ async function serveClientAsset(req: IncomingMessage, res: ServerResponse, url: 
     return
   }
   createReadStream(targetPath).pipe(res)
+}
+
+function isPublicPwaAsset(pathname: string): boolean {
+  return pathname === "/manifest.webmanifest" ||
+    pathname === "/sw.js" ||
+    pathname === "/favicon.svg" ||
+    pathname === "/favicon.ico" ||
+    pathname.startsWith("/icons/")
 }
 
 async function resolveClientPath(clientRoot: string, pathname: string): Promise<string | null> {
@@ -573,7 +599,17 @@ function sendAuthPage(
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="application-name" content="pockcode" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="pockcode" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="theme-color" content="#18171c" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <title>${escapeHtml(options.title)}</title>
   <style>
     :root {
@@ -598,6 +634,8 @@ function sendAuthPage(
       --auth-grid: rgb(255 255 255 / 0.03);
       background: var(--background);
       color: var(--foreground);
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
     * { box-sizing: border-box; }
     body {
@@ -714,7 +752,9 @@ function sendAuthPage(
       color: var(--foreground);
       padding: 0 12px;
       font: inherit;
+      font-size: 16px;
       outline: none;
+      touch-action: manipulation;
     }
     input:focus {
       border-color: var(--ring);
@@ -728,7 +768,9 @@ function sendAuthPage(
       color: var(--primary-foreground);
       cursor: pointer;
       font: inherit;
+      font-size: 16px;
       font-weight: 800;
+      touch-action: manipulation;
     }
     button:focus-visible {
       outline: 3px solid color-mix(in oklch, var(--ring) 42%, transparent);
@@ -748,7 +790,7 @@ function sendAuthPage(
       body { place-items: stretch; background-size: 34px 34px; }
       main {
         width: 100%;
-        min-height: 100vh;
+        min-height: 100dvh;
         grid-template-columns: 1fr;
         border: 0;
         border-radius: 0;
@@ -825,6 +867,7 @@ function contentTypeFor(filePath: string): string {
   if (extension === ".html") return "text/html; charset=utf-8"
   if (extension === ".css") return "text/css; charset=utf-8"
   if (extension === ".js" || extension === ".mjs") return "text/javascript; charset=utf-8"
+  if (extension === ".webmanifest") return "application/manifest+json; charset=utf-8"
   if (extension === ".json") return "application/json; charset=utf-8"
   if (extension === ".svg") return "image/svg+xml"
   if (extension === ".png") return "image/png"

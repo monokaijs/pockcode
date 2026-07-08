@@ -18,8 +18,24 @@ const themeScript = `
 })()
 `
 
+const pwaRegistrationScript = `
+;(() => {
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+    return
+  }
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
+      console.warn("pockcode service worker registration failed", error)
+    })
+  })
+})()
+`
+
 export function meta() {
-  return [{ title: "pockcode" }]
+  return [
+    { title: "pockcode" },
+    { name: "description", content: "A local Codex coding workspace for chat, files, terminals, and providers." },
+  ]
 }
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -27,7 +43,19 @@ export function Layout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+        <meta name="application-name" content="pockcode" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="pockcode" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#18171c" media="(prefers-color-scheme: dark)" />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <Meta />
         <Links />
@@ -36,6 +64,7 @@ export function Layout({ children }: { children: ReactNode }) {
         {children}
         <ScrollRestoration />
         <Scripts />
+        <script dangerouslySetInnerHTML={{ __html: pwaRegistrationScript }} />
       </body>
     </html>
   )

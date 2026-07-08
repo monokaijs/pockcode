@@ -222,6 +222,8 @@
 
   html {
     @apply font-sans bg-background text-foreground;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -230,12 +232,30 @@
 
   button,
   input,
+  select,
   textarea {
     font: inherit;
   }
 
+  button,
+  input,
+  select,
+  textarea,
+  a {
+    touch-action: manipulation;
+  }
+
   button {
     @apply cursor-pointer;
+  }
+}
+
+/* iOS Safari zooms focused form controls below 16px. */
+@media (any-pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
   }
 }
 
