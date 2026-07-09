@@ -278,6 +278,25 @@
   padding: var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-area-inset-bottom) var(--safe-area-inset-left);
 }
 
+.app-shell-viewport {
+  height: 100vh;
+  height: 100dvh;
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
+}
+
+.session-shell-grid {
+  grid-template-rows: calc(40px + var(--safe-area-inset-top)) minmax(0, 1fr);
+}
+
+.session-shell-top-bar {
+  padding-top: var(--safe-area-inset-top);
+}
+
+.chat-composer-footer {
+  padding-bottom: calc(0.75rem + var(--safe-area-inset-bottom));
+}
+
 .safe-area-overlay {
   overflow: auto;
   padding:
@@ -304,7 +323,8 @@
 }
 
 @supports not (height: 100dvh) {
-  .app-safe-viewport {
+  .app-safe-viewport,
+  .app-shell-viewport {
     height: 100vh;
   }
 }

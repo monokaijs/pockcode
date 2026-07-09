@@ -190,6 +190,7 @@ export type ProviderAccountLimitsResponse = {
 export type WorkspaceHistoryResponse = {
   createdAt: string
   id: string
+  isOpen: boolean
   lastOpenedAt: string
   name: string
   path: string

@@ -1,10 +1,12 @@
-const CACHE_VERSION = "pockcode-pwa-v3"
+const CACHE_VERSION = "pockcode-pwa-v4"
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const CORE_ASSETS = [
   "/manifest.webmanifest",
-  "/favicon.svg",
+  "/favicon.ico",
   "/icons/apple-touch-icon.png",
+  "/icons/favicon-16.png",
   "/icons/favicon-32.png",
+  "/icons/favicon-48.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/maskable-icon-192.png",
@@ -71,6 +73,7 @@ function shouldBypass(url) {
 function isStaticAsset(url) {
   return url.pathname.startsWith("/assets/") ||
     url.pathname.startsWith("/icons/") ||
+    url.pathname === "/favicon.ico" ||
     url.pathname === "/favicon.svg" ||
     url.pathname === "/manifest.webmanifest"
 }

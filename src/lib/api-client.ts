@@ -572,9 +572,9 @@ export const apiClient = {
     },
   },
   workspaces: {
-    deleteHistory(path: string) {
+    closeHistory(path: string) {
       return requestJson<{ path: string }>(`/api/workspaces?path=${encodeURIComponent(path)}`, {
-        fallbackMessage: "Unable to remove workspace history.",
+        fallbackMessage: "Unable to close workspace.",
         method: "DELETE",
       })
     },

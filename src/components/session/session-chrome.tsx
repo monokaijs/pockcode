@@ -32,7 +32,7 @@ export function TopBar({
   onToggleTerminalPanel: () => void
 }) {
   return (
-    <header className="flex min-w-0 items-center bg-background">
+    <header className="session-shell-top-bar flex min-w-0 items-center bg-background">
       <div className="flex h-full shrink-0 items-center pl-2 md:hidden">
         <button
           aria-label="Open chats panel"

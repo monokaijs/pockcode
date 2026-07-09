@@ -15,13 +15,16 @@ async function setupDatabase(): Promise<void> {
   for (const statement of schemaStatements) {
     await prisma.$executeRawUnsafe(statement)
   }
-  await ensureWorkspaceHistoryIds()
+  await ensureWorkspaceHistorySchema()
 }
 
-async function ensureWorkspaceHistoryIds(): Promise<void> {
+async function ensureWorkspaceHistorySchema(): Promise<void> {
   const columns = await prisma.$queryRawUnsafe<{ name: string }[]>(`PRAGMA table_info("WorkspaceHistory")`)
   if (!columns.some((column) => column.name === "id")) {
     await prisma.$executeRawUnsafe(`ALTER TABLE "WorkspaceHistory" ADD COLUMN "id" TEXT`)
+  }
+  if (!columns.some((column) => column.name === "isOpen")) {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "WorkspaceHistory" ADD COLUMN "isOpen" BOOLEAN NOT NULL DEFAULT false`)
   }
   const rows = await prisma.$queryRawUnsafe<{ id: string | null; path: string }[]>(
     `SELECT "path", "id" FROM "WorkspaceHistory" WHERE "id" IS NULL OR "id" = ''`,
@@ -30,6 +33,7 @@ async function ensureWorkspaceHistoryIds(): Promise<void> {
     await prisma.$executeRawUnsafe(`UPDATE "WorkspaceHistory" SET "id" = ? WHERE "path" = ?`, randomUUID(), row.path)
   }
   await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "WorkspaceHistory_id_key" ON "WorkspaceHistory"("id")`)
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "WorkspaceHistory_isOpen_lastOpenedAt_idx" ON "WorkspaceHistory"("isOpen", "lastOpenedAt")`)
 }
 
 const schemaStatements = [
@@ -203,9 +207,11 @@ const schemaStatements = [
     "id" TEXT,
     "path" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
+    "isOpen" BOOLEAN NOT NULL DEFAULT false,
     "lastOpenedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE INDEX IF NOT EXISTS "WorkspaceHistory_isOpen_lastOpenedAt_idx" ON "WorkspaceHistory"("isOpen", "lastOpenedAt")`,
   `CREATE INDEX IF NOT EXISTS "WorkspaceHistory_lastOpenedAt_idx" ON "WorkspaceHistory"("lastOpenedAt")`,
 ]

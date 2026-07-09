@@ -98,7 +98,7 @@ import {
   saveWebPushSubscription,
   sendTestWebPushNotification,
 } from "./web-push.service"
-import { deleteWorkspaceHistory, listWorkspaceHistory, saveWorkspaceHistory } from "./workspace-history.service"
+import { closeWorkspaceHistory, listWorkspaceHistory, saveWorkspaceHistory } from "./workspace-history.service"
 import { listWorkspaceDirectory, readWorkspaceResource, readWorkspaceTree } from "./workspaces.server"
 
 type MiddlewareStack = {
@@ -452,7 +452,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       return
     }
     if (method === "DELETE") {
-      sendJson(res, await deleteWorkspaceHistory(readStringField(url.searchParams.get("path"), "path", { required: true })))
+      sendJson(res, await closeWorkspaceHistory(readStringField(url.searchParams.get("path"), "path", { required: true })))
       return
     }
     sendJson(res, await listWorkspaceHistory())

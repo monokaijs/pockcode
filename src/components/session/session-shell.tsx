@@ -1463,8 +1463,8 @@ function SessionShellView() {
   const shell = useSessionShellState()
 
   return (
-    <div className="app-safe-viewport overflow-hidden bg-background text-foreground">
-      <main className="grid h-full overflow-hidden bg-background" style={{ gridTemplateRows: "40px minmax(0, 1fr)" }}>
+    <div className="app-shell-viewport overflow-hidden bg-background text-foreground">
+      <main className="session-shell-grid grid h-full overflow-hidden bg-background">
         <TopBar
           activeWorkspaceId={shell.activeWorkspace?.id ?? null}
           isFilesPanelOpen={shell.isFilesPanelOpen}

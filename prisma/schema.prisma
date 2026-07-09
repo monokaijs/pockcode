@@ -80,10 +80,12 @@ model WorkspaceHistory {
   id           String   @default(uuid()) @unique
   path         String   @id
   name         String
+  isOpen       Boolean  @default(false)
   lastOpenedAt DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  @@index([isOpen, lastOpenedAt])
   @@index([lastOpenedAt])
 }
 

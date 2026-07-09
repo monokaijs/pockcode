@@ -7,6 +7,7 @@ import { readWorkspaceTree } from "./workspaces.server"
 type WorkspaceHistoryRow = {
   createdAt: Date | string
   id: string
+  isOpen: boolean | number
   lastOpenedAt: Date | string
   name: string
   path: string
@@ -16,7 +17,7 @@ type WorkspaceHistoryRow = {
 export async function listWorkspaceHistory(): Promise<WorkspaceHistoryResponse[]> {
   await ensureDatabase()
   const rows = await prisma.$queryRaw<WorkspaceHistoryRow[]>`
-    SELECT "id", "path", "name", "lastOpenedAt", "createdAt", "updatedAt"
+    SELECT "id", "path", "name", "isOpen", "lastOpenedAt", "createdAt", "updatedAt"
     FROM "WorkspaceHistory"
     ORDER BY "lastOpenedAt" DESC
   `
@@ -28,25 +29,30 @@ export async function saveWorkspaceHistory(inputPath: string): Promise<Workspace
   const tree = await readWorkspaceTree(inputPath, false)
   const id = randomUUID()
   await prisma.$executeRaw`
-    INSERT INTO "WorkspaceHistory" ("id", "path", "name", "lastOpenedAt", "createdAt", "updatedAt")
-    VALUES (${id}, ${tree.path}, ${tree.name}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    INSERT INTO "WorkspaceHistory" ("id", "path", "name", "isOpen", "lastOpenedAt", "createdAt", "updatedAt")
+    VALUES (${id}, ${tree.path}, ${tree.name}, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ON CONFLICT("path") DO UPDATE SET
       "name" = excluded."name",
+      "isOpen" = true,
       "lastOpenedAt" = CURRENT_TIMESTAMP,
       "updatedAt" = CURRENT_TIMESTAMP
   `
   return readWorkspaceHistory(tree.path)
 }
 
-export async function deleteWorkspaceHistory(inputPath: string): Promise<{ path: string }> {
+export async function closeWorkspaceHistory(inputPath: string): Promise<{ path: string }> {
   await ensureDatabase()
-  await prisma.$executeRaw`DELETE FROM "WorkspaceHistory" WHERE "path" = ${inputPath}`
+  await prisma.$executeRaw`
+    UPDATE "WorkspaceHistory"
+    SET "isOpen" = false, "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "path" = ${inputPath}
+  `
   return { path: inputPath }
 }
 
 async function readWorkspaceHistory(path: string): Promise<WorkspaceHistoryResponse> {
   const rows = await prisma.$queryRaw<WorkspaceHistoryRow[]>`
-    SELECT "id", "path", "name", "lastOpenedAt", "createdAt", "updatedAt"
+    SELECT "id", "path", "name", "isOpen", "lastOpenedAt", "createdAt", "updatedAt"
     FROM "WorkspaceHistory"
     WHERE "path" = ${path}
     LIMIT 1
@@ -61,6 +67,7 @@ async function readWorkspaceHistory(path: string): Promise<WorkspaceHistoryRespo
 function serializeWorkspaceHistory(row: WorkspaceHistoryRow): WorkspaceHistoryResponse {
   return {
     id: row.id,
+    isOpen: Boolean(row.isOpen),
     path: row.path,
     name: row.name,
     lastOpenedAt: toIsoString(row.lastOpenedAt),
