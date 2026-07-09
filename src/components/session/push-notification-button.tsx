@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Bell, BellOff, LoaderCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +21,24 @@ export function PushNotificationButton() {
   const [error, setError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const syncPromiseRef = useRef<Promise<void> | null>(null)
+
+  const syncSubscription = useCallback(async (sendTest: boolean) => {
+    if (syncPromiseRef.current) {
+      return syncPromiseRef.current
+    }
+    setSyncing(true)
+    const promise = syncPushSubscription(sendTest)
+      .catch((syncError) => {
+        setError(readErrorMessage(syncError, "Unable to enable notifications."))
+        setDialogOpen(true)
+      })
+      .finally(() => {
+        syncPromiseRef.current = null
+        setSyncing(false)
+      })
+    syncPromiseRef.current = promise
+    return promise
+  }, [])
 
   useEffect(() => {
     setPermission(readNotificationPermission())
@@ -53,7 +71,7 @@ export function PushNotificationButton() {
       return
     }
     void syncSubscription(false)
-  }, [permission])
+  }, [permission, syncSubscription])
 
   if (permission === "unsupported" || permission === "granted") {
     return null
@@ -92,24 +110,6 @@ export function PushNotificationButton() {
     } finally {
       setSyncing(false)
     }
-  }
-
-  const syncSubscription = async (sendTest: boolean) => {
-    if (syncPromiseRef.current) {
-      return syncPromiseRef.current
-    }
-    setSyncing(true)
-    const promise = syncPushSubscription(sendTest)
-      .catch((syncError) => {
-        setError(readErrorMessage(syncError, "Unable to enable notifications."))
-        setDialogOpen(true)
-      })
-      .finally(() => {
-        syncPromiseRef.current = null
-        setSyncing(false)
-      })
-    syncPromiseRef.current = promise
-    return promise
   }
 
   return (
