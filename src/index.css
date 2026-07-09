@@ -293,10 +293,6 @@
   padding-top: var(--safe-area-inset-top);
 }
 
-.chat-composer-footer {
-  padding-bottom: clamp(0.75rem, calc(0.75rem + var(--safe-area-inset-bottom)), 3rem);
-}
-
 .workspace-tabs-scroll {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
