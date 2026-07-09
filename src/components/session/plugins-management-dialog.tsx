@@ -81,7 +81,7 @@ export function PluginsManagementDialog({ open, onClose }: { open: boolean; onCl
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
+    <div className="safe-area-overlay fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
       <button aria-label="Close plugins" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
       <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-lg grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
@@ -241,7 +241,7 @@ function PluginConfigDialog({
   const tokenConfigured = plugin.secretConfigured.botToken
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
+    <div className="safe-area-overlay fixed inset-0 z-[60] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
       <button aria-label="Close plugin settings" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
       <section className="relative grid max-h-[84vh] w-full max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">

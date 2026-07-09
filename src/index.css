@@ -90,6 +90,10 @@
 
 :root {
   color-scheme: light;
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(0.985 0 0);
@@ -147,6 +151,15 @@
   --ide-file-yellow: oklch(0.7 0.14 85);
   --ide-file-purple: oklch(0.6 0.15 320);
   --radius: 0.625rem;
+}
+
+@supports (padding-top: constant(safe-area-inset-top)) {
+  :root {
+    --safe-area-inset-top: constant(safe-area-inset-top);
+    --safe-area-inset-right: constant(safe-area-inset-right);
+    --safe-area-inset-bottom: constant(safe-area-inset-bottom);
+    --safe-area-inset-left: constant(safe-area-inset-left);
+  }
 }
 
 .dark {
@@ -257,6 +270,75 @@
   textarea {
     font-size: 16px !important;
   }
+}
+
+.app-safe-viewport {
+  height: 100vh;
+  height: 100dvh;
+  padding: var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-area-inset-bottom) var(--safe-area-inset-left);
+}
+
+.safe-area-overlay {
+  overflow: auto;
+  padding:
+    calc(var(--safe-area-inset-top) + var(--safe-area-overlay-padding, 1rem))
+    calc(var(--safe-area-inset-right) + var(--safe-area-overlay-padding, 1rem))
+    calc(var(--safe-area-inset-bottom) + var(--safe-area-overlay-padding, 1rem))
+    calc(var(--safe-area-inset-left) + var(--safe-area-overlay-padding, 1rem));
+  padding:
+    max(var(--safe-area-overlay-padding, 1rem), var(--safe-area-inset-top))
+    max(var(--safe-area-overlay-padding, 1rem), var(--safe-area-inset-right))
+    max(var(--safe-area-overlay-padding, 1rem), var(--safe-area-inset-bottom))
+    max(var(--safe-area-overlay-padding, 1rem), var(--safe-area-inset-left));
+}
+
+.safe-area-overlay-lg {
+  --safe-area-overlay-padding: 1.5rem;
+}
+
+.safe-area-dialog {
+  max-height: calc(100vh - var(--safe-area-inset-top) - var(--safe-area-inset-bottom) - 2rem);
+  max-height: calc(100dvh - var(--safe-area-inset-top) - var(--safe-area-inset-bottom) - 2rem);
+  max-width: calc(100vw - var(--safe-area-inset-right) - var(--safe-area-inset-left) - 2rem);
+  overflow: auto;
+}
+
+@supports not (height: 100dvh) {
+  .app-safe-viewport {
+    height: 100vh;
+  }
+}
+
+.safe-area-sheet {
+  box-sizing: border-box;
+}
+
+.safe-area-sheet[data-side="top"],
+.safe-area-sheet[data-side="bottom"] {
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
+}
+
+.safe-area-sheet[data-side="top"] {
+  padding-top: var(--safe-area-inset-top);
+}
+
+.safe-area-sheet[data-side="bottom"] {
+  padding-bottom: var(--safe-area-inset-bottom);
+}
+
+.safe-area-sheet[data-side="left"],
+.safe-area-sheet[data-side="right"] {
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
+}
+
+.safe-area-sheet[data-side="left"] {
+  padding-left: var(--safe-area-inset-left);
+}
+
+.safe-area-sheet[data-side="right"] {
+  padding-right: var(--safe-area-inset-right);
 }
 
 .monaco-editor,

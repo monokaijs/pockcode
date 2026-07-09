@@ -632,17 +632,31 @@ function sendAuthPage(
       --destructive-foreground: oklch(0.985 0 0);
       --sidebar: oklch(0.13 0.003 285);
       --auth-grid: rgb(255 255 255 / 0.03);
+      --safe-area-inset-top: env(safe-area-inset-top, 0px);
+      --safe-area-inset-right: env(safe-area-inset-right, 0px);
+      --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-area-inset-left: env(safe-area-inset-left, 0px);
       background: var(--background);
       color: var(--foreground);
       -webkit-text-size-adjust: 100%;
       text-size-adjust: 100%;
     }
+    @supports (padding-top: constant(safe-area-inset-top)) {
+      :root {
+        --safe-area-inset-top: constant(safe-area-inset-top);
+        --safe-area-inset-right: constant(safe-area-inset-right);
+        --safe-area-inset-bottom: constant(safe-area-inset-bottom);
+        --safe-area-inset-left: constant(safe-area-inset-left);
+      }
+    }
     * { box-sizing: border-box; }
     body {
       min-height: 100vh;
+      min-height: 100dvh;
       margin: 0;
       display: grid;
       place-items: center;
+      padding: var(--safe-area-inset-top) var(--safe-area-inset-right) var(--safe-area-inset-bottom) var(--safe-area-inset-left);
       background:
         linear-gradient(90deg, var(--auth-grid) 1px, transparent 1px),
         linear-gradient(180deg, var(--auth-grid) 1px, transparent 1px),
@@ -651,7 +665,7 @@ function sendAuthPage(
       color: var(--foreground);
     }
     main {
-      width: min(880px, calc(100vw - 32px));
+      width: min(880px, calc(100vw - var(--safe-area-inset-right) - var(--safe-area-inset-left) - 32px));
       min-height: 520px;
       display: grid;
       grid-template-columns: minmax(0, 0.9fr) minmax(340px, 1fr);
@@ -790,7 +804,7 @@ function sendAuthPage(
       body { place-items: stretch; background-size: 34px 34px; }
       main {
         width: 100%;
-        min-height: 100dvh;
+        min-height: calc(100dvh - var(--safe-area-inset-top) - var(--safe-area-inset-bottom));
         grid-template-columns: 1fr;
         border: 0;
         border-radius: 0;

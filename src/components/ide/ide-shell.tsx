@@ -28,7 +28,7 @@ export function IdeShell({ projects }: { projects: Project[] }) {
 
   if (!ide.activeProject) {
     return (
-      <main className="grid h-svh place-items-center bg-background text-sm text-muted-foreground">
+      <main className="app-safe-viewport grid place-items-center bg-background text-sm text-muted-foreground">
         No projects available.
       </main>
     )
@@ -224,7 +224,7 @@ function IdeShellLayout({ ide, projects }: { ide: IdeShellState; projects: Proje
     return null
   }
   return (
-    <div className="grid h-svh min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background text-foreground">
+    <div className="app-safe-viewport grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background text-foreground">
       <ProjectTabs activeProjectId={ide.activeProject.id} projects={projects} onProjectChange={ide.selectProject} />
       <IdeWorkspaceGrid ide={ide} />
       <StatusBar

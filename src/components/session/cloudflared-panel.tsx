@@ -318,7 +318,7 @@ function CloudflaredTunnelLogsDialog({
   const title = tunnel.publicUrl ?? tunnel.originUrl
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-labelledby="cloudflared-logs-title" aria-modal="true">
+    <div className="safe-area-overlay fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-labelledby="cloudflared-logs-title" aria-modal="true">
       <button aria-label="Close tunnel logs" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
       <section className="relative grid max-h-[82vh] min-h-72 w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <header className="flex h-12 min-w-0 items-center gap-2 border-b border-border px-3">

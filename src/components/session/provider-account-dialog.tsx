@@ -35,7 +35,7 @@ export function ProviderAccountDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
+    <div className="safe-area-overlay fixed inset-0 z-[70] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
       <button aria-label="Close provider account" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
       <section className="relative grid max-h-[84vh] w-full max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <ProviderAccountDialogHeader account={account} provider={provider} onClose={onClose} />

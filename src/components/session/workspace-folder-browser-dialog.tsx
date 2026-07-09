@@ -46,7 +46,7 @@ export function WorkspaceFolderBrowserDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
+    <div className="safe-area-overlay fixed inset-0 z-50 grid place-items-center bg-black/65 p-4" role="dialog" aria-modal="true">
       <button
         aria-label="Close folder browser"
         className="absolute inset-0 cursor-default"

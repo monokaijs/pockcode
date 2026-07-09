@@ -121,7 +121,7 @@ export function FileDialog({
   const path = findFilePath(workspace.fileTree, file.id)?.join(" / ") ?? file.name
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-6" role="dialog" aria-modal="true">
+    <div className="safe-area-overlay safe-area-overlay-lg fixed inset-0 z-50 grid place-items-center bg-black/65 p-6" role="dialog" aria-modal="true">
       <div className="grid h-[72vh] w-full max-w-4xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <div className="flex h-11 min-w-0 items-center gap-2 px-3 text-[12px] font-medium text-muted-foreground">
           <FileGlyph icon={file.icon} />

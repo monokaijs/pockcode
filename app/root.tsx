@@ -86,11 +86,13 @@ export function ErrorBoundary({ error }: { error: unknown }) {
       : "Unexpected application error."
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background p-6 text-foreground">
-      <section className="max-w-md rounded-xl border border-border bg-card p-5 text-card-foreground shadow-sm">
-        <h1 className="text-lg font-semibold">pockcode</h1>
-        <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{message}</p>
-      </section>
+    <main className="app-safe-viewport bg-background text-foreground">
+      <div className="flex h-full items-center justify-center p-6">
+        <section className="max-w-md rounded-xl border border-border bg-card p-5 text-card-foreground shadow-sm">
+          <h1 className="text-lg font-semibold">pockcode</h1>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{message}</p>
+        </section>
+      </div>
     </main>
   )
 }
