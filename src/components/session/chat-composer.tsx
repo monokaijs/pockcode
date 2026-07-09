@@ -17,7 +17,7 @@ export function ChatComposer() {
   const pane = useChatPane()
 
   return (
-    <footer className="chat-composer-footer px-3">
+    <footer className="px-3 pb-3">
       <ChatQueuedMessageList />
       <div className="mx-auto rounded-lg border border-border bg-secondary p-3 shadow-inner">
         <ChatErrorNotice />

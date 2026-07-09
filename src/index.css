@@ -283,6 +283,7 @@
   height: 100dvh;
   padding-left: var(--safe-area-inset-left);
   padding-right: var(--safe-area-inset-right);
+  padding-bottom: var(--safe-area-inset-bottom);
 }
 
 .session-shell-grid {
@@ -291,10 +292,6 @@
 
 .session-shell-top-bar {
   padding-top: var(--safe-area-inset-top);
-}
-
-.chat-composer-footer {
-  padding-bottom: calc(0.75rem + var(--safe-area-inset-bottom));
 }
 
 .safe-area-overlay {
