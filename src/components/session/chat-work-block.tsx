@@ -98,11 +98,7 @@ export function ChatWorkBlock({
       <button
         className="flex h-6 max-w-full items-center gap-1.5 text-left font-medium hover:text-foreground"
         type="button"
-        onClick={() => {
-          if (finished) {
-            setExpanded((current) => !current)
-          }
-        }}
+        onClick={() => setExpanded((current) => !current)}
       >
         <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
         <span className="truncate">{duration ? `Worked for ${duration}` : "Worked"}</span>

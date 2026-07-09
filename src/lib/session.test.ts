@@ -103,6 +103,74 @@ describe("tool message grouping", () => {
     expect(renderAssistantSegment([planMessage], null, false)).toEqual([{ type: "message", message: planMessage }])
   })
 
+  it("keeps update-plan progress inside the surrounding work block", () => {
+    const userMessage = chatMessage({
+      content: "Implement this",
+      createdAt: new Date(0).toISOString(),
+      id: "user-1",
+      role: "USER",
+      sequence: 1,
+    })
+    const thinkingMessage = chatMessage({
+      content: "I'll inspect the implementation first.",
+      createdAt: new Date(1_000).toISOString(),
+      id: "thinking-1",
+      kind: "THINKING",
+      role: "ASSISTANT",
+      runId: "run-1",
+      sequence: 2,
+    })
+    const planUpdateMessage = chatMessage({
+      content: "",
+      createdAt: new Date(2_000).toISOString(),
+      id: "plan-1",
+      kind: "PLAN",
+      metadata: {
+        planPresentation: "update",
+        planSteps: [{ status: "inProgress", step: "Inspect implementation" }],
+      },
+      role: "ASSISTANT",
+      runId: "run-1",
+      sequence: 3,
+    })
+    const commandMessage = chatMessage({
+      content: "- Ran `pwd`",
+      createdAt: new Date(3_000).toISOString(),
+      id: "command-1",
+      kind: "COMMAND_EXECUTION",
+      role: "TOOL",
+      runId: "run-1",
+      sequence: 4,
+    })
+    const finalMessage = chatMessage({
+      content: "Done.",
+      createdAt: new Date(4_000).toISOString(),
+      id: "final-1",
+      role: "ASSISTANT",
+      runId: "run-1",
+      sequence: 5,
+    })
+
+    expect(groupChatRenderEntries([
+      userMessage,
+      thinkingMessage,
+      planUpdateMessage,
+      commandMessage,
+      finalMessage,
+    ], false)).toEqual([
+      { type: "message", message: userMessage },
+      {
+        type: "work",
+        completedAt: commandMessage.completedAt,
+        finished: true,
+        id: "work:run-1",
+        messages: [thinkingMessage, planUpdateMessage, commandMessage],
+        startedAt: userMessage.createdAt,
+      },
+      { type: "message", message: finalMessage },
+    ])
+  })
+
   it("treats completed warning-only segments as finished work", () => {
     const userMessage = chatMessage({
       content: "Run something slow",

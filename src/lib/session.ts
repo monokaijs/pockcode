@@ -654,11 +654,18 @@ export function renderAssistantSegment(
     if (!workMessages.length) {
       return
     }
+    const baseId = `work:${workMessages[0]?.runId ?? workMessages[0]?.id ?? "unknown"}`
+    let id = baseId
+    let duplicateIndex = 1
+    while (entries.some((entry) => entry.type === "work" && entry.id === id)) {
+      id = `${baseId}:${duplicateIndex}`
+      duplicateIndex += 1
+    }
     entries.push({
       type: "work",
-      completedAt: workCompletedAt(messages),
+      completedAt: workCompletedAt(workMessages),
       finished,
-      id: `work:${workMessages[0]?.runId ?? workMessages[0]?.id ?? "unknown"}`,
+      id,
       messages: [...workMessages],
       startedAt: userMessage?.createdAt ?? workMessages[0]?.createdAt ?? null,
     })
@@ -672,7 +679,7 @@ export function renderAssistantSegment(
     if (isRunningPlaceholderMessage(message) && (!running || isStaleRunningPlaceholder(message))) {
       return
     }
-    if (message.kind === "PLAN") {
+    if (message.kind === "PLAN" && !isPlanUpdateMessage(message)) {
       flushWorkMessages()
       entries.push({ type: "message", message })
       return
@@ -700,6 +707,14 @@ export function renderAssistantSegment(
 
 export function chatRenderEntryId(entry: ChatRenderEntry): string {
   return entry.type === "message" ? `message:${entry.message.id}` : entry.id
+}
+
+export function isPlanUpdateMessage(message: ChatMessageResponse): boolean {
+  if (message.kind !== "PLAN") {
+    return false
+  }
+  const metadata = readRecord(message.metadata)
+  return readRecordString(metadata, "planPresentation") === "update" || Array.isArray(metadata.planSteps)
 }
 
 export function queuedMessageRunIds(messages: ChatMessageResponse[]): string[] {
