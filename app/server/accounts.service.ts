@@ -190,6 +190,10 @@ async function refreshAccountConnection(account: ProviderAccount): Promise<Provi
   const adapter = getProviderAdapter(account.providerId)
   await adapter.prepareAccount(account)
 
+  if (account.status === "ERROR" || account.status === "INVALIDATED") {
+    return account
+  }
+
   if (!adapter.isAccountConnected || !(await adapter.isAccountConnected(account))) {
     return account
   }

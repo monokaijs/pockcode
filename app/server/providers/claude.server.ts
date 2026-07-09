@@ -210,7 +210,11 @@ export const claudeProviderAdapter: ProviderAdapter = {
         authUrl: null,
         verificationUrl: null,
         userCode: null,
-        message: readErrorMessage(error),
+        message: readClaudeAuthErrorMessage(error, account),
+        authState: {
+          ...normalizeJsonObject(account.authState),
+          authDiagnostics: await buildClaudeAuthDiagnostics(account, error),
+        },
       }
     }
   },
@@ -1518,6 +1522,82 @@ function uniquePaths(paths: string[]): string[] {
 
 function sameFilesystemPath(left: string, right: string): boolean {
   return resolve(left) === resolve(right)
+}
+
+async function buildClaudeAuthDiagnostics(account: ProviderAccount, error: unknown): Promise<JsonObject> {
+  const settings = normalizeJsonObject(account.settings)
+  const accountEnvironment = readStringRecord(settings.environment)
+  const providerSettings = defaultClaudeSettings()
+  const executable =
+    readString(settings.pathToClaudeCodeExecutable) ||
+    readString(providerSettings.pathToClaudeCodeExecutable) ||
+    "claude"
+  const configDir = resolveClaudeAccountConfigDir(account)
+  const authEnvironmentKeysPresent = claudeAuthEnvironmentKeys.filter((key) => Boolean(accountEnvironment[key]))
+  const configDirStats = await stat(configDir).catch(() => null)
+  const mcpServerCount = await prisma.mcpServerInstallation.count({
+    where: { accountId: account.id, providerId: "claude" },
+  }).catch(() => null)
+
+  return {
+    provider: "claude",
+    authMode: "environment",
+    message: readClaudeAuthErrorMessage(error, account),
+    errorName: readErrorName(error),
+    errorCode: readErrorScalar(error, "code"),
+    errorStatus: readErrorScalar(error, "status") ?? readErrorScalar(error, "statusCode"),
+    stack: readClaudeAuthStack(error, account),
+    claudeConfigDir: configDir,
+    claudeConfigDirExists: Boolean(configDirStats?.isDirectory()),
+    pathToClaudeCodeExecutable: executable,
+    authEnvironmentKeysPresent,
+    environmentKeysPresent: Object.keys(accountEnvironment).sort(),
+    sdkSettingsKeysPresent: Object.keys(normalizeJsonObject(settings.settings)).sort(),
+    allowedToolsCount: readStringArray(settings.allowedTools)?.length ?? 0,
+    disallowedToolsCount: readStringArray(settings.disallowedTools)?.length ?? 0,
+    mcpServerCount,
+    nodeVersion: process.version,
+    platform: process.platform,
+    arch: process.arch,
+  }
+}
+
+function readClaudeAuthErrorMessage(error: unknown, account: ProviderAccount): string {
+  return redactClaudeAuthText(readErrorMessage(error), account)
+}
+
+function readClaudeAuthStack(error: unknown, account: ProviderAccount): string | null {
+  if (!(error instanceof Error) || !error.stack) {
+    return null
+  }
+  return redactClaudeAuthText(error.stack.split("\n").slice(0, 8).join("\n"), account)
+}
+
+function readErrorName(error: unknown): string | null {
+  return error instanceof Error && error.name ? error.name : null
+}
+
+function readErrorScalar(error: unknown, key: string): string | number | boolean | null {
+  if (!error || typeof error !== "object") {
+    return null
+  }
+  const value = (error as Record<string, unknown>)[key]
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? value : null
+}
+
+function redactClaudeAuthText(value: string, account: ProviderAccount): string {
+  const accountEnvironment = readStringRecord(normalizeJsonObject(account.settings).environment)
+  let redacted = value
+  for (const secret of Object.values(accountEnvironment)) {
+    if (secret.length >= 6) {
+      redacted = redacted.replaceAll(secret, "[redacted]")
+    }
+  }
+  return redacted
+    .replace(/\bsk-ant-[A-Za-z0-9_-]+/g, "[redacted]")
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1[redacted]")
+    .replace(/\b(api[_-]?key\s*[:=]\s*)[^\s"',}]+/gi, "$1[redacted]")
+    .replace(/\b(token\s*[:=]\s*)[^\s"',}]+/gi, "$1[redacted]")
 }
 
 function readErrorMessage(error: unknown): string {

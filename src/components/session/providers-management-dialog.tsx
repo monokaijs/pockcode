@@ -146,6 +146,9 @@ export function ProvidersManagementDialog({
                         {provider?.label ?? account.providerId}
                         {quota ? ` · ${quota}` : ""}
                       </span>
+                      {account.status === "ERROR" && account.lastError ? (
+                        <span className="block truncate text-[11px] text-destructive" title={account.lastError}>{account.lastError}</span>
+                      ) : null}
                     </span>
                     <ProviderStatusBadge status={account.status} />
                     <Wrench className="size-4 text-muted-foreground" />

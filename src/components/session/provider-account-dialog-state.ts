@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   apiClient,
   type AccountAuthMode,
+  type AuthenticateProviderAccountResponse,
   type ProviderAccountResponse,
   type ProviderDefinitionResponse,
   type ProviderModelListResponse,
@@ -25,11 +26,14 @@ import {
   readComposerServiceTier,
   readDefaultCodexHomeValue,
   readError,
+  readRecord,
   readRecordString,
   readSharedCodexHomeValue,
   withoutRecordKeys,
 } from "@/lib/session"
 import type { ChatComposerAccessMode, ChatComposerReasoningEffort, ChatComposerServiceTier } from "@/types/session"
+
+type ProviderAccountNotice = { details?: Record<string, unknown> | null; kind: "error" | "info"; text: string }
 
 export function useProviderAccountDialogState(
   account: ProviderAccountResponse | null,
@@ -49,7 +53,7 @@ export function useProviderAccountDialogState(
   const [deleting, setDeleting] = useState(false)
   const [displayName, setDisplayName] = useState("")
   const [modelOptions, setModelOptions] = useState<ProviderModelListResponse["data"]>([])
-  const [notice, setNotice] = useState<{ kind: "error" | "info"; text: string } | null>(null)
+  const [notice, setNotice] = useState<ProviderAccountNotice | null>(null)
   const [personality, setPersonality] = useState<"friendly" | "pragmatic">("pragmatic")
   const [runtimeDefaultsJson, setRuntimeDefaultsJson] = useState("{}")
   const [saving, setSaving] = useState(false)
@@ -83,7 +87,7 @@ export function useProviderAccountDialogState(
     setPersonality(readCodexPersonalityValue(account.settings))
     setRuntimeDefaultsJson(formatJson(withoutRecordKeys(account.runtimeDefaults, runtimeDefaultStructuredKeys)))
     setSettingsJson(formatJson(withoutRecordKeys(account.settings, ["claudeConfigDir", "codexHome", "personality"])))
-    setNotice(null)
+    setNotice(readAccountErrorNotice(account))
   }, [account, provider, runtimeDefaultStructuredKeys])
 
   useEffect(() => {
@@ -177,14 +181,16 @@ export function useProviderAccountDialogState(
       if (response.authUrl) {
         window.open(response.authUrl, "_blank", "noopener,noreferrer")
       }
+      if (response.status === "ERROR") {
+        const failedAccount = accountFromAuthResponse(updated, response)
+        onAccountChange(failedAccount)
+        setNotice(readAccountErrorNotice(failedAccount, response.message ?? "Authentication failed."))
+        return
+      }
       const refreshed = await refreshAccount()
       if (response.status === "CONNECTED" || refreshed?.status === "CONNECTED") {
         setNotice({ kind: "info", text: response.message ?? "Connected" })
         await onReload()
-        return
-      }
-      if (response.status === "ERROR") {
-        setNotice({ kind: "error", text: response.message ?? "Authentication failed." })
         return
       }
       setNotice({ kind: "info", text: response.message ?? "Authentication started." })
@@ -221,7 +227,7 @@ export function useProviderAccountDialogState(
         return
       }
       if (refreshed?.status === "ERROR") {
-        setNotice({ kind: "error", text: refreshed.lastError ?? "Authentication failed." })
+        setNotice(readAccountErrorNotice(refreshed, "Authentication failed."))
         return
       }
     }
@@ -315,3 +321,38 @@ export function useProviderAccountDialogState(
 }
 
 export type ProviderAccountDialogState = ReturnType<typeof useProviderAccountDialogState>
+
+function readAccountErrorNotice(
+  account: ProviderAccountResponse | null | undefined,
+  fallback = "Authentication failed.",
+): ProviderAccountNotice | null {
+  if (!account || account.status !== "ERROR") {
+    return null
+  }
+  return {
+    details: readAuthDiagnostics(account.authState),
+    kind: "error",
+    text: account.lastError || fallback,
+  }
+}
+
+function readAuthDiagnostics(authState: unknown): Record<string, unknown> | null {
+  const diagnostics = readRecord(readRecord(authState).authDiagnostics)
+  return Object.keys(diagnostics).length ? diagnostics : null
+}
+
+function accountFromAuthResponse(
+  account: ProviderAccountResponse,
+  response: AuthenticateProviderAccountResponse,
+): ProviderAccountResponse {
+  return {
+    ...account,
+    authState: response.authState ?? account.authState,
+    lastAuthLoginId: response.loginId ?? null,
+    lastAuthMode: response.authMode ?? null,
+    lastAuthUrl: response.authUrl ?? null,
+    lastAuthUserCode: response.userCode ?? null,
+    lastError: response.status === "ERROR" ? response.message ?? "Authentication failed." : null,
+    status: response.status,
+  }
+}

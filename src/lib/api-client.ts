@@ -59,6 +59,7 @@ import type {
 
 export type {
   AccountAuthMode,
+  AuthenticateProviderAccountResponse,
   ChatAttachmentRequest,
   ChatAccountSwitchEvent,
   ChatAccountSwitchPhase,

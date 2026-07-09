@@ -41,8 +41,8 @@ export function ProviderAccountDialog({
       <button aria-label="Close provider account" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
       <section className="relative grid max-h-[84vh] w-full max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <ProviderAccountDialogHeader account={account} provider={provider} onClose={onClose} />
-        <ProviderAccountDialogBody account={account} dialog={dialog} provider={provider} />
-        <ProviderAccountDialogFooter connected={dialog.connected} deleting={dialog.deleting} saving={dialog.saving} onClose={onClose} onDelete={dialog.deleteProviderAccount} onSave={dialog.saveConfig} />
+        <ProviderAccountDialogBody dialog={dialog} provider={provider} />
+        <ProviderAccountDialogFooter deleting={dialog.deleting} saving={dialog.saving} onClose={onClose} onDelete={dialog.deleteProviderAccount} onSave={dialog.saveConfig} />
       </section>
     </div>
   )
@@ -75,11 +75,9 @@ function ProviderAccountDialogHeader({
 }
 
 function ProviderAccountDialogBody({
-  account,
   dialog,
   provider,
 }: {
-  account: ProviderAccountResponse
   dialog: ProviderAccountDialogState
   provider: ProviderDefinitionResponse
 }) {
@@ -94,7 +92,7 @@ function ProviderAccountDialogBody({
         {dialog.hasDefaultModelField || dialog.hasDefaultPermissionField || dialog.hasDefaultReasoningField || dialog.hasDefaultServiceTierField
           ? <ProviderRuntimeDefaultsField dialog={dialog} />
           : null}
-        {account.status === "CONNECTED" ? <ProviderConfigEditors dialog={dialog} /> : null}
+        <ProviderConfigEditors dialog={dialog} />
       </div>
     </div>
   )
@@ -114,6 +112,14 @@ function ProviderAccountNotice({ notice }: { notice: ProviderAccountDialogState[
       )}
     >
       {notice.text}
+      {notice.details ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer select-none text-[11px] font-medium">Details</summary>
+          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-current/15 bg-background/55 p-2 font-mono text-[11px] leading-relaxed">
+            {JSON.stringify(notice.details, null, 2)}
+          </pre>
+        </details>
+      ) : null}
     </div>
   )
 }
@@ -364,14 +370,12 @@ function ProviderConfigEditors({ dialog }: { dialog: ProviderAccountDialogState 
 }
 
 function ProviderAccountDialogFooter({
-  connected,
   deleting,
   saving,
   onClose,
   onDelete,
   onSave,
 }: {
-  connected: boolean
   deleting: boolean
   saving: boolean
   onClose: () => void
@@ -398,7 +402,7 @@ function ProviderAccountDialogFooter({
         </button>
         <button
           className="h-8 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!connected || saving}
+          disabled={saving}
           type="button"
           onClick={() => void onSave()}
         >
