@@ -84,23 +84,26 @@ export function SessionTerminalPanel({
                   >
                     <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{terminalTabLabel(terminal, terminals)}</span>
+                  </button>
+                  <div className="relative mr-1 grid size-5 shrink-0 place-items-center">
                     <span
+                      aria-hidden="true"
                       className={cn(
-                        "size-1.5 shrink-0 rounded-full",
+                        "size-1.5 rounded-full transition-opacity group-hover:opacity-0 group-focus-within:opacity-0",
                         terminal.status === "running" && "bg-success",
                         terminal.status === "connecting" && "bg-info",
                         terminal.status === "exited" && "bg-muted-foreground",
                       )}
                     />
-                  </button>
-                  <button
-                    aria-label={`Close ${terminalTabLabel(terminal, terminals)}`}
-                    className="mr-1 grid size-5 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
-                    type="button"
-                    onClick={() => onCloseTerminal(terminal.id)}
-                  >
-                    <X className="size-3" />
-                  </button>
+                    <button
+                      aria-label={`Close ${terminalTabLabel(terminal, terminals)}`}
+                      className="pointer-events-none absolute inset-0 grid place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                      type="button"
+                      onClick={() => onCloseTerminal(terminal.id)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
                 </div>
               )
             })

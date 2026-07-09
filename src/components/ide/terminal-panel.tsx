@@ -24,7 +24,7 @@ export function TerminalPanel({
             return (
               <div
                 className={cn(
-                  "flex h-7 min-w-32 max-w-56 shrink-0 items-center rounded-md text-xs",
+                  "group flex h-7 min-w-32 max-w-56 shrink-0 items-center rounded-md text-xs",
                   active ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted/60",
                 )}
                 key={terminal.id}
@@ -39,22 +39,25 @@ export function TerminalPanel({
                 >
                   <Terminal className="size-3.5 shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{terminal.name}</span>
+                </button>
+                <div className="relative mr-1 grid size-5 shrink-0 place-items-center">
                   <span
+                    aria-hidden="true"
                     className={cn(
-                      "size-1.5 shrink-0 rounded-full",
+                      "size-1.5 rounded-full transition-opacity group-hover:opacity-0 group-focus-within:opacity-0",
                       terminal.status === "running" && "bg-success",
                       terminal.status === "idle" && "bg-warning",
                       terminal.status === "exited" && "bg-muted-foreground",
                     )}
                   />
-                </button>
-                <button
-                  aria-label={`Close ${terminal.name}`}
-                  className="mr-1 grid size-5 shrink-0 place-items-center rounded-sm hover:bg-background"
-                  type="button"
-                >
-                  <X className="size-3" />
-                </button>
+                  <button
+                    aria-label={`Close ${terminal.name}`}
+                    className="pointer-events-none absolute inset-0 grid place-items-center rounded-sm opacity-0 transition-opacity hover:bg-background group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+                    type="button"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
               </div>
             )
           })}
