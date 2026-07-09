@@ -21,6 +21,7 @@ export function ChatMessageRow({
   animateIn,
   dragOverQueuedRunId,
   message,
+  showActions = true,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedDragEnd,
@@ -31,6 +32,7 @@ export function ChatMessageRow({
   animateIn?: boolean
   dragOverQueuedRunId?: string | null
   message: ChatMessageResponse
+  showActions?: boolean
   onDeleteQueuedMessage?: (chatId: string, runId: string) => Promise<void>
   onEditQueuedMessage?: (chatId: string, runId: string, content: string) => Promise<void>
   onQueuedDragEnd?: () => void
@@ -55,7 +57,7 @@ export function ChatMessageRow({
   const content = message.content || (message.status === "STREAMING" ? "Running" : "")
   const queueSortingEnabled = queued && Boolean(onQueuedDrop)
   const draggingOver = queued && message.runId === dragOverQueuedRunId
-  const showMessageActions = message.role === "ASSISTANT" && message.kind === "CHAT" && message.status === "COMPLETED"
+  const showMessageActions = showActions && message.role === "ASSISTANT" && message.kind === "CHAT" && message.status === "COMPLETED"
 
   return (
     <article

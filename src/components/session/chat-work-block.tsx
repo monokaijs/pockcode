@@ -128,6 +128,7 @@ export function ChatWorkBlock({
               dragOverQueuedRunId={dragOverQueuedRunId}
               key={entry.message.id}
               message={entry.message}
+              showActions={false}
               onDeleteQueuedMessage={onDeleteQueuedMessage}
               onEditQueuedMessage={onEditQueuedMessage}
               onQueuedDragEnd={onQueuedDragEnd}
@@ -227,6 +228,7 @@ function CompactActionGroup({
               dragOverQueuedRunId={dragOverQueuedRunId}
               key={message.id}
               message={message}
+              showActions={false}
               onDeleteQueuedMessage={onDeleteQueuedMessage}
               onEditQueuedMessage={onEditQueuedMessage}
               onQueuedDragEnd={onQueuedDragEnd}

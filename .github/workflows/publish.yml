@@ -53,7 +53,7 @@ jobs:
       - name: Use current npm for trusted publishing
         run: |
           set -euo pipefail
-          npm install --global npm@latest
+          npm install --global npm@11.18.0
           node --version
           npm --version
 
