@@ -46,6 +46,11 @@ import type {
   PluginSettingsUpdateRequest,
 } from "../../app/types/plugins"
 import type {
+  CreateWorkspaceRunActionRequest,
+  UpdateWorkspaceRunActionRequest,
+  WorkspaceRunActionResponse,
+} from "../../app/types/run-actions"
+import type {
   PushPublicKeyResponse,
   PushSubscriptionRequest,
   PushSubscriptionResponse,
@@ -100,6 +105,15 @@ export type {
   PluginSettingsUpdateRequest,
   PluginStatus,
 } from "../../app/types/plugins"
+export type {
+  CreateWorkspaceRunActionRequest,
+  UpdateWorkspaceRunActionRequest,
+  WorkspaceChatRunConfig,
+  WorkspaceRunActionConfig,
+  WorkspaceRunActionKind,
+  WorkspaceRunActionResponse,
+  WorkspaceTerminalRunConfig,
+} from "../../app/types/run-actions"
 export type {
   PushPublicKeyResponse,
   PushSubscriptionRequest,
@@ -604,6 +618,35 @@ export const apiClient = {
         fallbackMessage: "Unable to save workspace history.",
         headers: { "Content-Type": "application/json" },
         method: "POST",
+      })
+    },
+  },
+  workspaceRunActions: {
+    create(body: CreateWorkspaceRunActionRequest) {
+      return requestJson<WorkspaceRunActionResponse>("/api/workspace-run-actions", {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to create run action.",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    },
+    delete(actionId: string) {
+      return requestJson<{ id: string }>(`/api/workspace-run-actions/${encodeURIComponent(actionId)}`, {
+        fallbackMessage: "Unable to delete run action.",
+        method: "DELETE",
+      })
+    },
+    list(workspacePath: string) {
+      return requestJson<WorkspaceRunActionResponse[]>(`/api/workspace-run-actions?workspacePath=${encodeURIComponent(workspacePath)}`, {
+        fallbackMessage: "Unable to load run actions.",
+      })
+    },
+    update(actionId: string, body: UpdateWorkspaceRunActionRequest) {
+      return requestJson<WorkspaceRunActionResponse>(`/api/workspace-run-actions/${encodeURIComponent(actionId)}`, {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to update run action.",
+        headers: { "Content-Type": "application/json" },
+        method: "PATCH",
       })
     },
   },

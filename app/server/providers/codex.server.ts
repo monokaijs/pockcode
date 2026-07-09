@@ -4081,7 +4081,7 @@ class CodexRuntime {
     await this.requestStarted("initialize", {
       clientInfo: {
         name: "pockcode",
-        title: "pockcode",
+        title: "PockCode",
         version: "0.1.0",
       },
       capabilities: {

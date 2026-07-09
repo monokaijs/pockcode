@@ -116,7 +116,7 @@ export async function stopTemporaryCloudflaredTunnel(id: string): Promise<Cloudf
   record.stopRequested = true
   record.stoppedAt = new Date().toISOString()
   record.status = "stopped"
-  appendLog(record, "Stopped by Pockcode.")
+  appendLog(record, "Stopped by PockCode.")
 
   if (record.child && !record.child.killed) {
     record.child.kill("SIGTERM")

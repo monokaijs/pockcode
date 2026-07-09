@@ -214,4 +214,14 @@ const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS "WorkspaceHistory_isOpen_lastOpenedAt_idx" ON "WorkspaceHistory"("isOpen", "lastOpenedAt")`,
   `CREATE INDEX IF NOT EXISTS "WorkspaceHistory_lastOpenedAt_idx" ON "WorkspaceHistory"("lastOpenedAt")`,
+  `CREATE TABLE IF NOT EXISTS "WorkspaceRunAction" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "workspacePath" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "config" JSONB NOT NULL DEFAULT '{}',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS "WorkspaceRunAction_workspacePath_updatedAt_idx" ON "WorkspaceRunAction"("workspacePath", "updatedAt")`,
 ]

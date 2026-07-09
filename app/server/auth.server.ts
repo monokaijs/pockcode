@@ -43,7 +43,7 @@ export async function setupPassword(password: string): Promise<void> {
     throw new Error(`Password must be at least ${passwordMinLength} characters.`)
   }
   if (await readAuthConfig()) {
-    throw new Error("Pockcode password is already configured.")
+    throw new Error("PockCode password is already configured.")
   }
 
   const salt = randomBytes(16)
@@ -104,7 +104,7 @@ export async function verifyPassword(password: string): Promise<boolean> {
 export async function createSessionCookie(req: IncomingMessage): Promise<string> {
   const config = await readAuthConfig()
   if (!config) {
-    throw new Error("Pockcode password is not configured.")
+    throw new Error("PockCode password is not configured.")
   }
   const payload: SessionPayload = {
     version: 1,

@@ -1,30 +1,49 @@
-import { ArrowDownToLine, ArrowUpFromLine, ListFilter, RefreshCw, Search } from "lucide-react"
+import { ArrowDownToLine, ArrowUpFromLine, RefreshCw } from "lucide-react"
 import { CloudflaredPanelSummary, useCloudflaredPanelState } from "@/components/session/cloudflared-panel"
 import { FileTreeView } from "@/components/session/file-tree-view"
 import { GitPanelSummary, useGitPanelState } from "@/components/session/git-panel-summary"
 import { PanelActionButton } from "@/components/session/panel-action-button"
+import { WorkspaceRunActionControl } from "@/components/session/workspace-run-action-control"
 import { cn } from "@/lib/utils"
+import type {
+  CreateWorkspaceRunActionRequest,
+  WorkspaceRunActionResponse,
+} from "@/lib/api-client"
 import type { PanelTab, Workspace } from "@/types/session"
 
 export function RightPanel({
   activeTab,
   expandedFolderIds,
   loadingFolderIds,
+  runActionError,
+  runActions,
+  runningRunActionId,
+  selectedRunActionId,
   selectedFileId,
   treeId,
   workspace,
+  onCreateRunAction,
   onFileSelect,
   onFolderToggle,
+  onRunAction,
+  onSelectRunAction,
   onTabChange,
 }: {
   activeTab: PanelTab
   expandedFolderIds: Set<string>
   loadingFolderIds: Set<string>
+  runActionError: string | null
+  runActions: WorkspaceRunActionResponse[]
+  runningRunActionId: string | null
+  selectedRunActionId: string | null
   selectedFileId: string
   treeId: string
   workspace: Workspace
+  onCreateRunAction: (body: Omit<CreateWorkspaceRunActionRequest, "workspacePath">) => Promise<void>
   onFileSelect: (id: string) => void
   onFolderToggle: (id: string) => void
+  onRunAction: (action: WorkspaceRunActionResponse) => Promise<void>
+  onSelectRunAction: (actionId: string) => void
   onTabChange: (tab: PanelTab) => void
 }) {
   const gitPanel = useGitPanelState(workspace.path)
@@ -56,20 +75,19 @@ export function RightPanel({
             Tunnels
           </button>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
-          {activeTab === "files" ? (
-            <>
-              <PanelActionButton label="Refresh files">
-                <RefreshCw className="size-4" />
-              </PanelActionButton>
-              <PanelActionButton label="Search files">
-                <Search className="size-4" />
-              </PanelActionButton>
-              <PanelActionButton label="Filter files">
-                <ListFilter className="size-4" />
-              </PanelActionButton>
-            </>
-          ) : activeTab === "git" ? (
+        <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
+          <WorkspaceRunActionControl
+            actions={runActions}
+            defaultShell={defaultTerminalShell()}
+            defaultWorkingDirectory={workspace.path}
+            error={runActionError}
+            runningActionId={runningRunActionId}
+            selectedActionId={selectedRunActionId}
+            onCreateAction={onCreateRunAction}
+            onRunAction={onRunAction}
+            onSelectAction={onSelectRunAction}
+          />
+          {activeTab === "git" ? (
             <>
               <PanelActionButton
                 disabled={!gitPanel.canUseRepository || gitPanel.isBusy}
@@ -123,4 +141,8 @@ export function RightPanel({
       </div>
     </aside>
   )
+}
+
+function defaultTerminalShell() {
+  return "/bin/zsh"
 }

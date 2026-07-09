@@ -163,7 +163,7 @@ class TelegramPluginRuntime implements PluginRuntime {
       botUsername: me.username ?? null,
     }))
     await bot.api.setMyCommands([
-      { command: "start", description: "Pair or open Pockcode" },
+      { command: "start", description: "Pair or open PockCode" },
       { command: "workspaces", description: "List workspaces" },
       { command: "subscriptions", description: "List chat subscriptions" },
       { command: "help", description: "Show actions" },
@@ -240,7 +240,7 @@ class TelegramPluginRuntime implements PluginRuntime {
     const state = await this.readState()
     if (!state.owner) {
       if (!payload || subscribeChatId || payload.toUpperCase() !== state.pairingCode?.toUpperCase()) {
-        await ctx.reply("Open Pockcode Plugins and send /start followed by the current pairing code.")
+        await ctx.reply("Open PockCode Plugins and send /start followed by the current pairing code.")
         return
       }
       const owner: TelegramOwner = {
@@ -251,7 +251,7 @@ class TelegramPluginRuntime implements PluginRuntime {
         username: from.username ?? null,
       }
       await this.writeState({ ...state, owner, pairingCode: null })
-      await ctx.reply("Telegram is paired with Pockcode.", { reply_markup: this.mainKeyboard() })
+      await ctx.reply("Telegram is paired with PockCode.", { reply_markup: this.mainKeyboard() })
       return
     }
     if (!this.isOwner(from.id, state)) {
@@ -405,7 +405,7 @@ class TelegramPluginRuntime implements PluginRuntime {
     if (!state) {
       return
     }
-    await this.replyOrEdit(ctx, "Pockcode Telegram", this.mainKeyboard())
+    await this.replyOrEdit(ctx, "PockCode Telegram", this.mainKeyboard())
   }
 
   private async showWorkspaces(ctx: Context, requestedPage = 0): Promise<void> {
@@ -899,11 +899,11 @@ class TelegramPluginRuntime implements PluginRuntime {
     }
     const state = await this.readState()
     if (!state.owner) {
-      await ctx.reply("Open Pockcode Plugins and pair this bot with /start <code>.").catch(() => undefined)
+      await ctx.reply("Open PockCode Plugins and pair this bot with /start <code>.").catch(() => undefined)
       return null
     }
     if (!this.isOwner(from.id, state)) {
-      await ctx.reply("Only the paired Telegram owner can control Pockcode.").catch(() => undefined)
+      await ctx.reply("Only the paired Telegram owner can control PockCode.").catch(() => undefined)
       return null
     }
     return state

@@ -175,14 +175,17 @@ async function createTerminal(
 ) {
   try {
     const record = readRecord(payload)
-    const cwd = await resolveWorkspaceDirectoryPath(readString(record.workspacePath) ?? null)
-    joinTerminalWorkspace(socket, cwd)
+    const workspacePath = await resolveWorkspaceDirectoryPath(readString(record.workspacePath) ?? null)
+    joinTerminalWorkspace(socket, workspacePath)
     const cols = readInt(record.cols, 80, 2, 500)
     const rows = readInt(record.rows, 24, 2, 200)
-    const shell = resolveShell()
-    const name = path.basename(shell)
+    const command = readString(record.command)
+    const keepOpen = record.keepOpen === true
+    const cwd = await resolveTerminalCwd(workspacePath, readString(record.cwd))
+    const shell = resolveShell(readString(record.shell))
+    const name = terminalDisplayName(shell, command, readString(record.name))
     ensureNodePtySpawnHelperExecutable()
-    const terminal = pty.spawn(shell, [], {
+    const terminal = pty.spawn(shell, command && !keepOpen ? shellCommandArgs(shell, command) : [], {
       cols,
       cwd,
       env: terminalEnv(),
@@ -202,7 +205,7 @@ async function createTerminal(
       shell,
       signal: null,
       status: "running",
-      workspacePath: cwd,
+      workspacePath,
     }
 
     session.dataListener = terminal.onData((data) => {
@@ -230,6 +233,9 @@ async function createTerminal(
       })
     })
     addHostedTerminal(session)
+    if (command && keepOpen) {
+      terminal.write(`${command}\r`)
+    }
 
     const metadata = terminalMetadata(session)
     reply?.({ ok: true, terminal: metadata })
@@ -300,6 +306,16 @@ async function resolveTerminalWorkspacePath(payload: unknown) {
   return resolveWorkspaceDirectoryPath(readString(readRecord(payload).workspacePath) ?? null)
 }
 
+async function resolveTerminalCwd(workspacePath: string, cwdInput: string | undefined) {
+  if (!cwdInput) {
+    return workspacePath
+  }
+  if (cwdInput === "~" || cwdInput.startsWith("~/") || path.isAbsolute(cwdInput)) {
+    return resolveWorkspaceDirectoryPath(cwdInput)
+  }
+  return resolveWorkspaceDirectoryPath(path.join(workspacePath, cwdInput))
+}
+
 function terminalRoom(workspacePath: string) {
   return `terminal:${workspacePath}`
 }
@@ -333,11 +349,35 @@ function terminalMetadata(session: HostedTerminal): TerminalMetadata {
   }
 }
 
-function resolveShell() {
+function resolveShell(shellInput?: string) {
+  if (shellInput) {
+    return shellInput
+  }
   if (process.platform === "win32") {
     return process.env.ComSpec || "powershell.exe"
   }
   return process.env.SHELL || "/bin/zsh"
+}
+
+function shellCommandArgs(shell: string, command: string): string[] {
+  if (process.platform !== "win32") {
+    return ["-lc", command]
+  }
+  const shellName = path.basename(shell).toLowerCase()
+  if (shellName.includes("powershell") || shellName === "pwsh.exe") {
+    return ["-NoLogo", "-Command", command]
+  }
+  return ["/d", "/s", "/c", command]
+}
+
+function terminalDisplayName(shell: string, command: string | undefined, name: string | undefined) {
+  if (name) {
+    return name.slice(0, 80)
+  }
+  if (command) {
+    return command.replace(/\s+/g, " ").slice(0, 80)
+  }
+  return path.basename(shell)
 }
 
 function terminalEnv(): Record<string, string> {

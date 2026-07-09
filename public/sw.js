@@ -1,4 +1,4 @@
-const CACHE_VERSION = "pockcode-pwa-v4"
+const CACHE_VERSION = "pockcode-pwa-v5"
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const CORE_ASSETS = [
   "/manifest.webmanifest",
@@ -80,7 +80,7 @@ function isStaticAsset(url) {
 
 async function showPushNotification(data) {
   const payload = readPushPayload(data)
-  await self.registration.showNotification(payload.title || "pockcode", {
+  await self.registration.showNotification(payload.title || "PockCode", {
     badge: "/icons/favicon-32.png",
     body: payload.body || "",
     data: payload.data || {},
@@ -141,7 +141,7 @@ async function staleWhileRevalidate(request) {
 
 function offlineResponse() {
   return new Response(
-    "<!doctype html><title>pockcode offline</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><body style=\"box-sizing:border-box;margin:0;display:grid;min-height:100vh;min-height:100dvh;place-items:center;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);background:#18171c;color:#f4f4f5;font:16px system-ui,sans-serif\"><main style=\"max-width:28rem;padding:24px\"><h1 style=\"margin:0 0 8px;font-size:22px\">pockcode is offline</h1><p style=\"margin:0;color:#b6b5bd;line-height:1.5\">Reconnect to the local pockcode server, then reload this app.</p></main></body>",
+    "<!doctype html><title>PockCode offline</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><body style=\"box-sizing:border-box;margin:0;display:grid;min-height:100vh;min-height:100dvh;place-items:center;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);background:#18171c;color:#f4f4f5;font:16px system-ui,sans-serif\"><main style=\"max-width:28rem;padding:24px\"><h1 style=\"margin:0 0 8px;font-size:22px\">PockCode is offline</h1><p style=\"margin:0;color:#b6b5bd;line-height:1.5\">Reconnect to the local PockCode server, then reload this app.</p></main></body>",
     {
       headers: {
         "Content-Type": "text/html; charset=utf-8",

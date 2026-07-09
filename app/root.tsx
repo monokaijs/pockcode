@@ -25,7 +25,7 @@ const pwaRegistrationScript = `
   }
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
-      console.warn("pockcode service worker registration failed", error)
+      console.warn("PockCode service worker registration failed", error)
     })
   })
 })()
@@ -33,7 +33,7 @@ const pwaRegistrationScript = `
 
 export function meta() {
   return [
-    { title: "pockcode" },
+    { title: "PockCode" },
     { name: "description", content: "A local Codex coding workspace for chat, files, terminals, and providers." },
   ]
 }
@@ -44,10 +44,10 @@ export function Layout({ children }: { children: ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-        <meta name="application-name" content="pockcode" />
+        <meta name="application-name" content="PockCode" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-title" content="pockcode" />
+        <meta name="apple-mobile-web-app-title" content="PockCode" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="format-detection" content="telephone=no" />
         <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
@@ -91,7 +91,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
     <main className="app-safe-viewport bg-background text-foreground">
       <div className="flex h-full items-center justify-center p-6">
         <section className="max-w-md rounded-xl border border-border bg-card p-5 text-card-foreground shadow-sm">
-          <h1 className="text-lg font-semibold">pockcode</h1>
+          <h1 className="text-lg font-semibold">PockCode</h1>
           <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{message}</p>
         </section>
       </div>

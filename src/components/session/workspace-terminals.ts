@@ -10,6 +10,14 @@ export const MAX_TERMINAL_HEIGHT = 560
 
 const TERMINAL_OUTPUT_LIMIT = 260_000
 
+export type CreateWorkspaceTerminalOptions = {
+  command?: string
+  cwd?: string | null
+  keepOpen?: boolean
+  name?: string | null
+  shell?: string | null
+}
+
 export function useWorkspaceTerminals(activeWorkspace: Workspace | null) {
   const [activeTerminalIdByWorkspacePath, setActiveTerminalIdByWorkspacePath] = useState<Record<string, string>>({})
   const [connectionState, setConnectionState] = useState<TerminalConnectionState>("offline")
@@ -265,7 +273,7 @@ export function useWorkspaceTerminals(activeWorkspace: Workspace | null) {
     }
   }, [activeWorkspacePath, attachWorkspace])
 
-  const createTerminal = useCallback(() => {
+  const createTerminal = useCallback((options: CreateWorkspaceTerminalOptions = {}) => {
     const workspacePath = activeWorkspacePathRef.current
     const socket = socketRef.current
     if (!workspacePath || !socket || pendingCreateRef.current) {
@@ -281,9 +289,9 @@ export function useWorkspaceTerminals(activeWorkspace: Workspace | null) {
     setError(null)
     const optimisticId = "pending-terminal-" + Date.now()
     const optimisticTerminal: HostedTerminalSession = {
-      cwd: workspacePath,
+      cwd: options.cwd?.trim() || workspacePath,
       id: optimisticId,
-      name: "starting",
+      name: options.name?.trim() || options.command?.trim() || "starting",
       shell: "",
       status: "connecting",
     }
@@ -293,7 +301,12 @@ export function useWorkspaceTerminals(activeWorkspace: Workspace | null) {
       "terminal.create",
       {
         cols: lastSizeRef.current.cols,
+        command: options.command,
+        cwd: options.cwd,
+        keepOpen: options.keepOpen,
+        name: options.name,
         rows: lastSizeRef.current.rows,
+        shell: options.shell,
         workspacePath,
       },
       (value: unknown) => {

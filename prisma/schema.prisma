@@ -89,6 +89,18 @@ model WorkspaceHistory {
   @@index([lastOpenedAt])
 }
 
+model WorkspaceRunAction {
+  id            String   @id @default(uuid())
+  workspacePath String
+  name          String
+  kind          String
+  config        Json     @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([workspacePath, updatedAt])
+}
+
 model ProviderAccount {
   id               String                @id @default(uuid())
   providerId       String

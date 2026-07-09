@@ -115,7 +115,7 @@ export async function sendTestWebPushNotification(): Promise<PushTestResponse> {
     body: "Notifications are ready.",
     data: { url: "/" },
     tag: "pockcode-test",
-    title: "pockcode",
+    title: "PockCode",
   })
   return { sent }
 }
@@ -139,8 +139,8 @@ async function sendProviderEventNotification(event: ProviderSocketEvent): Promis
   const url = await notificationUrlForChat(event.threadId, chat?.workingDirectory ?? null)
   const title = payload.status === "COMPLETED" ? "Task finished" : "Task failed"
   const body = payload.status === "FAILED"
-    ? payload.error ?? chat?.title ?? "A pockcode task failed."
-    : chat?.title ?? "A pockcode task completed."
+    ? payload.error ?? chat?.title ?? "A PockCode task failed."
+    : chat?.title ?? "A PockCode task completed."
   await sendWebPushNotification({
     body,
     data: {

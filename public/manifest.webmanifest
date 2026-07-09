@@ -1,6 +1,6 @@
 {
-  "name": "pockcode",
-  "short_name": "pockcode",
+  "name": "PockCode",
+  "short_name": "PockCode",
   "description": "A local Codex coding workspace for chat, files, terminals, and providers.",
   "id": "/",
   "start_url": "/",

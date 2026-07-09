@@ -24,7 +24,7 @@ export function ChatComposer() {
         <PendingUserInputPrompt />
         <ChatAttachmentList attachments={pane.attachments} onRemove={pane.removeAttachment} />
         <textarea
-          className="min-h-8 w-full resize-none bg-transparent text-[13px] font-medium leading-5 text-foreground outline-none placeholder:text-muted-foreground"
+          className="min-h-8 w-full resize-none bg-transparent text-[13px] font-medium leading-5 text-foreground outline-none placeholder:text-[13px] placeholder:font-medium placeholder:leading-5 placeholder:text-muted-foreground"
           placeholder="Describe the outcome you want"
           ref={pane.textareaRef}
           value={pane.draft}

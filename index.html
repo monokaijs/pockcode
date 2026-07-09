@@ -4,10 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="description" content="A local Codex coding workspace for chat, files, terminals, and providers." />
-    <meta name="application-name" content="pockcode" />
+    <meta name="application-name" content="PockCode" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="pockcode" />
+    <meta name="apple-mobile-web-app-title" content="PockCode" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
@@ -18,7 +18,7 @@
     <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="/icons/favicon-16.png" sizes="16x16" type="image/png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <title>pockcode</title>
+    <title>PockCode</title>
     <script>
       ;(() => {
         const storageKey = "pockcode-theme"
@@ -44,7 +44,7 @@
         }
         window.addEventListener("load", () => {
           navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
-            console.warn("pockcode service worker registration failed", error)
+            console.warn("PockCode service worker registration failed", error)
           })
         })
       })()

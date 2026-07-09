@@ -91,7 +91,7 @@ async function main() {
   webPush.startWebPushEventBridge()
 
   server.listen(parsed.port, parsed.host, () => {
-    console.log(`pockcode listening on http://${displayHost(parsed.host)}:${parsed.port}`)
+    console.log(`PockCode listening on http://${displayHost(parsed.host)}:${parsed.port}`)
     console.log("First visit will ask you to set a password if one is not configured.")
   })
 
@@ -143,7 +143,7 @@ async function shutdownServer({
   socket: typeof import("../app/server/socket.server")
   webPush: typeof import("../app/server/web-push.service")
 }): Promise<void> {
-  console.log(`\nReceived ${signal}, shutting down pockcode...`)
+  console.log(`\nReceived ${signal}, shutting down PockCode...`)
   const forceTimer = setTimeout(() => {
     console.error("Shutdown timed out, forcing exit.")
     for (const connection of connections) {
@@ -215,7 +215,7 @@ async function handleAuthGate(
       sendSetupPage(res, { returnTo: returnToFor(url) })
       return true
     }
-    sendJson(res, 428, { error: "Pockcode password setup is required." })
+    sendJson(res, 428, { error: "PockCode password setup is required." })
     return true
   }
 
@@ -356,7 +356,7 @@ async function serveClientAsset(
   }
   const targetStats = stats?.isFile() ? stats : await stat(targetPath).catch(() => null)
   if (!targetStats?.isFile()) {
-    sendText(res, 404, "Pockcode client build was not found. Run pnpm build first.")
+    sendText(res, 404, "PockCode client build was not found. Run pnpm build first.")
     return
   }
 
@@ -567,10 +567,10 @@ function sendSetupPage(res: ServerResponse, options: AuthPageOptions, status = 2
     action: "/auth/setup",
     confirmPassword: true,
     heading: "Create local password",
-    lead: "Choose the password for this pockcode workspace.",
+    lead: "Choose the password for this PockCode workspace.",
     passwordAutocomplete: "new-password",
     submitLabel: "Save and continue",
-    title: "pockcode setup",
+    title: "PockCode setup",
   }, status)
 }
 
@@ -580,10 +580,10 @@ function sendLoginPage(res: ServerResponse, options: AuthPageOptions, status = 2
     action: "/auth/login",
     confirmPassword: false,
     heading: "Sign in",
-    lead: "Enter the local password for this pockcode workspace.",
+    lead: "Enter the local password for this PockCode workspace.",
     passwordAutocomplete: "current-password",
     submitLabel: "Continue",
-    title: "pockcode login",
+    title: "PockCode login",
   }, status)
 }
 
@@ -607,10 +607,10 @@ function sendAuthPage(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="application-name" content="pockcode" />
+  <meta name="application-name" content="PockCode" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="pockcode" />
+  <meta name="apple-mobile-web-app-title" content="PockCode" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="format-detection" content="telephone=no" />
   <meta name="theme-color" content="#18171c" />
@@ -833,10 +833,10 @@ function sendAuthPage(
 </head>
 <body>
   <main>
-    <section class="brand" aria-label="pockcode">
+    <section class="brand" aria-label="PockCode">
       <div>
-        <div class="mark">pc</div>
-        <h1>pockcode</h1>
+        <div class="mark">PC</div>
+        <h1>PockCode</h1>
         <p>Local access for your workspace.</p>
       </div>
       <div class="console" aria-hidden="true">
@@ -923,7 +923,7 @@ function helpText(): string {
 Options:
   -H, --host, --bind <host>  Host/interface to bind (default: ${defaultHost})
   -p, --port <port>          Port to listen on (default: ${defaultPort})
-      --home <path>          Pockcode data directory (default: ~/.pockcode)
+      --home <path>          PockCode data directory (default: ~/.pockcode)
   -v, --version              Print version
   -h, --help                 Print help
 `

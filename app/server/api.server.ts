@@ -20,6 +20,12 @@ import type {
 } from "../types/providers"
 import type { PluginSettingsUpdateRequest } from "../types/plugins"
 import type {
+  CreateWorkspaceRunActionRequest,
+  UpdateWorkspaceRunActionRequest,
+  WorkspaceRunActionConfig,
+  WorkspaceRunActionKind,
+} from "../types/run-actions"
+import type {
   CreateMcpServerRequest as CreateMcpServerBody,
   McpServerOauthLoginRequest as McpServerOauthLoginBody,
   SyncMcpServerRequest as SyncMcpServerBody,
@@ -99,6 +105,12 @@ import {
   sendTestWebPushNotification,
 } from "./web-push.service"
 import { closeWorkspaceHistory, listWorkspaceHistory, saveWorkspaceHistory } from "./workspace-history.service"
+import {
+  createWorkspaceRunAction,
+  deleteWorkspaceRunAction,
+  listWorkspaceRunActions,
+  updateWorkspaceRunAction,
+} from "./workspace-run-actions.service"
 import { listWorkspaceDirectory, readWorkspaceResource, readWorkspaceTree } from "./workspaces.server"
 
 type MiddlewareStack = {
@@ -444,6 +456,28 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     return
   }
 
+  if (url.pathname === "/api/workspace-run-actions") {
+    requireMethod(method, ["GET", "POST"])
+    if (method === "POST") {
+      sendJson(res, await createWorkspaceRunAction(readCreateWorkspaceRunActionRequest(await readNodeJsonBody(req))), 201)
+      return
+    }
+    sendJson(res, await listWorkspaceRunActions(url.searchParams.get("workspacePath")))
+    return
+  }
+
+  const workspaceRunActionMatch = url.pathname.match(/^\/api\/workspace-run-actions\/([^/]+)$/)
+  if (workspaceRunActionMatch) {
+    const actionId = decodeURIComponent(workspaceRunActionMatch[1])
+    requireMethod(method, ["DELETE", "PATCH"])
+    if (method === "DELETE") {
+      sendJson(res, await deleteWorkspaceRunAction(actionId))
+      return
+    }
+    sendJson(res, await updateWorkspaceRunAction(actionId, readUpdateWorkspaceRunActionRequest(await readNodeJsonBody(req))))
+    return
+  }
+
   if (url.pathname === "/api/workspaces") {
     requireMethod(method, ["DELETE", "GET", "POST"])
     if (method === "POST") {
@@ -616,6 +650,34 @@ function readPushSubscriptionRequest(body: Record<string, unknown>): PushSubscri
       p256dh: readStringField(keys?.p256dh, "keys.p256dh", { required: true, maxLength: 500 }),
     },
   }
+}
+
+function readCreateWorkspaceRunActionRequest(body: Record<string, unknown>): CreateWorkspaceRunActionRequest {
+  return {
+    config: readWorkspaceRunActionConfig(body.config),
+    kind: readWorkspaceRunActionKind(body.kind),
+    name: readStringField(body.name, "name", { required: true, maxLength: 120 }),
+    workspacePath: readStringField(body.workspacePath, "workspacePath", { required: true }),
+  }
+}
+
+function readUpdateWorkspaceRunActionRequest(body: Record<string, unknown>): UpdateWorkspaceRunActionRequest {
+  return {
+    config: body.config === undefined ? undefined : readWorkspaceRunActionConfig(body.config),
+    kind: body.kind === undefined ? undefined : readWorkspaceRunActionKind(body.kind),
+    name: readStringField(body.name, "name", { maxLength: 120 }),
+  }
+}
+
+function readWorkspaceRunActionKind(value: unknown): WorkspaceRunActionKind {
+  if (value === "chat" || value === "terminal") {
+    return value
+  }
+  throw new HttpError(400, "kind must be chat or terminal.")
+}
+
+function readWorkspaceRunActionConfig(value: unknown): WorkspaceRunActionConfig {
+  return (readRecordField(value, "config") ?? {}) as WorkspaceRunActionConfig
 }
 
 function readCreateChatRequest(body: Partial<CreateChatRequest>): CreateChatRequest {

@@ -45,6 +45,9 @@ import {
   type ProviderAccountResponse,
   type ProviderDefinitionResponse,
   type WorkspaceHistoryResponse,
+  type WorkspaceChatRunConfig,
+  type WorkspaceRunActionResponse,
+  type WorkspaceTerminalRunConfig,
 } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import type {
@@ -66,6 +69,7 @@ import {
   collectInitialFolderIds,
   createOptimisticChatMessage,
   createWorkspaceFromBrowserEntry,
+  defaultRuntimeDefaultValue,
   fileContentFor,
   findFile,
   findFileByWorkspacePath,
@@ -76,6 +80,7 @@ import {
   readChatAccountSwitchEvent,
   readChatMessageResponse,
   readChatResponse,
+  readComposerAccessMode,
   readDetachedEditorPreference,
   readError,
   readProviderSocketEvent,
@@ -148,6 +153,11 @@ function useSessionShellController() {
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("chats")
   const [isWorkspaceHistoryLoading, setIsWorkspaceHistoryLoading] = useState(true)
   const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceHistoryResponse[]>([])
+  const [runActionErrorByWorkspacePath, setRunActionErrorByWorkspacePath] = useState<Record<string, string>>({})
+  const [runActionsByWorkspacePath, setRunActionsByWorkspacePath] = useState<Record<string, WorkspaceRunActionResponse[]>>({})
+  const [runActionsLoadingByWorkspacePath, setRunActionsLoadingByWorkspacePath] = useState<Record<string, boolean>>({})
+  const [runningRunActionId, setRunningRunActionId] = useState<string | null>(null)
+  const [selectedRunActionIdByWorkspacePath, setSelectedRunActionIdByWorkspacePath] = useState<Record<string, string>>({})
   const [editorRevealTarget, setEditorRevealTarget] = useState<FileRevealTarget | null>(null)
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set())
   const [loadingFolderIds, setLoadingFolderIds] = useState<Set<string>>(new Set())
@@ -214,6 +224,12 @@ function useSessionShellController() {
     ? `${sidebarWidth}px ${PANEL_RESIZE_HANDLE_SIZE}px minmax(420px, 1fr) ${PANEL_RESIZE_HANDLE_SIZE}px ${filesWidth}px`
     : `${sidebarWidth}px ${PANEL_RESIZE_HANDLE_SIZE}px minmax(420px, 1fr)`
   const terminalHost = useWorkspaceTerminals(activeWorkspace)
+  const activeWorkspaceRunActions = activeWorkspace ? runActionsByWorkspacePath[activeWorkspace.path] ?? [] : []
+  const selectedRunActionId = activeWorkspace
+    ? selectedRunActionIdByWorkspacePath[activeWorkspace.path] ?? activeWorkspaceRunActions[0]?.id ?? null
+    : null
+  const activeRunActionError = activeWorkspace ? runActionErrorByWorkspacePath[activeWorkspace.path] ?? null : null
+  const activeRunActionsLoading = activeWorkspace ? runActionsLoadingByWorkspacePath[activeWorkspace.path] ?? false : false
 
   const setIsTerminalPanelOpen = (value: BooleanStateUpdate) => {
     const workspaceId = activeWorkspaceRef.current?.id ?? activeWorkspace?.id
@@ -332,6 +348,28 @@ function useSessionShellController() {
     } catch (error) {
       setChatError(readError(error))
       setMessagesByChatId((current) => Object.prototype.hasOwnProperty.call(current, chatId) ? current : { ...current, [chatId]: [] })
+    }
+  }
+
+  const loadRunActionsForWorkspace = async (workspacePath: string) => {
+    setRunActionsLoadingByWorkspacePath((current) => ({ ...current, [workspacePath]: true }))
+    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
+    try {
+      const actions = await apiClient.workspaceRunActions.list(workspacePath)
+      setRunActionsByWorkspacePath((current) => ({ ...current, [workspacePath]: actions }))
+      setSelectedRunActionIdByWorkspacePath((current) => {
+        const selectedId = current[workspacePath]
+        const nextSelectedId = selectedId && actions.some((action) => action.id === selectedId)
+          ? selectedId
+          : actions[0]?.id ?? null
+        return nextSelectedId
+          ? { ...current, [workspacePath]: nextSelectedId }
+          : omitRecordKey(current, workspacePath)
+      })
+    } catch (error) {
+      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
+    } finally {
+      setRunActionsLoadingByWorkspacePath((current) => ({ ...current, [workspacePath]: false }))
     }
   }
 
@@ -474,6 +512,13 @@ function useSessionShellController() {
       return
     }
     void loadChatsForWorkspace(activeWorkspace.path, activeWorkspace.id)
+  }, [activeWorkspace?.path])
+
+  useEffect(() => {
+    if (!activeWorkspace) {
+      return
+    }
+    void loadRunActionsForWorkspace(activeWorkspace.path)
   }, [activeWorkspace?.path])
 
   useEffect(() => {
@@ -1027,7 +1072,10 @@ function useSessionShellController() {
     setMainMode("dialog")
   }
 
-  const sendChatMessage = async (input: ChatComposerSubmit) => {
+  const sendChatMessageToTarget = async (
+    input: ChatComposerSubmit,
+    options: { forceNewChat?: boolean } = {},
+  ) => {
     const message = input.content.trim()
     if (!message || !activeWorkspace) {
       return
@@ -1035,13 +1083,14 @@ function useSessionShellController() {
     setChatError(null)
     let optimisticChatId: string | null = null
     try {
-      const targetAccount = selectChatAccount(activeChat, chatAccounts, preferredAccountId)
+      const targetChat = options.forceNewChat ? null : activeChat
+      const targetAccount = selectChatAccount(targetChat, chatAccounts, preferredAccountId)
       if (!targetAccount) {
         setChatError("Connect a provider account before sending a message.")
         setProvidersDialogOpen(true)
         return
       }
-      const chat = activeChat ?? await apiClient.chats.create({
+      const chat = targetChat ?? await apiClient.chats.create({
         accountId: targetAccount.id,
         collaborationMode: input.collaborationMode,
         model: input.model,
@@ -1092,6 +1141,151 @@ function useSessionShellController() {
         }))
       }
     }
+  }
+
+  const sendChatMessage = async (input: ChatComposerSubmit) => {
+    await sendChatMessageToTarget(input)
+  }
+
+  const createRunAction = async (
+    body: Omit<Parameters<typeof apiClient.workspaceRunActions.create>[0], "workspacePath">,
+  ) => {
+    if (!activeWorkspace) {
+      return
+    }
+    const workspacePath = activeWorkspace.path
+    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
+    try {
+      const action = await apiClient.workspaceRunActions.create({ ...body, workspacePath })
+      setRunActionsByWorkspacePath((current) => ({
+        ...current,
+        [workspacePath]: upsertWorkspaceRunAction(current[workspacePath] ?? [], action),
+      }))
+      setSelectedRunActionIdByWorkspacePath((current) => ({ ...current, [workspacePath]: action.id }))
+    } catch (error) {
+      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
+      throw error
+    }
+  }
+
+  const updateRunAction = async (
+    actionId: string,
+    body: Parameters<typeof apiClient.workspaceRunActions.update>[1],
+  ) => {
+    const workspacePath = activeWorkspace?.path
+    if (!workspacePath) {
+      return
+    }
+    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
+    try {
+      const action = await apiClient.workspaceRunActions.update(actionId, body)
+      setRunActionsByWorkspacePath((current) => ({
+        ...current,
+        [action.workspacePath]: upsertWorkspaceRunAction(current[action.workspacePath] ?? [], action),
+      }))
+      setSelectedRunActionIdByWorkspacePath((current) => ({ ...current, [action.workspacePath]: action.id }))
+    } catch (error) {
+      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
+      throw error
+    }
+  }
+
+  const deleteRunAction = async (actionId: string) => {
+    const workspacePath = activeWorkspace?.path
+    if (!workspacePath) {
+      return
+    }
+    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
+    try {
+      await apiClient.workspaceRunActions.delete(actionId)
+      setRunActionsByWorkspacePath((current) => {
+        const previousActions = current[workspacePath] ?? []
+        const deletedIndex = previousActions.findIndex((action) => action.id === actionId)
+        const nextActions = previousActions.filter((action) => action.id !== actionId)
+        setSelectedRunActionIdByWorkspacePath((selected) => {
+          if (selected[workspacePath] !== actionId) {
+            return selected
+          }
+          const nextAction = nextActions[Math.max(0, deletedIndex - 1)] ?? nextActions[0] ?? null
+          return nextAction ? { ...selected, [workspacePath]: nextAction.id } : omitRecordKey(selected, workspacePath)
+        })
+        return { ...current, [workspacePath]: nextActions }
+      })
+    } catch (error) {
+      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
+      throw error
+    }
+  }
+
+  const selectRunAction = (actionId: string) => {
+    if (!activeWorkspace) {
+      return
+    }
+    setSelectedRunActionIdByWorkspacePath((current) => ({ ...current, [activeWorkspace.path]: actionId }))
+  }
+
+  const refreshRunActions = async () => {
+    if (!activeWorkspace) {
+      return
+    }
+    await loadRunActionsForWorkspace(activeWorkspace.path)
+  }
+
+  const runWorkspaceRunAction = async (action: WorkspaceRunActionResponse) => {
+    const workspacePath = activeWorkspace?.path
+    if (!workspacePath || runningRunActionId) {
+      return
+    }
+    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
+    setRunningRunActionId(action.id)
+    try {
+      if (action.kind === "terminal") {
+        const config = action.config as WorkspaceTerminalRunConfig
+        setIsTerminalPanelOpen(true)
+        terminalHost.createTerminal({
+          command: config.command,
+          cwd: config.cwd,
+          keepOpen: config.keepOpen ?? true,
+          name: action.name,
+          shell: config.shell,
+        })
+        return
+      }
+
+      const config = action.config as WorkspaceChatRunConfig
+      await runChatRunAction(config)
+    } catch (error) {
+      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
+      throw error
+    } finally {
+      setRunningRunActionId(null)
+    }
+  }
+
+  const runChatRunAction = async (config: WorkspaceChatRunConfig) => {
+    const forceNewChat = config.target === "new"
+    const targetChat = forceNewChat ? null : activeChat
+    const targetAccount = selectChatAccount(targetChat, chatAccounts, preferredAccountId)
+    if (!targetAccount) {
+      setChatError("Connect a provider account before running a chat action.")
+      setProvidersDialogOpen(true)
+      throw new Error("Connect a provider account before running a chat action.")
+    }
+    const runtimeDefault = (key: string) =>
+      readRecordString(targetAccount.runtimeDefaults, key) || defaultRuntimeDefaultValue(targetAccount.providerId, key) || null
+    await sendChatMessageToTarget({
+      attachments: [],
+      collaborationMode: targetChat?.collaborationMode ?? "default",
+      content: config.message,
+      delivery: targetChat?.status === "RUNNING" ? "queue" : undefined,
+      goalObjective: null,
+      model: targetChat?.model ?? runtimeDefault("model"),
+      permissionMode: readComposerAccessMode(targetChat?.permissionMode ?? runtimeDefault("permissionMode")),
+      reasoningEffort: targetChat?.reasoningEffort ?? runtimeDefault("reasoningEffort"),
+      serviceTier: targetChat?.serviceTier ?? runtimeDefault("serviceTier"),
+    }, { forceNewChat })
+    setMainMode("chat")
+    setMobileDrawer(null)
   }
 
   const deleteQueuedMessage = async (chatId: string, runId: string) => {
@@ -1419,8 +1613,10 @@ function useSessionShellController() {
     closeTerminal: terminalHost.closeTerminal,
     closeFile,
     closeWorkspace,
+    createRunAction,
     createSchedule,
     createTerminal: terminalHost.createTerminal,
+    deleteRunAction,
     deleteSchedule,
     deleteQueuedMessage,
     desktopGridColumns,
@@ -1452,16 +1648,24 @@ function useSessionShellController() {
     providersDialogOpen,
     recentWorkspaces,
     refreshChat,
+    refreshRunActions,
     renameChat,
     reorderQueuedMessages,
     reviewChat,
+    runActionError: activeRunActionError,
+    runActions: activeWorkspaceRunActions,
+    runActionsLoading: activeRunActionsLoading,
+    runningRunActionId,
+    runWorkspaceRunAction,
     selectFile,
     selectManagementView,
+    selectRunAction,
     selectSchedule,
     selectWorkspace,
     selectedFile,
     selectedFileContent,
     selectedFileId,
+    selectedRunActionId,
     sendChatMessage,
     setActiveChatId,
     setActivePanelTab,
@@ -1498,6 +1702,7 @@ function useSessionShellController() {
     toggleFolder,
     updateChatPermissionMode,
     updateChatRuntimeSettings,
+    updateRunAction,
     updateSchedule,
     updateProviderData,
     updateFileContent,
@@ -1712,11 +1917,18 @@ function SessionRightPanel({ treeId }: { treeId: string }) {
       activeTab={shell.activePanelTab}
       expandedFolderIds={shell.expandedFolderIds}
       loadingFolderIds={shell.loadingFolderIds}
+      runActionError={shell.runActionError}
+      runActions={shell.runActions}
+      runningRunActionId={shell.runningRunActionId}
+      selectedRunActionId={shell.selectedRunActionId}
       selectedFileId={shell.selectedFileId}
       treeId={treeId}
       workspace={shell.activeWorkspace}
+      onCreateRunAction={shell.createRunAction}
       onFileSelect={shell.selectFile}
       onFolderToggle={shell.toggleFolder}
+      onRunAction={shell.runWorkspaceRunAction}
+      onSelectRunAction={shell.selectRunAction}
       onTabChange={shell.setActivePanelTab}
     />
   )
@@ -1878,6 +2090,16 @@ function upsertRecentWorkspace(current: WorkspaceHistoryResponse[], workspace: W
   return [
     workspace,
     ...current.filter((item) => item.id !== workspace.id && !samePath(item.path, workspace.path)),
+  ]
+}
+
+function upsertWorkspaceRunAction(
+  current: WorkspaceRunActionResponse[],
+  action: WorkspaceRunActionResponse,
+) {
+  return [
+    action,
+    ...current.filter((item) => item.id !== action.id),
   ]
 }
 

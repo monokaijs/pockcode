@@ -52,7 +52,7 @@ try {
   })
 
   await request("initialize", {
-    clientInfo: { name: "pockcode-smoke", title: "pockcode smoke", version: "0.1.0" },
+    clientInfo: { name: "pockcode-smoke", title: "PockCode smoke", version: "0.1.0" },
     capabilities: { experimentalApi: true },
   })
   notify("initialized")
