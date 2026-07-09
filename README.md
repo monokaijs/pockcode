@@ -10,8 +10,8 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/pockcode"><img alt="npm version" src="https://img.shields.io/npm/v/pockcode?style=flat-square" /></a>
-  <img alt="Node.js >=20" src="https://img.shields.io/badge/node-%3E%3D20.0.0-339933?style=flat-square&logo=node.js&logoColor=white" />
-  <img alt="pnpm 10.17.1" src="https://img.shields.io/badge/pnpm-10.17.1-F69220?style=flat-square&logo=pnpm&logoColor=white" />
+  <img alt="Node.js &gt;=20" src="https://img.shields.io/badge/node-%3E%3D20.0.0-339933?style=flat-square&amp;logo=node.js&amp;logoColor=white" />
+  <img alt="pnpm 10.17.1" src="https://img.shields.io/badge/pnpm-10.17.1-F69220?style=flat-square&amp;logo=pnpm&amp;logoColor=white" />
 </p>
 
 PockCode runs a password-protected web workspace on your machine and gives Codex a focused interface for real coding work: persistent chats, workspace files, integrated terminals, Git operations, MCP servers, run actions, schedules, web push notifications, Cloudflare Tunnel sharing, and a Telegram companion plugin.
