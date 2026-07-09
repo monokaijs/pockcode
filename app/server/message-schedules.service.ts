@@ -89,17 +89,6 @@ export async function createMessageSchedule(dto: CreateMessageScheduleRequest): 
   const account = await requireConnectedAccount(dto.accountId)
   const recurrence = normalizeRecurrence(dto.recurrence, firstRunAt)
   const status = dto.status === "PAUSED" ? "PAUSED" : "ACTIVE"
-  const chat = await createChat({
-    accountId: account.id,
-    collaborationMode: dto.collaborationMode ?? "default",
-    model: nullableString(dto.model),
-    permissionMode: dto.permissionMode ?? "default",
-    providerId: account.providerId,
-    reasoningEffort: nullableString(dto.reasoningEffort),
-    serviceTier: nullableString(dto.serviceTier),
-    title: `Schedule: ${title}`,
-    workingDirectory,
-  })
   const id = randomUUID()
   const timestamp = new Date().toISOString()
   await prisma.$executeRawUnsafe(
@@ -112,7 +101,7 @@ export async function createMessageSchedule(dto: CreateMessageScheduleRequest): 
     title,
     message,
     workingDirectory,
-    chat.id,
+    null,
     account.providerId,
     account.id,
     nullableString(dto.model),
@@ -293,7 +282,7 @@ async function executeDueSchedule(row: MessageScheduleRow, now: Date): Promise<v
     ) VALUES (?, ?, ?, ?, 'QUEUED', ?, ?)`,
     runId,
     row.id,
-    row.chatId,
+    null,
     scheduledFor.toISOString(),
     timestamp,
     timestamp,
@@ -302,8 +291,9 @@ async function executeDueSchedule(row: MessageScheduleRow, now: Date): Promise<v
 
   const runCountAfter = await countScheduleRuns(row.id)
   const advance = advanceSchedule(schedule.recurrence, scheduledFor, now, runCountAfter)
+  let chatId: string | null = null
   try {
-    const chatId = await ensureScheduleChat(row)
+    chatId = await createScheduleRunChat(row)
     const result = await executeMessage(chatId, {
       accountId: row.accountId ?? undefined,
       collaborationMode: row.collaborationMode,
@@ -339,7 +329,8 @@ async function executeDueSchedule(row: MessageScheduleRow, now: Date): Promise<v
     const message = error instanceof Error ? error.message : "Scheduled message failed."
     const failedAt = new Date().toISOString()
     await prisma.$executeRawUnsafe(
-      `UPDATE "MessageScheduleRun" SET "status" = 'FAILED', "error" = ?, "startedAt" = COALESCE("startedAt", ?), "endedAt" = ?, "updatedAt" = ? WHERE "id" = ?`,
+      `UPDATE "MessageScheduleRun" SET "chatId" = COALESCE("chatId", ?), "status" = 'FAILED', "error" = ?, "startedAt" = COALESCE("startedAt", ?), "endedAt" = ?, "updatedAt" = ? WHERE "id" = ?`,
+      chatId,
       message,
       failedAt,
       failedAt,
@@ -352,13 +343,7 @@ async function executeDueSchedule(row: MessageScheduleRow, now: Date): Promise<v
   publishScheduleUpdated(await getMessageSchedule(row.id).catch(() => serializeSchedule({ ...row, status: advance.status, nextRunAt: advance.nextRunAt })))
 }
 
-async function ensureScheduleChat(row: MessageScheduleRow): Promise<string> {
-  if (row.chatId) {
-    const existing = await prisma.chat.findUnique({ where: { id: row.chatId } })
-    if (existing && existing.status !== "ARCHIVED") {
-      return existing.id
-    }
-  }
+async function createScheduleRunChat(row: MessageScheduleRow): Promise<string> {
   if (!row.accountId) {
     throw new HttpError(400, "Schedule has no provider account.")
   }
@@ -377,13 +362,6 @@ async function ensureScheduleChat(row: MessageScheduleRow): Promise<string> {
     title: `Schedule: ${row.title}`,
     workingDirectory: row.workingDirectory,
   })
-  await prisma.$executeRawUnsafe(
-    `UPDATE "MessageSchedule" SET "chatId" = ?, "updatedAt" = ? WHERE "id" = ?`,
-    chat.id,
-    new Date().toISOString(),
-    row.id,
-  )
-  row.chatId = chat.id
   return chat.id
 }
 
@@ -395,6 +373,7 @@ async function updateScheduleAfterAttempt(
 ): Promise<void> {
   await prisma.$executeRawUnsafe(
     `UPDATE "MessageSchedule" SET
+      "chatId" = NULL,
       "lastRunAt" = ?,
       "lastRunStatus" = ?,
       "nextRunAt" = ?,

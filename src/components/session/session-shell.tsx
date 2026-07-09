@@ -1567,7 +1567,7 @@ function useSessionShellController() {
   }
 
   const openScheduleRunChat = async (run: MessageScheduleRunResponse) => {
-    const chatId = run.chatId ?? activeSchedule?.chatId
+    const chatId = run.chatId
     if (!chatId) {
       setScheduleError("This schedule run is not linked to a chat yet.")
       return
