@@ -259,6 +259,10 @@ export function accessModeLabel(value: ChatComposerAccessMode): string {
   return value === "fullAccess" ? "Full access" : "Ask for approval"
 }
 
+export function composerAccessModeValue(value: ChatComposerAccessMode): string {
+  return value
+}
+
 export function defaultModelOptionsForProvider(providerId: string | null | undefined): ProviderModelListResponse["data"] {
   return providerId === "codex" ? codexModelOptions : []
 }

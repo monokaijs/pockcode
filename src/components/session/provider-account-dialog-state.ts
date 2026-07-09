@@ -7,6 +7,7 @@ import {
   type ProviderModelListResponse,
 } from "@/lib/api-client"
 import {
+  composerAccessModeValue,
   composerReasoningEffortValue,
   composerServiceTierValue,
   defaultModelOptionsForProvider,
@@ -17,6 +18,7 @@ import {
   parseJsonRecord,
   readCodexHomeValue,
   readCodexPersonalityValue,
+  readComposerAccessMode,
   readComposerReasoningEffort,
   readComposerServiceTier,
   readDefaultCodexHomeValue,
@@ -25,7 +27,7 @@ import {
   readSharedCodexHomeValue,
   withoutRecordKeys,
 } from "@/lib/session"
-import type { ChatComposerReasoningEffort, ChatComposerServiceTier } from "@/types/session"
+import type { ChatComposerAccessMode, ChatComposerReasoningEffort, ChatComposerServiceTier } from "@/types/session"
 
 export function useProviderAccountDialogState(
   account: ProviderAccountResponse | null,
@@ -38,6 +40,7 @@ export function useProviderAccountDialogState(
   const [authMenuOpen, setAuthMenuOpen] = useState(false)
   const [codexHome, setCodexHome] = useState("")
   const [defaultModel, setDefaultModel] = useState("")
+  const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatComposerAccessMode>("askForApproval")
   const [defaultReasoningEffort, setDefaultReasoningEffort] = useState<ChatComposerReasoningEffort>("medium")
   const [defaultServiceTier, setDefaultServiceTier] = useState<ChatComposerServiceTier>("standard")
   const [deleting, setDeleting] = useState(false)
@@ -49,15 +52,17 @@ export function useProviderAccountDialogState(
   const [saving, setSaving] = useState(false)
   const [settingsJson, setSettingsJson] = useState("{}")
   const hasDefaultModelField = Boolean(provider?.capabilities.includes("models") && provider.runtimeFields.some((field) => field.key === "model"))
+  const hasDefaultPermissionField = Boolean(provider?.runtimeFields.some((field) => field.key === "permissionMode"))
   const hasDefaultReasoningField = Boolean(provider?.runtimeFields.some((field) => field.key === "reasoningEffort"))
   const hasDefaultServiceTierField = Boolean(provider?.runtimeFields.some((field) => field.key === "serviceTier"))
   const runtimeDefaultStructuredKeys = useMemo(
     () => [
       hasDefaultModelField ? "model" : null,
+      hasDefaultPermissionField ? "permissionMode" : null,
       hasDefaultReasoningField ? "reasoningEffort" : null,
       hasDefaultServiceTierField ? "serviceTier" : null,
     ].filter((key): key is string => Boolean(key)),
-    [hasDefaultModelField, hasDefaultReasoningField, hasDefaultServiceTierField],
+    [hasDefaultModelField, hasDefaultPermissionField, hasDefaultReasoningField, hasDefaultServiceTierField],
   )
 
   useEffect(() => {
@@ -67,6 +72,7 @@ export function useProviderAccountDialogState(
     setAuthMenuOpen(false)
     setCodexHome(readCodexHomeValue(account, provider))
     setDefaultModel(readRecordString(account.runtimeDefaults, "model") || defaultRuntimeDefaultValue(provider.id, "model") || (defaultModelOptionsForProvider(provider.id)[0]?.model ?? ""))
+    setDefaultPermissionMode(readComposerAccessMode(readRecordString(account.runtimeDefaults, "permissionMode") || defaultRuntimeDefaultValue(provider.id, "permissionMode")))
     setDefaultReasoningEffort(readComposerReasoningEffort(readRecordString(account.runtimeDefaults, "reasoningEffort") || defaultRuntimeDefaultValue(provider.id, "reasoningEffort")))
     setDefaultServiceTier(readComposerServiceTier(readRecordString(account.runtimeDefaults, "serviceTier") || defaultRuntimeDefaultValue(provider.id, "serviceTier")))
     setDisplayName(account.displayName)
@@ -126,6 +132,9 @@ export function useProviderAccountDialogState(
         throw new Error("Choose a default model.")
       }
       runtimeDefaults.model = nextDefaultModel
+    }
+    if (hasDefaultPermissionField) {
+      runtimeDefaults.permissionMode = composerAccessModeValue(defaultPermissionMode)
     }
     if (hasDefaultReasoningField) {
       runtimeDefaults.reasoningEffort = composerReasoningEffortValue(defaultReasoningEffort)
@@ -255,6 +264,7 @@ export function useProviderAccountDialogState(
     codexHome,
     connected,
     defaultModel,
+    defaultPermissionMode,
     defaultReasoningEffort,
     defaultServiceTier,
     deleteProviderAccount,
@@ -262,6 +272,7 @@ export function useProviderAccountDialogState(
     displayName,
     hasCodexHomeField,
     hasDefaultModelField,
+    hasDefaultPermissionField,
     hasDefaultReasoningField,
     hasDefaultServiceTierField,
     modelOptions: visibleModelOptions,
@@ -273,6 +284,7 @@ export function useProviderAccountDialogState(
     setAuthMenuOpen,
     setCodexHome,
     setDefaultModel,
+    setDefaultPermissionMode,
     setDefaultReasoningEffort,
     setDefaultServiceTier,
     setDisplayName,

@@ -3,10 +3,12 @@ import { ProviderGlyph, ProviderStatusBadge } from "@/components/session/provide
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import type { ProviderAccountResponse, ProviderDefinitionResponse } from "@/lib/api-client"
 import {
+  accessModeLabel,
   composerReasoningEffortLabel,
   composerReasoningEffortOptions,
   composerServiceTierLabel,
   composerServiceTierOptions,
+  readComposerAccessMode,
   readComposerReasoningEffort,
   readComposerServiceTier,
 } from "@/lib/session"
@@ -88,7 +90,7 @@ function ProviderAccountDialogBody({
         <ProviderAccountNameAuth dialog={dialog} />
         {provider.id === "codex" ? <ProviderPersonalityField dialog={dialog} /> : null}
         {dialog.hasCodexHomeField ? <ProviderCodexHomeField dialog={dialog} /> : null}
-        {dialog.hasDefaultModelField || dialog.hasDefaultReasoningField || dialog.hasDefaultServiceTierField
+        {dialog.hasDefaultModelField || dialog.hasDefaultPermissionField || dialog.hasDefaultReasoningField || dialog.hasDefaultServiceTierField
           ? <ProviderRuntimeDefaultsField dialog={dialog} />
           : null}
         {account.status === "CONNECTED" ? <ProviderConfigEditors dialog={dialog} /> : null}
@@ -229,7 +231,7 @@ function ProviderRuntimeDefaultsField({ dialog }: { dialog: ProviderAccountDialo
   return (
     <div className="grid gap-2">
       <span className="block text-[11px] font-medium text-muted-foreground">Defaults</span>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2">
         {dialog.hasDefaultModelField ? (
           <label className="block min-w-0">
             <span className="mb-1 block text-[11px] text-muted-foreground">Model</span>
@@ -247,6 +249,24 @@ function ProviderRuntimeDefaultsField({ dialog }: { dialog: ProviderAccountDialo
                     {option.displayName}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </label>
+        ) : null}
+        {dialog.hasDefaultPermissionField ? (
+          <label className="block min-w-0">
+            <span className="mb-1 block text-[11px] text-muted-foreground">Access</span>
+            <Select className="w-full min-w-0" value={dialog.defaultPermissionMode} onValueChange={(value) => dialog.setDefaultPermissionMode(readComposerAccessMode(value))}>
+              <SelectTrigger aria-label="Default access" className="h-8 w-full border-input bg-background px-2 text-[12px] text-foreground shadow-none hover:bg-secondary/60">
+                <span className="min-w-0 truncate">{accessModeLabel(dialog.defaultPermissionMode)}</span>
+              </SelectTrigger>
+              <SelectContent align="start" className="border-border bg-popover text-foreground">
+                <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="askForApproval">
+                  Ask for approval
+                </SelectItem>
+                <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="fullAccess">
+                  Full access
+                </SelectItem>
               </SelectContent>
             </Select>
           </label>
