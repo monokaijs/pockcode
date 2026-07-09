@@ -81,6 +81,8 @@ const claudeAuthEnvironmentKeys = [
   "GOOGLE_CLOUD_PROJECT",
   "CLOUD_ML_REGION",
 ]
+const claudeMissingEnvironmentAuthMessage =
+  "No Claude Code auth environment variables are saved on this account. Add ANTHROPIC_API_KEY or another supported Claude Code API-provider variable under this account's settings.environment before connecting."
 const claudeFallbackModels: ProviderModelListResponse["data"] = [
   {
     id: "sonnet",
@@ -194,7 +196,7 @@ export const claudeProviderAdapter: ProviderAdapter = {
     const authMode = normalizeClaudeAuthMode(mode)
     try {
       if (!hasClaudeEnvironmentAuth(account)) {
-        throw new Error("Set ANTHROPIC_API_KEY or a supported Claude Code API-provider environment variable in this account's environment before connecting.")
+        throw new Error(readMissingClaudeEnvironmentAuthMessage())
       }
       const initialization = await readClaudeInitialization(account)
       return connectedAuthResponse(account.id, authMode, "Claude Code environment auth is connected.", {
@@ -433,7 +435,7 @@ function runtimeOptionsForAccount(
   const settings = normalizeJsonObject(account.settings)
   const providerSettings = defaultClaudeSettings()
   const defaultEnvironment = withoutClaudeAuthEnvironment(readStringRecord(providerSettings.defaultEnvironment))
-  const accountEnvironment = readStringRecord(settings.environment)
+  const accountEnvironment = readClaudeAccountEnvironment(account)
   const configDir = resolveClaudeAccountConfigDir(account)
   const permissionMode = claudePermissionMode(options.permissionMode)
   const pathToClaudeCodeExecutable =
@@ -513,9 +515,24 @@ function claudeEffort(value: string | null | undefined): Options["effort"] {
   return claudeDefaultReasoningEffort
 }
 
-function hasClaudeEnvironmentAuth(account: ProviderAccount): boolean {
-  const accountEnvironment = readStringRecord(normalizeJsonObject(account.settings).environment)
-  return claudeAuthEnvironmentKeys.some((key) => Boolean(accountEnvironment[key]))
+export function hasClaudeEnvironmentAuth(account: ProviderAccount): boolean {
+  return claudeAuthKeysPresent(readClaudeAccountEnvironment(account)).length > 0
+}
+
+function readClaudeAccountEnvironment(account: ProviderAccount): Record<string, string> {
+  return readStringRecord(normalizeJsonObject(account.settings).environment)
+}
+
+function claudeAuthKeysPresent(env: Record<string, string | undefined>): string[] {
+  return claudeAuthEnvironmentKeys.filter((key) => Boolean(env[key]))
+}
+
+function readMissingClaudeEnvironmentAuthMessage(): string {
+  const inheritedKeys = claudeAuthKeysPresent(process.env)
+  if (inheritedKeys.length) {
+    return `${claudeMissingEnvironmentAuthMessage} Claude auth keys were found in PockCode's inherited server environment, but they are ignored for Claude account isolation.`
+  }
+  return claudeMissingEnvironmentAuthMessage
 }
 
 function sanitizedProcessEnvironment(): NodeJS.ProcessEnv {
@@ -1526,14 +1543,15 @@ function sameFilesystemPath(left: string, right: string): boolean {
 
 async function buildClaudeAuthDiagnostics(account: ProviderAccount, error: unknown): Promise<JsonObject> {
   const settings = normalizeJsonObject(account.settings)
-  const accountEnvironment = readStringRecord(settings.environment)
+  const accountEnvironment = readClaudeAccountEnvironment(account)
   const providerSettings = defaultClaudeSettings()
   const executable =
     readString(settings.pathToClaudeCodeExecutable) ||
     readString(providerSettings.pathToClaudeCodeExecutable) ||
     "claude"
   const configDir = resolveClaudeAccountConfigDir(account)
-  const authEnvironmentKeysPresent = claudeAuthEnvironmentKeys.filter((key) => Boolean(accountEnvironment[key]))
+  const authEnvironmentKeysPresent = claudeAuthKeysPresent(accountEnvironment)
+  const inheritedAuthEnvironmentKeysPresent = claudeAuthKeysPresent(process.env)
   const configDirStats = await stat(configDir).catch(() => null)
   const mcpServerCount = await prisma.mcpServerInstallation.count({
     where: { accountId: account.id, providerId: "claude" },
@@ -1551,6 +1569,11 @@ async function buildClaudeAuthDiagnostics(account: ProviderAccount, error: unkno
     claudeConfigDirExists: Boolean(configDirStats?.isDirectory()),
     pathToClaudeCodeExecutable: executable,
     authEnvironmentKeysPresent,
+    accountAuthEnvironmentKeysPresent: authEnvironmentKeysPresent,
+    inheritedAuthEnvironmentKeysPresent,
+    inheritedAuthEnvironmentKeysIgnored: inheritedAuthEnvironmentKeysPresent.length > 0,
+    supportedAuthEnvironmentKeys: claudeAuthEnvironmentKeys,
+    expectedSettingsShape: { environment: { ANTHROPIC_API_KEY: "<key>" } },
     environmentKeysPresent: Object.keys(accountEnvironment).sort(),
     sdkSettingsKeysPresent: Object.keys(normalizeJsonObject(settings.settings)).sort(),
     allowedToolsCount: readStringArray(settings.allowedTools)?.length ?? 0,
