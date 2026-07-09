@@ -7,7 +7,7 @@ import { readWorkspaceTree } from "./workspaces.server"
 type WorkspaceHistoryRow = {
   createdAt: Date | string
   id: string
-  isOpen: boolean | number
+  isOpen: boolean | number | string
   lastOpenedAt: Date | string
   name: string
   path: string
@@ -67,7 +67,7 @@ async function readWorkspaceHistory(path: string): Promise<WorkspaceHistoryRespo
 function serializeWorkspaceHistory(row: WorkspaceHistoryRow): WorkspaceHistoryResponse {
   return {
     id: row.id,
-    isOpen: Boolean(row.isOpen),
+    isOpen: readBoolean(row.isOpen),
     path: row.path,
     name: row.name,
     lastOpenedAt: toIsoString(row.lastOpenedAt),
@@ -78,4 +78,8 @@ function serializeWorkspaceHistory(row: WorkspaceHistoryRow): WorkspaceHistoryRe
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
+}
+
+function readBoolean(value: boolean | number | string): boolean {
+  return value === true || value === 1 || value === "1" || value === "true"
 }

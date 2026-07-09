@@ -15,6 +15,11 @@ import { cn } from "@/lib/utils"
 
 type PushPermissionState = NotificationPermission | "unsupported"
 
+type PushSubscriptionSyncResult = {
+  replacedEndpoint?: string
+  subscription: PushSubscription
+}
+
 export function PushNotificationButton() {
   const [permission, setPermission] = useState<PushPermissionState>("unsupported")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -166,22 +171,66 @@ async function syncPushSubscription(sendTest: boolean): Promise<void> {
     throw new Error("Web Push is not available.")
   }
   const registration = await navigator.serviceWorker.ready
-  const subscription = await readOrCreateSubscription(registration, keyResponse.publicKey)
+  const { replacedEndpoint, subscription } = await readOrCreateSubscription(registration, keyResponse.publicKey)
+  if (replacedEndpoint) {
+    await apiClient.push.unsubscribe(replacedEndpoint).catch(() => undefined)
+  }
   await apiClient.push.subscribe(subscriptionToRequest(subscription))
   if (sendTest) {
     await apiClient.push.test()
   }
 }
 
-async function readOrCreateSubscription(registration: ServiceWorkerRegistration, publicKey: string): Promise<PushSubscription> {
+async function readOrCreateSubscription(
+  registration: ServiceWorkerRegistration,
+  publicKey: string,
+): Promise<PushSubscriptionSyncResult> {
+  const applicationServerKey = urlBase64ToArrayBuffer(publicKey)
   const existing = await registration.pushManager.getSubscription()
   if (existing) {
-    return existing
+    if (subscriptionUsesApplicationServerKey(existing, applicationServerKey)) {
+      return { subscription: existing }
+    }
+    const replacedEndpoint = existing.endpoint
+    await existing.unsubscribe()
+    const subscription = await registration.pushManager.subscribe({
+      applicationServerKey,
+      userVisibleOnly: true,
+    })
+    return {
+      replacedEndpoint: subscription.endpoint === replacedEndpoint ? undefined : replacedEndpoint,
+      subscription,
+    }
   }
-  return registration.pushManager.subscribe({
-    applicationServerKey: urlBase64ToArrayBuffer(publicKey),
+  const subscription = await registration.pushManager.subscribe({
+    applicationServerKey,
     userVisibleOnly: true,
   })
+  return { subscription }
+}
+
+function subscriptionUsesApplicationServerKey(subscription: PushSubscription, applicationServerKey: ArrayBuffer): boolean {
+  const existingKey = subscription.options.applicationServerKey
+  if (!existingKey) {
+    return true
+  }
+  return bufferSourcesEqual(existingKey, applicationServerKey)
+}
+
+function bufferSourcesEqual(left: BufferSource, right: BufferSource): boolean {
+  const leftBytes = bufferSourceToBytes(left)
+  const rightBytes = bufferSourceToBytes(right)
+  if (leftBytes.byteLength !== rightBytes.byteLength) {
+    return false
+  }
+  return leftBytes.every((byte, index) => byte === rightBytes[index])
+}
+
+function bufferSourceToBytes(value: BufferSource): Uint8Array {
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value)
+  }
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
 }
 
 function subscriptionToRequest(subscription: PushSubscription): PushSubscriptionRequest {

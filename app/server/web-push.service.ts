@@ -37,7 +37,7 @@ type VapidKeys = {
 }
 
 const vapidSettingId = "web-push-vapid"
-const defaultSubject = "mailto:pockcode@localhost"
+const defaultSubject = "https://github.com/monokaijs/pockcode"
 
 const globalForWebPush = globalThis as typeof globalThis & {
   pockcodeWebPush?: {
@@ -173,6 +173,7 @@ async function sendWebPushNotification(payload: PushNotificationPayload): Promis
   if (!keys) {
     return 0
   }
+  const subject = readVapidSubject()
   const subscriptions = await listSubscriptions()
   let sent = 0
   await Promise.all(subscriptions.map(async (subscription) => {
@@ -183,7 +184,7 @@ async function sendWebPushNotification(payload: PushNotificationPayload): Promis
         vapidDetails: {
           privateKey: keys.privateKey,
           publicKey: keys.publicKey,
-          subject: process.env.POCKCODE_WEB_PUSH_SUBJECT ?? defaultSubject,
+          subject,
         },
       })
       sent += 1
@@ -204,9 +205,10 @@ async function ensureVapidKeys(): Promise<VapidKeys | null> {
   if (!keys) {
     return null
   }
-  const configuredKey = `${keys.publicKey}:${keys.privateKey}`
+  const subject = readVapidSubject()
+  const configuredKey = `${subject}:${keys.publicKey}:${keys.privateKey}`
   if (webPushState.configuredKey !== configuredKey) {
-    webPush.setVapidDetails(process.env.POCKCODE_WEB_PUSH_SUBJECT ?? defaultSubject, keys.publicKey, keys.privateKey)
+    webPush.setVapidDetails(subject, keys.publicKey, keys.privateKey)
     webPushState.configuredKey = configuredKey
   }
   return keys
@@ -319,6 +321,45 @@ function readStoredVapidKeys(value: unknown): VapidKeys | null {
   return typeof publicKey === "string" && typeof privateKey === "string"
     ? { privateKey, publicKey }
     : null
+}
+
+function readVapidSubject(): string {
+  const subject = process.env.POCKCODE_WEB_PUSH_SUBJECT?.trim() || defaultSubject
+  if (!isValidVapidSubject(subject)) {
+    throw new Error("POCKCODE_WEB_PUSH_SUBJECT must be a public https URL or a mailto address with a real domain.")
+  }
+  return subject
+}
+
+function isValidVapidSubject(subject: string): boolean {
+  try {
+    const url = new URL(subject)
+    if (url.protocol === "https:") {
+      return isPublicHost(url.hostname)
+    }
+    if (url.protocol === "mailto:") {
+      return isLikelyPublicEmailAddress(url.pathname)
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+function isLikelyPublicEmailAddress(value: string): boolean {
+  const atIndex = value.lastIndexOf("@")
+  if (atIndex <= 0 || atIndex === value.length - 1) {
+    return false
+  }
+  return isPublicHost(value.slice(atIndex + 1))
+}
+
+function isPublicHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase()
+  return normalized.includes(".") &&
+    normalized !== "localhost" &&
+    !normalized.endsWith(".localhost") &&
+    !normalized.endsWith(".local")
 }
 
 function readRunStatusPayload(payload: unknown): {
