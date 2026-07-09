@@ -25,6 +25,7 @@ import type {
   SyncMcpServerRequest as SyncMcpServerBody,
   UpdateMcpServerRequest as UpdateMcpServerBody,
 } from "../types/mcp"
+import type { PushSubscriptionRequest } from "../types/push"
 import {
   authenticateAccount,
   createAccount,
@@ -49,6 +50,7 @@ import {
   respondToServerRequest,
   reviewChat,
   steerQueuedChatRun,
+  syncChats,
   updateQueuedChatRun,
   updateChat,
 } from "./chats.service"
@@ -90,6 +92,12 @@ import {
 import { readCodexInstructions, updateCodexInstructions } from "./providers/codex.server"
 import { listProviders } from "./providers.service"
 import { listPlugins, runPluginAction, updatePlugin } from "./plugins.service"
+import {
+  deleteWebPushSubscription,
+  readWebPushPublicKey,
+  saveWebPushSubscription,
+  sendTestWebPushNotification,
+} from "./web-push.service"
 import { deleteWorkspaceHistory, listWorkspaceHistory, saveWorkspaceHistory } from "./workspace-history.service"
 import { listWorkspaceDirectory, readWorkspaceResource, readWorkspaceTree } from "./workspaces.server"
 
@@ -153,6 +161,32 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       return
     }
     sendJson(res, await readCodexInstructions())
+    return
+  }
+
+  if (url.pathname === "/api/push/public-key") {
+    requireMethod(method, ["GET"])
+    sendJson(res, await readWebPushPublicKey())
+    return
+  }
+
+  if (url.pathname === "/api/push/subscriptions") {
+    requireMethod(method, ["DELETE", "POST"])
+    const body = await readNodeJsonBody(req)
+    if (method === "DELETE") {
+      sendJson(res, await deleteWebPushSubscription(readStringField(body.endpoint, "endpoint", { required: true, maxLength: 2_000 })))
+      return
+    }
+    sendJson(res, await saveWebPushSubscription(
+      readPushSubscriptionRequest(body),
+      readHeader(req.headers["user-agent"]),
+    ), 201)
+    return
+  }
+
+  if (url.pathname === "/api/push/test") {
+    requireMethod(method, ["POST"])
+    sendJson(res, await sendTestWebPushNotification(), 202)
     return
   }
 
@@ -221,6 +255,12 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   if (url.pathname === "/api/provider-accounts/limits") {
     requireMethod(method, ["GET"])
     sendJson(res, await readConnectedAccountLimits())
+    return
+  }
+
+  if (url.pathname === "/api/chats/sync") {
+    requireMethod(method, ["POST"])
+    sendJson(res, await syncChats(url.searchParams.get("workingDirectory")))
     return
   }
 
@@ -566,6 +606,18 @@ function readCodexInstructionsRequest(body: Partial<UpdateCodexInstructionsReque
   return { instructions: body.instructions }
 }
 
+function readPushSubscriptionRequest(body: Record<string, unknown>): PushSubscriptionRequest {
+  const keys = readRecordField(body.keys, "keys")
+  return {
+    endpoint: readStringField(body.endpoint, "endpoint", { required: true, maxLength: 2_000 }),
+    expirationTime: readNullableNumberField(body.expirationTime, "expirationTime"),
+    keys: {
+      auth: readStringField(keys?.auth, "keys.auth", { required: true, maxLength: 500 }),
+      p256dh: readStringField(keys?.p256dh, "keys.p256dh", { required: true, maxLength: 500 }),
+    },
+  }
+}
+
 function readCreateChatRequest(body: Partial<CreateChatRequest>): CreateChatRequest {
   return {
     accountId: readStringField(body.accountId, "accountId", { required: true }),
@@ -801,6 +853,19 @@ function readOptionalNumber(value: unknown, field: string): number | null | unde
   return value
 }
 
+function readNullableNumberField(value: unknown, field: string): number | null | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (value === null) {
+    return null
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new HttpError(400, `${field} must be a number.`)
+  }
+  return value
+}
+
 function readNullableStringField(value: unknown, field: string): string | null | undefined {
   if (value === null) {
     return null
@@ -826,6 +891,13 @@ function readAuthMode(value: unknown): AccountAuthMode {
     return value
   }
   throw new HttpError(400, "mode must be browser, device, or local.")
+}
+
+function readHeader(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value.find((item) => item.trim())?.trim() ?? null
+  }
+  return value?.trim() || null
 }
 
 function readIntegerParam(value: string | null, fallback: number): number {

@@ -28,7 +28,6 @@ export type ChatPaneProps = {
   onNewChat: () => void
   onOpenMcpServers: () => void
   onOpenProviders: () => void
-  onOpenPlugins: () => void
   onRefreshChat: (chatId: string) => Promise<void>
   onRenameChat: (chatId: string, title: string) => Promise<void>
   onReviewChat: (chatId: string, instructions?: string | null) => Promise<void>

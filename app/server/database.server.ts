@@ -53,6 +53,14 @@ const schemaStatements = [
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS "PushSubscription" (
+    "endpoint" TEXT NOT NULL PRIMARY KEY,
+    "expirationTime" REAL,
+    "keys" JSONB NOT NULL,
+    "userAgent" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
   `CREATE TABLE IF NOT EXISTS "ProviderAccount" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "providerId" TEXT NOT NULL,

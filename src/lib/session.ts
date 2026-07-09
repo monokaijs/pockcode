@@ -190,7 +190,6 @@ export type ChatSlashCommandId =
   | "usage"
   | "mcp"
   | "skills"
-  | "plugins"
   | "hooks"
   | "diff"
   | "clear"
@@ -220,7 +219,6 @@ export const chatSlashCommands: ChatSlashCommand[] = [
   { id: "usage", usage: "/usage", description: "Open provider usage" },
   { id: "mcp", usage: "/mcp", description: "Open MCP servers" },
   { id: "skills", usage: "/skills", description: "Check Codex skills support" },
-  { id: "plugins", usage: "/plugins", description: "Open plugins" },
   { id: "hooks", usage: "/hooks", description: "Check Codex hooks support" },
   { id: "diff", usage: "/diff", description: "Ask Codex for the current diff" },
   { id: "clear", usage: "/clear", description: "Clear the composer" },

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { PanelLeft, PanelRight, Plus, Terminal, X } from "lucide-react"
 import { ThemeModeToggle } from "@/components/theme-mode-toggle"
+import { PushNotificationButton } from "@/components/session/push-notification-button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
 import type { Workspace } from "@/types/session"
@@ -51,6 +52,7 @@ export function TopBar({
       />
 
       <div className="ml-auto flex items-center justify-end gap-2 px-3">
+        <PushNotificationButton />
         <button
           aria-label={isTerminalPanelOpen ? "Hide terminal panel" : "Show terminal panel"}
           aria-pressed={isTerminalPanelOpen}

@@ -83,6 +83,22 @@ export async function listChats(workingDirectory?: string | null): Promise<ChatR
   return (await overlayCachedChatStates(dedupeChatList(chats))).map((chat) => serializeChat(chat))
 }
 
+export async function syncChats(workingDirectory?: string | null): Promise<ChatResponse[]> {
+  await ensureDatabase()
+  await syncProviderChatsOnce()
+  const chats = await listChats(workingDirectory)
+  const workspacePaths = syncWorkspacePaths(workingDirectory, chats)
+  if (!workspacePaths.length) {
+    return chats
+  }
+  const statusUpdates = await refreshChatStatusesForWorkspaces(workspacePaths)
+  if (!statusUpdates.length) {
+    return chats
+  }
+  const statusUpdateById = new Map(statusUpdates.map((chat) => [chat.id, chat]))
+  return chats.map((chat) => statusUpdateById.get(chat.id) ?? chat)
+}
+
 export async function getChat(chatId: string): Promise<Chat> {
   await ensureDatabase()
   const chat = await prisma.chat.findUnique({ where: { id: chatId } })
@@ -620,6 +636,22 @@ function preferChatListItem(candidate: Chat, current: Chat): boolean {
     return candidate.lastActivityAt.getTime() > current.lastActivityAt.getTime()
   }
   return candidate.updatedAt.getTime() > current.updatedAt.getTime()
+}
+
+function syncWorkspacePaths(workingDirectory: string | null | undefined, chats: ChatResponse[]): string[] {
+  const paths = new Set<string>()
+  const requestedPath = workingDirectory?.trim()
+  if (requestedPath) {
+    paths.add(requestedPath)
+  } else {
+    for (const chat of chats) {
+      const path = chat.workingDirectory?.trim()
+      if (path) {
+        paths.add(path)
+      }
+    }
+  }
+  return [...paths]
 }
 
 function dedupeProviderChatList(chats: ProviderChatListItem[]): ProviderChatListItem[] {

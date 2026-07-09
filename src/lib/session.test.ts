@@ -22,7 +22,7 @@ describe("chat slash commands", () => {
 
   it("returns matching mandatory commands for palette filtering", () => {
     expect(matchingChatSlashCommands("/co").map((command) => command.id)).toContain("compact")
-    expect(matchingChatSlashCommands("/plugins").map((command) => command.id)).toEqual(["plugins"])
+    expect(matchingChatSlashCommands("/mcp").map((command) => command.id)).toEqual(["mcp"])
   })
 
   it("ignores unknown commands", () => {

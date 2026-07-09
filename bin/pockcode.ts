@@ -38,6 +38,7 @@ async function main() {
     chatMonitor,
     scheduleMonitor,
     pluginManager,
+    webPush,
     cloudflared,
     codexProvider,
   ] = await Promise.all([
@@ -47,6 +48,7 @@ async function main() {
     import("../app/server/chat-status-monitor.server"),
     import("../app/server/message-schedule-monitor.server"),
     import("../app/server/plugins/manager.server"),
+    import("../app/server/web-push.service"),
     import("../app/server/cloudflared.service"),
     import("../app/server/providers/codex.server"),
   ])
@@ -86,6 +88,7 @@ async function main() {
   chatMonitor.startChatStatusMonitor()
   scheduleMonitor.startMessageScheduleMonitor()
   pluginManager.startPluginRuntimeManager()
+  webPush.startWebPushEventBridge()
 
   server.listen(parsed.port, parsed.host, () => {
     console.log(`pockcode listening on http://${displayHost(parsed.host)}:${parsed.port}`)
@@ -108,6 +111,7 @@ async function main() {
       server,
       signal,
       socket,
+      webPush,
     })
   }
 
@@ -126,6 +130,7 @@ async function shutdownServer({
   server,
   signal,
   socket,
+  webPush,
 }: {
   chatMonitor: typeof import("../app/server/chat-status-monitor.server")
   cloudflared: typeof import("../app/server/cloudflared.service")
@@ -136,6 +141,7 @@ async function shutdownServer({
   server: ReturnType<typeof createServer>
   signal: NodeJS.Signals
   socket: typeof import("../app/server/socket.server")
+  webPush: typeof import("../app/server/web-push.service")
 }): Promise<void> {
   console.log(`\nReceived ${signal}, shutting down pockcode...`)
   const forceTimer = setTimeout(() => {
@@ -150,6 +156,7 @@ async function shutdownServer({
   try {
     scheduleMonitor.stopMessageScheduleMonitor()
     chatMonitor.stopChatStatusMonitor()
+    webPush.stopWebPushEventBridge()
     cloudflared.stopAllTemporaryCloudflaredTunnels()
     codexProvider.stopAllCodexRuntimes()
     await Promise.allSettled([

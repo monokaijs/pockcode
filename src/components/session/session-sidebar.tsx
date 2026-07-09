@@ -1,7 +1,6 @@
 import {
   FileText,
   LoaderCircle,
-  Plug,
   Plus,
   Search,
   Server,
@@ -42,7 +41,6 @@ const customizations: ManagementItem[] = [
   { icon: FileText, id: "instructions", label: "Instructions" },
   { icon: Wrench, label: "Hooks" },
   { icon: Server, id: "mcpServers", label: "MCP Servers" },
-  { icon: Plug, id: "plugins", label: "Plugins" },
 ]
 
 export function SessionSidebar({ shell }: { shell: SessionShellState }) {
@@ -56,9 +54,7 @@ export function SessionSidebar({ shell }: { shell: SessionShellState }) {
       ? "instructions"
       : shell.mcpServersDialogOpen
         ? "mcpServers"
-        : shell.pluginsDialogOpen
-          ? "plugins"
-          : null
+        : null
   const providerIconById = useMemo(
     () => new Map(shell.providerDefinitions.map((provider) => [provider.id, provider.icon])),
     [shell.providerDefinitions],

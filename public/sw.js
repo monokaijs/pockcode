@@ -1,4 +1,4 @@
-const CACHE_VERSION = "pockcode-pwa-v2"
+const CACHE_VERSION = "pockcode-pwa-v3"
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const CORE_ASSETS = [
   "/manifest.webmanifest",
@@ -52,6 +52,16 @@ self.addEventListener("fetch", (event) => {
   }
 })
 
+self.addEventListener("push", (event) => {
+  event.waitUntil(showPushNotification(event.data))
+})
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const targetUrl = notificationTargetUrl(event.notification)
+  event.waitUntil(focusOrOpenClient(targetUrl))
+})
+
 function shouldBypass(url) {
   return url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/auth/") ||
@@ -63,6 +73,54 @@ function isStaticAsset(url) {
     url.pathname.startsWith("/icons/") ||
     url.pathname === "/favicon.svg" ||
     url.pathname === "/manifest.webmanifest"
+}
+
+async function showPushNotification(data) {
+  const payload = readPushPayload(data)
+  await self.registration.showNotification(payload.title || "pockcode", {
+    badge: "/icons/favicon-32.png",
+    body: payload.body || "",
+    data: payload.data || {},
+    icon: "/icons/icon-192.png",
+    tag: payload.tag || "pockcode",
+  })
+}
+
+function readPushPayload(data) {
+  if (!data) {
+    return {}
+  }
+  try {
+    return data.json()
+  } catch {
+    try {
+      return { body: data.text() }
+    } catch {
+      return {}
+    }
+  }
+}
+
+function notificationTargetUrl(notification) {
+  const url = notification.data && typeof notification.data.url === "string"
+    ? notification.data.url
+    : "/"
+  return new URL(url, self.location.origin).href
+}
+
+async function focusOrOpenClient(targetUrl) {
+  const windowClients = await self.clients.matchAll({
+    includeUncontrolled: true,
+    type: "window",
+  })
+  const sameOriginClient = windowClients.find((client) => new URL(client.url).origin === self.location.origin)
+  if (sameOriginClient) {
+    if ("navigate" in sameOriginClient) {
+      await sameOriginClient.navigate(targetUrl).catch(() => undefined)
+    }
+    return sameOriginClient.focus()
+  }
+  return self.clients.openWindow(targetUrl)
 }
 
 async function staleWhileRevalidate(request) {

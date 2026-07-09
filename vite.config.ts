@@ -8,6 +8,7 @@ import { startChatStatusMonitor } from "./app/server/chat-status-monitor.server"
 import { startMessageScheduleMonitor } from "./app/server/message-schedule-monitor.server"
 import { startPluginRuntimeManager } from "./app/server/plugins/manager.server"
 import { installProviderSocketServer } from "./app/server/socket.server"
+import { startWebPushEventBridge } from "./app/server/web-push.service"
 
 const hmrHost = process.env.VITE_HMR_HOST
 const hmrClientPort = Number(process.env.VITE_HMR_CLIENT_PORT ?? 443)
@@ -23,6 +24,7 @@ export default defineConfig({
           startChatStatusMonitor()
           startMessageScheduleMonitor()
           startPluginRuntimeManager()
+          startWebPushEventBridge()
         }
       },
     },

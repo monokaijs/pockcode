@@ -45,6 +45,12 @@ import type {
   PluginResponse,
   PluginSettingsUpdateRequest,
 } from "../../app/types/plugins"
+import type {
+  PushPublicKeyResponse,
+  PushSubscriptionRequest,
+  PushSubscriptionResponse,
+  PushTestResponse,
+} from "../../app/types/push"
 
 export type {
   AccountAuthMode,
@@ -94,6 +100,12 @@ export type {
   PluginSettingsUpdateRequest,
   PluginStatus,
 } from "../../app/types/plugins"
+export type {
+  PushPublicKeyResponse,
+  PushSubscriptionRequest,
+  PushSubscriptionResponse,
+  PushTestResponse,
+} from "../../app/types/push"
 
 export type BrowserEntry = {
   children?: BrowserEntry[]
@@ -235,6 +247,12 @@ export const apiClient = {
     list(workingDirectory?: string) {
       return requestJson<ChatResponse[]>(`/api/chats${workingDirectory ? `?workingDirectory=${encodeURIComponent(workingDirectory)}` : ""}`, {
         fallbackMessage: "Unable to load chats.",
+      })
+    },
+    sync(workingDirectory?: string) {
+      return requestJson<ChatResponse[]>(`/api/chats/sync${workingDirectory ? `?workingDirectory=${encodeURIComponent(workingDirectory)}` : ""}`, {
+        fallbackMessage: "Unable to sync chats.",
+        method: "POST",
       })
     },
     listMessages(chatId: string) {
@@ -411,6 +429,35 @@ export const apiClient = {
         fallbackMessage: "Unable to update plugin.",
         headers: { "Content-Type": "application/json" },
         method: "PATCH",
+      })
+    },
+  },
+  push: {
+    publicKey() {
+      return requestJson<PushPublicKeyResponse>("/api/push/public-key", {
+        fallbackMessage: "Unable to load notification settings.",
+      })
+    },
+    subscribe(body: PushSubscriptionRequest) {
+      return requestJson<PushSubscriptionResponse>("/api/push/subscriptions", {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to save notification subscription.",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      })
+    },
+    test() {
+      return requestJson<PushTestResponse>("/api/push/test", {
+        fallbackMessage: "Unable to send test notification.",
+        method: "POST",
+      })
+    },
+    unsubscribe(endpoint: string) {
+      return requestJson<{ endpoint: string }>("/api/push/subscriptions", {
+        body: JSON.stringify({ endpoint }),
+        fallbackMessage: "Unable to remove notification subscription.",
+        headers: { "Content-Type": "application/json" },
+        method: "DELETE",
       })
     },
   },

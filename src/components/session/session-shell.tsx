@@ -10,7 +10,6 @@ import { RightPanel } from "@/components/session/right-panel"
 import { FileDialog, FileEditorPane } from "@/components/session/file-editor-pane"
 import { McpServersManagementDialog } from "@/components/session/mcp-servers-management-dialog"
 import { ProvidersManagementDialog } from "@/components/session/providers-management-dialog"
-import { PluginsManagementDialog } from "@/components/session/plugins-management-dialog"
 import { CodexInstructionsDialog } from "@/components/session/codex-instructions-dialog"
 import { WorkspaceFolderBrowserDialog } from "@/components/session/workspace-folder-browser-dialog"
 import { SessionSidebar } from "@/components/session/session-sidebar"
@@ -163,14 +162,17 @@ function useSessionShellController() {
   const [providersDialogOpen, setProvidersDialogOpen] = useState(false)
   const [instructionsDialogOpen, setInstructionsDialogOpen] = useState(false)
   const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
-  const [pluginsDialogOpen, setPluginsDialogOpen] = useState(false)
   const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null)
   const [workspaceBrowserOpen, setWorkspaceBrowserOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const activeChatIdRef = useRef<string | null>(null)
   const activeScheduleIdRef = useRef<string | null>(null)
+  const activeWorkspaceRef = useRef<Workspace | null>(null)
+  const connectionRecoveryPendingRef = useRef(false)
+  const connectionRecoveryPromiseRef = useRef<Promise<void> | null>(null)
   const loadingFolderIdsRef = useRef<Set<string>>(new Set())
   const providerSocketRef = useRef<ReturnType<typeof io> | null>(null)
+  const requestConnectionRecoveryRef = useRef<(() => void) | null>(null)
   const terminalAutoCreateWorkspaceRef = useRef<string | null>(null)
 
   const activeWorkspace = useMemo(
@@ -315,6 +317,109 @@ function useSessionShellController() {
     }
   }
 
+  const syncSessionAfterConnectionRecovery = async () => {
+    if (navigator.onLine === false) {
+      return
+    }
+
+    const workspace = activeWorkspaceRef.current
+    if (!workspace) {
+      const history = await apiClient.workspaces.listHistory()
+      setRecentWorkspaces(history)
+      return
+    }
+
+    const [history, nextChats, nextAccounts, nextProviders, nextSchedules] = await Promise.all([
+      apiClient.workspaces.listHistory(),
+      apiClient.chats.sync(workspace.path),
+      apiClient.providerAccounts.list(),
+      apiClient.providers.list(),
+      apiClient.schedules.list(workspace.path),
+    ])
+
+    setRecentWorkspaces(history)
+    updateProviderData(nextProviders, nextAccounts)
+
+    const currentWorkspace = activeWorkspaceRef.current
+    if (!currentWorkspace || !samePath(currentWorkspace.path, workspace.path)) {
+      return
+    }
+
+    setChatError(null)
+    setScheduleError(null)
+    setChats(nextChats)
+    setSchedules(nextSchedules)
+
+    const currentChatId = activeChatIdRef.current
+    const nextActiveChatId = currentChatId
+      ? nextChats.find((chat) => chat.id === currentChatId)?.id ?? nextChats[0]?.id ?? null
+      : null
+    if (nextActiveChatId !== currentChatId) {
+      setActiveChatId(nextActiveChatId)
+    }
+
+    const currentScheduleId = activeScheduleIdRef.current
+    const nextActiveSchedule = currentScheduleId
+      ? nextSchedules.find((schedule) => schedule.id === currentScheduleId) ?? null
+      : null
+    if (currentScheduleId && !nextActiveSchedule) {
+      setActiveScheduleId(null)
+      setScheduleRunsByScheduleId((current) => omitRecordKey(current, currentScheduleId))
+      setMainMode((current) => current === "schedule" ? "chat" : current)
+    }
+
+    await Promise.all([
+      nextActiveChatId
+        ? apiClient.chats.refresh(nextActiveChatId).then((response) => {
+          const latestWorkspace = activeWorkspaceRef.current
+          if (!latestWorkspace || !samePath(latestWorkspace.path, workspace.path)) {
+            return
+          }
+          setChats((current) => upsertChat(current, response.chat))
+          setMessagesByChatId((current) => ({ ...current, [nextActiveChatId]: response.messages.data }))
+        })
+        : Promise.resolve(),
+      nextActiveSchedule
+        ? apiClient.schedules.listRuns(nextActiveSchedule.id).then((runs) => {
+          const latestWorkspace = activeWorkspaceRef.current
+          if (!latestWorkspace || !samePath(latestWorkspace.path, workspace.path)) {
+            return
+          }
+          setScheduleRunsByScheduleId((current) => ({ ...current, [nextActiveSchedule.id]: runs }))
+        })
+        : Promise.resolve(),
+    ])
+  }
+
+  const requestConnectionRecovery = () => {
+    if (navigator.onLine === false) {
+      return
+    }
+    connectionRecoveryPendingRef.current = true
+    if (connectionRecoveryPromiseRef.current) {
+      return
+    }
+
+    const runRecovery = async () => {
+      while (connectionRecoveryPendingRef.current) {
+        connectionRecoveryPendingRef.current = false
+        await syncSessionAfterConnectionRecovery()
+      }
+    }
+
+    const promise = runRecovery()
+      .catch(() => undefined)
+      .finally(() => {
+        if (connectionRecoveryPromiseRef.current === promise) {
+          connectionRecoveryPromiseRef.current = null
+        }
+        if (connectionRecoveryPendingRef.current) {
+          requestConnectionRecovery()
+        }
+      })
+    connectionRecoveryPromiseRef.current = promise
+  }
+
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 1024px)")
     const hideFilesPanelOnTablet = (event: MediaQueryListEvent | MediaQueryList) => {
@@ -374,6 +479,43 @@ function useSessionShellController() {
   }, [activeScheduleId])
 
   useEffect(() => {
+    activeWorkspaceRef.current = activeWorkspace
+  }, [activeWorkspace])
+
+  useEffect(() => {
+    requestConnectionRecoveryRef.current = requestConnectionRecovery
+  })
+
+  useEffect(() => {
+    const recoverVisibleConnection = () => {
+      if (document.visibilityState === "hidden") {
+        return
+      }
+      const socket = providerSocketRef.current
+      if (socket?.disconnected) {
+        socket.connect()
+      }
+      requestConnectionRecoveryRef.current?.()
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        recoverVisibleConnection()
+      }
+    }
+
+    window.addEventListener("focus", recoverVisibleConnection)
+    window.addEventListener("online", recoverVisibleConnection)
+    window.addEventListener("pageshow", recoverVisibleConnection)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      window.removeEventListener("focus", recoverVisibleConnection)
+      window.removeEventListener("online", recoverVisibleConnection)
+      window.removeEventListener("pageshow", recoverVisibleConnection)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!isTerminalPanelOpen || !activeWorkspace) {
       return
     }
@@ -392,7 +534,15 @@ function useSessionShellController() {
     if (!activeWorkspace) {
       return
     }
-    const socket = io({ path: "/socket.io" })
+    const socket = io({
+      autoConnect: false,
+      path: "/socket.io",
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 5_000,
+      timeout: 10_000,
+    })
     providerSocketRef.current = socket
     const joinSocketRooms = () => {
       socket.emit("workspace.join", activeWorkspace.path)
@@ -400,7 +550,10 @@ function useSessionShellController() {
         socket.emit("chat.join", activeChatIdRef.current)
       }
     }
-    joinSocketRooms()
+    const handleConnect = () => {
+      joinSocketRooms()
+      requestConnectionRecovery()
+    }
     const handleProviderEvent = (value: unknown) => {
       const event = readProviderSocketEvent(value)
       if (!event) {
@@ -497,13 +650,14 @@ function useSessionShellController() {
       }))
     }
 
-    socket.on("connect", joinSocketRooms)
+    socket.on("connect", handleConnect)
     socket.on("provider.event", handleProviderEvent)
     socket.on("message.created", handleMessageCreated)
     socket.on("message.deleted", handleMessageDeleted)
+    socket.connect()
     return () => {
       socket.emit("workspace.leave", activeWorkspace.path)
-      socket.off("connect", joinSocketRooms)
+      socket.off("connect", handleConnect)
       socket.off("provider.event", handleProviderEvent)
       socket.off("message.created", handleMessageCreated)
       socket.off("message.deleted", handleMessageDeleted)
@@ -1191,7 +1345,6 @@ function useSessionShellController() {
     setProvidersDialogOpen(view === "providers")
     setInstructionsDialogOpen(view === "instructions")
     setMcpServersDialogOpen(view === "mcpServers")
-    setPluginsDialogOpen(view === "plugins")
     setMobileDrawer(null)
   }
 
@@ -1244,7 +1397,6 @@ function useSessionShellController() {
     openSelectedFileDialog,
     openWorkspaceFilePath,
     openWorkspaceFromFolder,
-    pluginsDialogOpen,
     preferredAccountId,
     providerDefinitions,
     providersDialogOpen,
@@ -1271,7 +1423,6 @@ function useSessionShellController() {
     setIsTerminalPanelOpen,
     setMainMode,
     setMcpServersDialogOpen,
-    setPluginsDialogOpen,
     setMobileDrawer,
     setProvidersDialogOpen,
     setSidebarWidth,
@@ -1595,10 +1746,6 @@ function SessionDialogHost() {
         open={shell.mcpServersDialogOpen}
         onClose={() => shell.setMcpServersDialogOpen(false)}
       />
-      <PluginsManagementDialog
-        open={shell.pluginsDialogOpen}
-        onClose={() => shell.setPluginsDialogOpen(false)}
-      />
     </>
   )
 }
@@ -1747,7 +1894,6 @@ function MainContentPane({
       onNewChat={shell.startNewChat}
       onOpenMcpServers={() => shell.setMcpServersDialogOpen(true)}
       onOpenProviders={() => shell.setProvidersDialogOpen(true)}
-      onOpenPlugins={() => shell.setPluginsDialogOpen(true)}
       onRefreshChat={shell.refreshChat}
       onRenameChat={shell.renameChat}
       onReviewChat={shell.reviewChat}

@@ -13,7 +13,7 @@ export type FileNode = {
 
 export type MainMode = "chat" | "dialog" | "editor" | "schedule"
 
-export type ManagementView = "instructions" | "mcpServers" | "plugins" | "providers"
+export type ManagementView = "instructions" | "mcpServers" | "providers"
 
 export type MobileDrawer = "sessions" | "files" | null
 

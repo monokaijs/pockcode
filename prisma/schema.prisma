@@ -67,6 +67,15 @@ model PluginState {
   updatedAt DateTime @updatedAt
 }
 
+model PushSubscription {
+  endpoint       String   @id
+  expirationTime Float?
+  keys           Json
+  userAgent      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
 model WorkspaceHistory {
   id           String   @default(uuid()) @unique
   path         String   @id

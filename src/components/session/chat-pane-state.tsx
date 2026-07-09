@@ -56,7 +56,6 @@ export function useChatPaneState({
   onNewChat,
   onOpenMcpServers,
   onOpenProviders,
-  onOpenPlugins,
   onRefreshChat,
   onRenameChat,
   onReviewChat,
@@ -368,10 +367,6 @@ export function useChatPaneState({
         return true
       case "mcp":
         onOpenMcpServers()
-        setDraft("")
-        return true
-      case "plugins":
-        onOpenPlugins()
         setDraft("")
         return true
       case "skills":
