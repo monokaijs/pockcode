@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
@@ -11,6 +11,7 @@ if (process.env.POCKCODE_REAL_CODEX !== "1") {
 const root = mkdtempSync(join(tmpdir(), "pockcode-real-codex-"))
 const workspace = join(root, "workspace")
 const codexHome = join(root, "codex-home")
+const smokeModel = process.env.CODEX_SMOKE_MODEL ?? "gpt-5.5"
 let child
 let nextId = 1
 const pending = new Map()
@@ -18,6 +19,7 @@ const notifications = []
 let stdoutBuffer = ""
 
 try {
+  mkdirSync(codexHome, { recursive: true })
   writeFileSync(join(root, "workspace-marker"), "")
   await import("node:fs/promises").then(({ mkdir, writeFile }) =>
     mkdir(workspace, { recursive: true }).then(() => writeFile(join(workspace, "README.md"), "smoke test workspace\n")),
@@ -59,9 +61,8 @@ try {
 
   const started = await request("thread/start", {
     cwd: workspace,
-    collaborationMode: { mode: "plan" },
     approvalPolicy: "never",
-    sandbox: { type: "readOnly" },
+    sandbox: "read-only",
   })
   const threadId = started.result?.thread?.id
   if (!threadId) {
@@ -71,10 +72,17 @@ try {
   const turn = await request("turn/start", {
     threadId,
     cwd: workspace,
-    collaborationMode: { mode: "plan" },
+    collaborationMode: {
+      mode: "plan",
+      settings: {
+        model: smokeModel,
+        reasoning_effort: "medium",
+        developer_instructions: null,
+      },
+    },
     input: [{ type: "text", text: "Create a two item plan for verifying this smoke test. Do not edit files." }],
     approvalPolicy: "never",
-    sandboxPolicy: { type: "readOnly" },
+    sandboxPolicy: { type: "readOnly", networkAccess: false },
   })
   const turnId = turn.result?.turn?.id
   if (!turnId) {

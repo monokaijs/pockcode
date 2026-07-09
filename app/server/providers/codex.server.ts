@@ -346,7 +346,7 @@ export const codexProviderAdapter: ProviderAdapter = {
       await hydrateKnownCodexThreadToAccount(input.threadId, account)
     }
     const runtime = runtimeForAccount(account, input.workingDirectory)
-    const threadId = await ensureCodexThread(runtime, input.threadId ?? null, input.workingDirectory, input.collaborationMode)
+    const threadId = await ensureCodexThread(runtime, input.threadId ?? null, input.workingDirectory)
     await input.onThreadReady?.(threadId)
     const settings = await resolveCollaborationSettings(
       runtime,
@@ -416,6 +416,7 @@ export const codexProviderAdapter: ProviderAdapter = {
           approvalPolicy: accessMode.approvalPolicy,
           collaborationMode: collaborationModePayload(input.collaborationMode, settings),
           sandboxPolicy: accessMode.sandboxPolicy,
+          serviceTier: settings?.serviceTier ?? undefined,
         },
         30_000,
       )
@@ -3628,14 +3629,12 @@ async function ensureCodexThread(
   runtime: Pick<CodexRuntime, "request">,
   threadId: string | null,
   workingDirectory: string | null,
-  collaborationMode: string,
 ): Promise<string> {
   const response = await runtime.request(
     threadId ? "thread/resume" : "thread/start",
     {
       ...(threadId ? { threadId } : {}),
       cwd: workingDirectory,
-      collaborationMode: collaborationModePayload(collaborationMode, null),
     },
     30_000,
   )
@@ -3659,7 +3658,7 @@ async function prepareCodexThreadForLifecycleAction(
     if (!hydrated) {
       throw new Error(codexThreadNotFoundMessage(externalThreadId))
     }
-    await ensureCodexThread(runtime, externalThreadId, workingDirectory ?? null, "default")
+    await ensureCodexThread(runtime, externalThreadId, workingDirectory ?? null)
     return runtime
   } catch (error) {
     if (isCodexThreadNotFoundError(error)) {
@@ -3862,18 +3861,15 @@ function collaborationModePayload(
   collaborationMode: string,
   settings: { model?: string | null; reasoningEffort?: string | null; serviceTier?: string | null } | null,
 ): JsonObject {
-  const reasoningEffort = normalizeCodexReasoningEffort(settings?.reasoningEffort)
+  const model = settings?.model?.trim() || codexDefaultModel
+  const reasoningEffort = normalizeCodexReasoningEffort(settings?.reasoningEffort) ?? codexDefaultReasoningEffort
   return {
     mode: collaborationMode || "default",
-    ...(settings?.model
-      ? {
-          settings: {
-            model: settings.model,
-            reasoning_effort: reasoningEffort,
-            service_tier: settings.serviceTier ?? null,
-          },
-        }
-      : {}),
+    settings: {
+      model,
+      reasoning_effort: reasoningEffort,
+      developer_instructions: null,
+    },
   }
 }
 
