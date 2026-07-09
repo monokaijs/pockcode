@@ -16,9 +16,11 @@ import {
   formatJson,
   mergeProviderModelOptions,
   parseJsonRecord,
+  readClaudeConfigDirValue,
   readCodexHomeValue,
   readCodexPersonalityValue,
   readComposerAccessMode,
+  readDefaultClaudeConfigDirValue,
   readComposerReasoningEffort,
   readComposerServiceTier,
   readDefaultCodexHomeValue,
@@ -38,6 +40,7 @@ export function useProviderAccountDialogState(
 ) {
   const [authenticating, setAuthenticating] = useState(false)
   const [authMenuOpen, setAuthMenuOpen] = useState(false)
+  const [claudeConfigDir, setClaudeConfigDir] = useState("")
   const [codexHome, setCodexHome] = useState("")
   const [defaultModel, setDefaultModel] = useState("")
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatComposerAccessMode>("askForApproval")
@@ -70,6 +73,7 @@ export function useProviderAccountDialogState(
       return
     }
     setAuthMenuOpen(false)
+    setClaudeConfigDir(readClaudeConfigDirValue(account, provider))
     setCodexHome(readCodexHomeValue(account, provider))
     setDefaultModel(readRecordString(account.runtimeDefaults, "model") || defaultRuntimeDefaultValue(provider.id, "model") || (defaultModelOptionsForProvider(provider.id)[0]?.model ?? ""))
     setDefaultPermissionMode(readComposerAccessMode(readRecordString(account.runtimeDefaults, "permissionMode") || defaultRuntimeDefaultValue(provider.id, "permissionMode")))
@@ -78,7 +82,7 @@ export function useProviderAccountDialogState(
     setDisplayName(account.displayName)
     setPersonality(readCodexPersonalityValue(account.settings))
     setRuntimeDefaultsJson(formatJson(withoutRecordKeys(account.runtimeDefaults, runtimeDefaultStructuredKeys)))
-    setSettingsJson(formatJson(withoutRecordKeys(account.settings, ["codexHome", "personality"])))
+    setSettingsJson(formatJson(withoutRecordKeys(account.settings, ["claudeConfigDir", "codexHome", "personality"])))
     setNotice(null)
   }, [account, provider, runtimeDefaultStructuredKeys])
 
@@ -105,6 +109,7 @@ export function useProviderAccountDialogState(
   }, [account?.id, account?.status, hasDefaultModelField, provider?.id])
 
   const usingSharedCodexHome = account ? readRecordString(account.authState, "codexHomeMode") === "shared" : false
+  const defaultClaudeConfigDir = account && provider ? readDefaultClaudeConfigDirValue(account, provider) : ""
   const defaultCodexHome = account && provider ? readDefaultCodexHomeValue(account, provider) : ""
   const sharedCodexHome = provider ? readSharedCodexHomeValue(provider) : ""
 
@@ -125,6 +130,14 @@ export function useProviderAccountDialogState(
     }
     if (provider.id === "codex") {
       settings.personality = personality
+    }
+    if (provider.id === "claude") {
+      const configDirPath = claudeConfigDir.trim()
+      if (configDirPath && configDirPath !== defaultClaudeConfigDir) {
+        settings.claudeConfigDir = configDirPath
+      } else {
+        delete settings.claudeConfigDir
+      }
     }
     if (hasDefaultModelField) {
       const nextDefaultModel = defaultModel || selectedDefaultModelOption?.model || defaultRuntimeDefaultValue(provider.id, "model")
@@ -253,6 +266,7 @@ export function useProviderAccountDialogState(
   }
 
   const connected = account?.status === "CONNECTED"
+  const hasClaudeConfigDirField = Boolean(provider?.accountFields.some((field) => field.key === "claudeConfigDir"))
   const hasCodexHomeField = Boolean(provider?.accountFields.some((field) => field.key === "codexHome"))
   const visibleModelOptions = mergeProviderModelOptions(provider?.id, modelOptions).filter((option) => !option.hidden)
   const selectedDefaultModelOption = visibleModelOptions.find((option) => option.model === defaultModel || option.id === defaultModel) ?? visibleModelOptions[0] ?? null
@@ -261,6 +275,7 @@ export function useProviderAccountDialogState(
     authenticating,
     authMenuOpen,
     authenticate,
+    claudeConfigDir,
     codexHome,
     connected,
     defaultModel,
@@ -270,6 +285,7 @@ export function useProviderAccountDialogState(
     deleteProviderAccount,
     deleting,
     displayName,
+    hasClaudeConfigDirField,
     hasCodexHomeField,
     hasDefaultModelField,
     hasDefaultPermissionField,
@@ -282,6 +298,7 @@ export function useProviderAccountDialogState(
     saveConfig,
     saving,
     setAuthMenuOpen,
+    setClaudeConfigDir,
     setCodexHome,
     setDefaultModel,
     setDefaultPermissionMode,

@@ -25,17 +25,18 @@ This document captures the research behind the Claude Code provider integration 
 - MCP records remain shared and provider-keyed; Codex writes TOML in its adapter, while Claude injects dynamic MCP server config into SDK turns. The `mcp` capability means a provider can use MCP servers; `mcpOauth` is separate and means PockCode can launch a pre-chat OAuth flow.
 - History monitoring asks all providers for watch paths and change parsing.
 - Instructions routing is generic at `/api/providers/:providerId/instructions`; the old Codex path remains compatible.
-- Account auth UI reads provider auth modes, so Claude exposes Environment/Local and Codex exposes Browser/Device/Local.
+- Account auth UI reads provider auth modes, so Claude exposes isolated Environment auth and Codex exposes Browser/Device/Local.
 
 ## Claude Provider Mapping
 
 - Authentication:
-  - `environment` uses official SDK/API-provider environment variables.
-  - `local` reuses `CLAUDE_CONFIG_DIR` or `~/.claude`.
+  - `environment` uses official SDK/API-provider environment variables stored on each provider account.
+  - Claude intentionally does not expose shared local auth; each account gets its own `CLAUDE_CONFIG_DIR` under the provider accounts home unless `claudeConfigDir` is explicitly set from the provider account config UI.
+  - Inherited shell environment is scrubbed of Claude auth variables before account environment is added, so multiple Claude accounts can run simultaneously with separate credentials.
 - Runtime:
   - Uses `query()` with `resume` for existing threads and SDK session ids for new threads.
   - Tracks active turns for interruption and pending permission/user-input requests.
-  - Passes per-account config dir, inherited environment, account environment, model, effort, permission mode, settings, and MCP servers into SDK options.
+  - Passes per-account config dir, sanitized inherited environment, account environment, model, effort, permission mode, settings, and MCP servers into SDK options.
 - History/lifecycle:
   - Uses SDK helpers for list/load/rename/fork/delete.
   - Copies transcript files between per-account config dirs and the canonical PockCode Claude history dir for account switching.

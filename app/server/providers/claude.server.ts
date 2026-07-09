@@ -68,6 +68,19 @@ const claudeSupportedEfforts = [
   { description: "Extra High", reasoningEffort: "xhigh" },
   { description: "Max", reasoningEffort: "max" },
 ]
+const claudeAuthEnvironmentKeys = [
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_VERTEX_PROJECT_ID",
+  "ANTHROPIC_BEDROCK_BASE_URL",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_CLOUD_PROJECT",
+  "CLOUD_ML_REGION",
+]
 const claudeFallbackModels: ProviderModelListResponse["data"] = [
   {
     id: "sonnet",
@@ -97,8 +110,7 @@ const definition: ProviderDefinition = {
   label: "Claude Code",
   icon: "claude-code",
   authModes: [
-    { mode: "environment", label: "Environment", description: "Use ANTHROPIC_API_KEY or supported Claude Code API-provider environment variables." },
-    { mode: "local", label: "Local account", description: "Reuse the local Claude Code account from CLAUDE_CONFIG_DIR or ~/.claude." },
+    { mode: "environment", label: "Environment", description: "Use this account's environment variables for isolated Claude Code auth." },
   ],
   capabilities: [
     "auth",
@@ -128,7 +140,6 @@ const definition: ProviderDefinition = {
   settingsFields: [
     { key: "accountsHome", label: "Accounts home", type: "path", required: true },
     { key: "historyHome", label: "History home", type: "path", required: true },
-    { key: "sharedConfigDir", label: "Shared Claude config", type: "path", required: true },
     { key: "pathToClaudeCodeExecutable", label: "Claude executable", type: "path" },
     { key: "defaultEnvironment", label: "Environment", type: "json" },
   ],
@@ -182,21 +193,8 @@ export const claudeProviderAdapter: ProviderAdapter = {
   async authenticate(account, mode = "environment") {
     const authMode = normalizeClaudeAuthMode(mode)
     try {
-      if (authMode === "local") {
-        const configDir = resolveClaudeSharedConfigDir()
-        const exists = await stat(configDir).catch(() => null)
-        if (!exists?.isDirectory()) {
-          throw new Error(`No local Claude config directory found at ${configDir}.`)
-        }
-        return connectedAuthResponse(account.id, authMode, "Local Claude Code account is connected.", {
-          authMode,
-          claudeConfigDir: configDir,
-          claudeConfigDirMode: "shared",
-          connectedProvider: "claude",
-        })
-      }
       if (!hasClaudeEnvironmentAuth(account)) {
-        throw new Error("Set ANTHROPIC_API_KEY or a supported Claude Code API-provider environment variable before connecting this account.")
+        throw new Error("Set ANTHROPIC_API_KEY or a supported Claude Code API-provider environment variable in this account's environment before connecting.")
       }
       const initialization = await readClaudeInitialization(account)
       return connectedAuthResponse(account.id, authMode, "Claude Code environment auth is connected.", {
@@ -217,16 +215,12 @@ export const claudeProviderAdapter: ProviderAdapter = {
     }
   },
   async cancelAuthentication() {
-    // Claude SDK environment/local auth has no pending browser flow to cancel.
+    // Claude SDK environment auth has no pending browser flow to cancel.
   },
   async completeAuthentication(account) {
     return this.authenticate(account, normalizeClaudeAuthMode(account.lastAuthMode))
   },
   isAccountConnected(account) {
-    const authState = normalizeJsonObject(account.authState)
-    if (readString(authState.connectedProvider) === "claude" && readString(authState.authMode) === "local") {
-      return true
-    }
     return hasClaudeEnvironmentAuth(account)
   },
   async listModels(account) {
@@ -372,7 +366,6 @@ function defaultClaudeSettings(): JsonObject {
   return {
     accountsHome: join(resolveProviderDataHome("claude"), "accounts"),
     historyHome: join(resolveProviderDataHome("claude"), "history"),
-    sharedConfigDir: resolveHomePath(process.env.CLAUDE_CONFIG_DIR || "~/.claude"),
     pathToClaudeCodeExecutable: "",
     defaultEnvironment: {},
   }
@@ -397,25 +390,17 @@ function connectedAuthResponse(
   }
 }
 
-function normalizeClaudeAuthMode(mode: string | null | undefined): AccountAuthMode {
-  return mode === "local" ? "local" : "environment"
+function normalizeClaudeAuthMode(_mode: string | null | undefined): AccountAuthMode {
+  return "environment"
 }
 
 function resolveClaudeAccountConfigDir(account: ProviderAccount): string {
-  const authState = normalizeJsonObject(account.authState)
-  if (readString(authState.claudeConfigDirMode) === "shared") {
-    return resolveClaudeSharedConfigDir()
-  }
   const settings = normalizeJsonObject(account.settings)
   const explicit = readString(settings.claudeConfigDir)
   if (explicit) {
     return resolveHomePath(explicit)
   }
   return join(resolveHomePath(readString(defaultClaudeSettings().accountsHome) ?? "~/.pockcode/providers/claude/accounts"), account.id)
-}
-
-function resolveClaudeSharedConfigDir(): string {
-  return resolveHomePath(readString(defaultClaudeSettings().sharedConfigDir) ?? "~/.claude")
 }
 
 function resolveClaudeCanonicalConfigDir(): string {
@@ -443,7 +428,7 @@ function runtimeOptionsForAccount(
 ): Options {
   const settings = normalizeJsonObject(account.settings)
   const providerSettings = defaultClaudeSettings()
-  const defaultEnvironment = readStringRecord(providerSettings.defaultEnvironment)
+  const defaultEnvironment = withoutClaudeAuthEnvironment(readStringRecord(providerSettings.defaultEnvironment))
   const accountEnvironment = readStringRecord(settings.environment)
   const configDir = resolveClaudeAccountConfigDir(account)
   const permissionMode = claudePermissionMode(options.permissionMode)
@@ -459,7 +444,7 @@ function runtimeOptionsForAccount(
     disallowedTools: readStringArray(settings.disallowedTools),
     effort: claudeEffort(options.reasoningEffort),
     env: {
-      ...process.env,
+      ...sanitizedProcessEnvironment(),
       ...defaultEnvironment,
       ...accountEnvironment,
       CLAUDE_AGENT_SDK_CLIENT_APP: "pockcode",
@@ -525,16 +510,20 @@ function claudeEffort(value: string | null | undefined): Options["effort"] {
 }
 
 function hasClaudeEnvironmentAuth(account: ProviderAccount): boolean {
-  const env = { ...process.env, ...readStringRecord(defaultClaudeSettings().defaultEnvironment), ...readStringRecord(normalizeJsonObject(account.settings).environment) }
-  return Boolean(
-    env.ANTHROPIC_API_KEY ||
-    env.CLAUDE_CODE_OAUTH_TOKEN ||
-    env.ANTHROPIC_AUTH_TOKEN ||
-    env.ANTHROPIC_VERTEX_PROJECT_ID ||
-    env.ANTHROPIC_BEDROCK_BASE_URL ||
-    env.AWS_ACCESS_KEY_ID ||
-    env.GOOGLE_APPLICATION_CREDENTIALS,
-  )
+  const accountEnvironment = readStringRecord(normalizeJsonObject(account.settings).environment)
+  return claudeAuthEnvironmentKeys.some((key) => Boolean(accountEnvironment[key]))
+}
+
+function sanitizedProcessEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  for (const key of claudeAuthEnvironmentKeys) {
+    delete env[key]
+  }
+  return env
+}
+
+function withoutClaudeAuthEnvironment(env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !claudeAuthEnvironmentKeys.includes(key)))
 }
 
 async function readClaudeInitialization(account: ProviderAccount, workingDirectory?: string | null): Promise<SDKControlInitializeResponse> {
@@ -1330,7 +1319,7 @@ function reviewPrompt(request?: ReviewChatRequest): string {
 }
 
 export function readClaudeHistoryWatchPaths(account?: ProviderAccount): string[] {
-  const paths = [resolveClaudeSharedConfigDir(), resolveClaudeCanonicalConfigDir()]
+  const paths = [resolveClaudeCanonicalConfigDir()]
   if (account) {
     paths.push(resolveClaudeAccountConfigDir(account))
   }
@@ -1371,7 +1360,6 @@ async function readClaudeInstructionHomes(): Promise<string[]> {
   await ensureDatabase()
   const accounts = await prisma.providerAccount.findMany({ where: { providerId: "claude" } })
   return uniquePaths([
-    resolveClaudeSharedConfigDir(),
     resolveClaudeCanonicalConfigDir(),
     ...accounts.map(resolveClaudeAccountConfigDir),
   ])
@@ -1408,8 +1396,7 @@ async function syncClaudeThreadToCanonical(threadId: string, account: ProviderAc
 async function hydrateClaudeThreadForAccount(threadId: string, account: ProviderAccount): Promise<boolean> {
   const target = resolveClaudeAccountConfigDir(account)
   ensureClaudeConfigDir(target)
-  return copyClaudeThread(resolveClaudeCanonicalConfigDir(), target, threadId, { preserveExistingTarget: true }) ||
-    copyClaudeThread(resolveClaudeSharedConfigDir(), target, threadId, { preserveExistingTarget: true })
+  return copyClaudeThread(resolveClaudeCanonicalConfigDir(), target, threadId, { preserveExistingTarget: true })
 }
 
 async function copyClaudeThread(

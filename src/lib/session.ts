@@ -37,6 +37,15 @@ export function readSharedCodexHomeValue(provider: ProviderDefinitionResponse): 
   return readRecordString(provider.defaultSettings, "sharedChatHome") || "~/.codex"
 }
 
+export function readClaudeConfigDirValue(account: ProviderAccountResponse, provider: ProviderDefinitionResponse): string {
+  return readRecordString(account.settings, "claudeConfigDir") || readDefaultClaudeConfigDirValue(account, provider)
+}
+
+export function readDefaultClaudeConfigDirValue(account: ProviderAccountResponse, provider: ProviderDefinitionResponse): string {
+  const accountsHome = readRecordString(provider.defaultSettings, "accountsHome") || "~/.pockcode/providers/claude/accounts"
+  return joinDisplayPath(accountsHome, account.id)
+}
+
 export function joinDisplayPath(parent: string, child: string): string {
   const trimmed = parent.trim()
   return trimmed.endsWith("/") ? `${trimmed}${child}` : `${trimmed}/${child}`

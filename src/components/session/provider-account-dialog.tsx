@@ -90,6 +90,7 @@ function ProviderAccountDialogBody({
         <ProviderAccountNameAuth dialog={dialog} provider={provider} />
         {provider.id === "codex" ? <ProviderPersonalityField dialog={dialog} /> : null}
         {dialog.hasCodexHomeField ? <ProviderCodexHomeField dialog={dialog} /> : null}
+        {dialog.hasClaudeConfigDirField ? <ProviderClaudeConfigDirField dialog={dialog} /> : null}
         {dialog.hasDefaultModelField || dialog.hasDefaultPermissionField || dialog.hasDefaultReasoningField || dialog.hasDefaultServiceTierField
           ? <ProviderRuntimeDefaultsField dialog={dialog} />
           : null}
@@ -221,6 +222,19 @@ function ProviderCodexHomeField({ dialog }: { dialog: ProviderAccountDialogState
         disabled={dialog.usingSharedCodexHome}
         value={dialog.codexHome}
         onChange={(event) => dialog.setCodexHome(event.target.value)}
+      />
+    </label>
+  )
+}
+
+function ProviderClaudeConfigDirField({ dialog }: { dialog: ProviderAccountDialogState }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Claude config dir</span>
+      <input
+        className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-primary"
+        value={dialog.claudeConfigDir}
+        onChange={(event) => dialog.setClaudeConfigDir(event.target.value)}
       />
     </label>
   )
