@@ -1,4 +1,4 @@
-import type { PointerEvent as ReactPointerEvent } from "react"
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react"
 import { useMemo, useState } from "react"
 import { ActivityBar } from "@/components/ide/activity-bar"
 import { AgentPanel } from "@/components/ide/agent-panel"
@@ -22,6 +22,7 @@ const MIN_AGENT_PANEL_WIDTH = 280
 const MAX_AGENT_PANEL_WIDTH = 560
 const MIN_TERMINAL_HEIGHT = 150
 const MAX_TERMINAL_HEIGHT = 520
+const RESIZE_HANDLE_SIZE = 8
 
 export function IdeShell({ projects }: { projects: Project[] }) {
   const ide = useIdeShellState(projects)
@@ -254,13 +255,20 @@ function IdePanelGrid({ ide }: { ide: IdeShellState }) {
     <div
       className="grid min-h-0 min-w-0 overflow-hidden rounded-tl-xl border-l border-t border-border bg-background"
       style={{
-        gridTemplateColumns: String(ide.sidePanelWidth) + "px minmax(0, 1fr) " + String(ide.agentPanelWidth) + "px",
-        gridTemplateRows: "minmax(0, 1fr) " + String(ide.terminalHeight) + "px",
+        gridTemplateColumns:
+          String(ide.sidePanelWidth) + "px " +
+          String(RESIZE_HANDLE_SIZE) + "px minmax(0, 1fr) " +
+          String(RESIZE_HANDLE_SIZE) + "px " +
+          String(ide.agentPanelWidth) + "px",
+        gridTemplateRows: "minmax(0, 1fr) " + String(RESIZE_HANDLE_SIZE) + "px " + String(ide.terminalHeight) + "px",
       }}
     >
       <IdeSidePanel ide={ide} />
+      <IdeSideResizeHandle ide={ide} />
       <IdeEditorPanel ide={ide} />
+      <IdeAgentResizeHandle ide={ide} />
       <IdeAgentPanel ide={ide} />
+      <IdeTerminalResizeHandle ide={ide} />
       <IdeTerminalPanel ide={ide} />
     </div>
   )
@@ -271,7 +279,7 @@ function IdeSidePanel({ ide }: { ide: IdeShellState }) {
     return null
   }
   return (
-    <div className="relative min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "1", gridRow: "1" }}>
+    <div className="min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "1", gridRow: "1" }}>
       {ide.activeActivity === "files" ? (
         <ExplorerPanel
           activeFileId={ide.activeFileId}
@@ -283,13 +291,18 @@ function IdeSidePanel({ ide }: { ide: IdeShellState }) {
       ) : (
         <GitPanel key={ide.activeProject.id + ":git"} project={ide.activeProject} />
       )}
-      <button
-        aria-label="Resize side panel"
-        className="absolute -right-1 top-0 z-20 h-full w-2 cursor-col-resize bg-transparent hover:bg-primary/30"
-        type="button"
-        onPointerDown={ide.startSidePanelResize}
-      />
     </div>
+  )
+}
+
+function IdeSideResizeHandle({ ide }: { ide: IdeShellState }) {
+  return (
+    <IdeResizeHandle
+      label="side panel"
+      orientation="vertical"
+      style={{ gridColumn: "2", gridRow: "1" }}
+      onPointerDown={ide.startSidePanelResize}
+    />
   )
 }
 
@@ -298,7 +311,7 @@ function IdeEditorPanel({ ide }: { ide: IdeShellState }) {
     return null
   }
   return (
-    <div className="min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "2", gridRow: "1" }}>
+    <div className="min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "3", gridRow: "1" }}>
       <EditorArea
         activeFile={ide.activeFile}
         activeFileContent={ide.activeFileContent}
@@ -319,15 +332,20 @@ function IdeAgentPanel({ ide }: { ide: IdeShellState }) {
     return null
   }
   return (
-    <div className="relative min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "3", gridRow: "1 / 3" }}>
-      <button
-        aria-label="Resize AI panel"
-        className="absolute -left-1 top-0 z-20 h-full w-2 cursor-col-resize bg-transparent hover:bg-primary/30"
-        type="button"
-        onPointerDown={ide.startAgentPanelResize}
-      />
+    <div className="min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "5", gridRow: "1 / -1" }}>
       <AgentPanel messages={ide.messages} project={ide.activeProject} onSendMessage={ide.sendAgentMessage} />
     </div>
+  )
+}
+
+function IdeAgentResizeHandle({ ide }: { ide: IdeShellState }) {
+  return (
+    <IdeResizeHandle
+      label="AI panel"
+      orientation="vertical"
+      style={{ gridColumn: "4", gridRow: "1 / -1" }}
+      onPointerDown={ide.startAgentPanelResize}
+    />
   )
 }
 
@@ -336,16 +354,53 @@ function IdeTerminalPanel({ ide }: { ide: IdeShellState }) {
     return null
   }
   return (
-    <div className="min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "1 / 3", gridRow: "2" }}>
+    <div className="min-h-0 min-w-0 overflow-hidden" style={{ gridColumn: "1 / 4", gridRow: "3" }}>
       <TerminalPanel
         activeTerminalId={ide.activeTerminal?.id ?? null}
         terminals={ide.activeProject.terminals}
-        onResizeStart={ide.startTerminalResize}
         onTerminalChange={(terminalId) =>
           ide.setActiveTerminalIdByProject((current) => ({ ...current, [ide.activeProject!.id]: terminalId }))
         }
       />
     </div>
+  )
+}
+
+function IdeTerminalResizeHandle({ ide }: { ide: IdeShellState }) {
+  return (
+    <IdeResizeHandle
+      label="terminal panel"
+      orientation="horizontal"
+      style={{ gridColumn: "1 / 4", gridRow: "2" }}
+      onPointerDown={ide.startTerminalResize}
+    />
+  )
+}
+
+function IdeResizeHandle({
+  label,
+  orientation,
+  style,
+  onPointerDown,
+}: {
+  label: string
+  orientation: "horizontal" | "vertical"
+  style: CSSProperties
+  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void
+}) {
+  return (
+    <button
+      aria-label={`Resize ${label}`}
+      className={[
+        "relative z-20 min-h-0 min-w-0 bg-transparent outline-none after:absolute after:bg-transparent hover:after:bg-primary/30 focus-visible:after:bg-primary/60",
+        orientation === "vertical"
+          ? "h-full w-full cursor-col-resize after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2"
+          : "h-full w-full cursor-row-resize after:left-1/2 after:top-1/2 after:h-px after:w-12 after:-translate-x-1/2 after:-translate-y-1/2",
+      ].join(" ")}
+      style={style}
+      type="button"
+      onPointerDown={onPointerDown}
+    />
   )
 }
 

@@ -1165,6 +1165,9 @@ async function runProviderTurn({
   const startedAt = new Date()
   await prisma.chatRun.update({ where: { id: runId }, data: { status: "RUNNING", startedAt } })
   publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "RUNNING" } })
+  await publishMessageDeltas(chatId).catch((error) => {
+    console.error("Run preview update failed.", error)
+  })
   try {
     const liveMessageSequences = new Map<string, number>()
     let nextLiveMessageSequence = nextKnownMessageSequence(chatId)

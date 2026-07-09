@@ -30,6 +30,7 @@ import {
   useWorkspaceTerminals,
 } from "@/components/session/workspace-terminals"
 import type {
+  CSSProperties,
   PointerEvent as ReactPointerEvent,
 } from "react"
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react"
@@ -98,8 +99,10 @@ import {
 import { startHorizontalResize, startVerticalResize } from "@/lib/resize"
 
 export type SessionShellState = ReturnType<typeof useSessionShellController>
+type BooleanStateUpdate = boolean | ((current: boolean) => boolean)
 
 const SessionShellContext = createContext<SessionShellState | null>(null)
+const PANEL_RESIZE_HANDLE_SIZE = 8
 
 function useSessionShellState(): SessionShellState {
   const value = useContext(SessionShellContext)
@@ -151,13 +154,13 @@ function useSessionShellController() {
   const [fileContentById, setFileContentById] = useState<Record<string, string>>({})
   const [filesWidth, setFilesWidth] = useState(380)
   const [isFilesPanelOpen, setIsFilesPanelOpen] = useState(() => shouldShowFilesPanelByDefault())
-  const [isTerminalPanelOpen, setIsTerminalPanelOpen] = useState(false)
   const [mainMode, setMainMode] = useState<MainMode>("chat")
   const [messagesByChatId, setMessagesByChatId] = useState<Record<string, ChatMessageResponse[]>>({})
   const [mobileDrawer, setMobileDrawer] = useState<MobileDrawer>(null)
   const [openFileIdsByWorkspace, setOpenFileIdsByWorkspace] = useState<Record<string, string[]>>({})
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [selectedFileByWorkspace, setSelectedFileByWorkspace] = useState<Record<string, string>>({})
+  const [terminalPanelOpenByWorkspace, setTerminalPanelOpenByWorkspace] = useState<Record<string, boolean>>({})
   const [terminalHeight, setTerminalHeight] = useState(DEFAULT_TERMINAL_HEIGHT)
   const [providersDialogOpen, setProvidersDialogOpen] = useState(false)
   const [instructionsDialogOpen, setInstructionsDialogOpen] = useState(false)
@@ -179,6 +182,7 @@ function useSessionShellController() {
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0] ?? null,
     [activeWorkspaceId, workspaces],
   )
+  const isTerminalPanelOpen = activeWorkspace ? terminalPanelOpenByWorkspace[activeWorkspace.id] ?? false : false
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? null,
     [activeChatId, chats],
@@ -207,9 +211,23 @@ function useSessionShellController() {
   const activeMessages = activeChat ? messagesByChatId[activeChat.id] ?? [] : []
   const activeMessagesLoaded = activeChat ? Object.prototype.hasOwnProperty.call(messagesByChatId, activeChat.id) : true
   const desktopGridColumns = isFilesPanelOpen
-    ? `${sidebarWidth}px minmax(420px, 1fr) ${filesWidth}px`
-    : `${sidebarWidth}px minmax(420px, 1fr)`
+    ? `${sidebarWidth}px ${PANEL_RESIZE_HANDLE_SIZE}px minmax(420px, 1fr) ${PANEL_RESIZE_HANDLE_SIZE}px ${filesWidth}px`
+    : `${sidebarWidth}px ${PANEL_RESIZE_HANDLE_SIZE}px minmax(420px, 1fr)`
   const terminalHost = useWorkspaceTerminals(activeWorkspace)
+
+  const setIsTerminalPanelOpen = (value: BooleanStateUpdate) => {
+    const workspaceId = activeWorkspaceRef.current?.id ?? activeWorkspace?.id
+    if (!workspaceId) {
+      return
+    }
+    setTerminalPanelOpenByWorkspace((current) => {
+      const previous = current[workspaceId] ?? false
+      const next = typeof value === "function" ? value(previous) : value
+      return next
+        ? { ...current, [workspaceId]: true }
+        : omitRecordKey(current, workspaceId)
+    })
+  }
 
   const updateProviderData = (nextProviders: ProviderDefinitionResponse[], nextAccounts: ProviderAccountResponse[]) => {
     setProviderDefinitions(nextProviders)
@@ -526,7 +544,7 @@ function useSessionShellController() {
   }, [])
 
   useEffect(() => {
-    if (!isTerminalPanelOpen || !activeWorkspace) {
+    if (!isTerminalPanelOpen || !activeWorkspace || !terminalHost.isWorkspaceLoaded) {
       return
     }
     if (terminalHost.terminals.length > 0) {
@@ -538,7 +556,7 @@ function useSessionShellController() {
     }
     terminalAutoCreateWorkspaceRef.current = activeWorkspace.id
     terminalHost.createTerminal()
-  }, [activeWorkspace?.id, isTerminalPanelOpen, terminalHost.createTerminal, terminalHost.terminals.length])
+  }, [activeWorkspace?.id, isTerminalPanelOpen, terminalHost.createTerminal, terminalHost.isWorkspaceLoaded, terminalHost.terminals.length])
 
   useEffect(() => {
     if (!activeWorkspace) {
@@ -814,6 +832,7 @@ function useSessionShellController() {
     })
     setOpenFileIdsByWorkspace((current) => omitRecordKey(current, workspaceId))
     setSelectedFileByWorkspace((current) => omitRecordKey(current, workspaceId))
+    setTerminalPanelOpenByWorkspace((current) => omitRecordKey(current, workspaceId))
     setRecentWorkspaces((current) => updateRecentWorkspaceOpenState(current, closingWorkspace.path, false))
     void apiClient.workspaces.closeHistory(closingWorkspace.path).catch(() => undefined)
   }
@@ -1542,40 +1561,44 @@ function SessionWorkspaceContent() {
 
 function SessionDesktopWorkspace() {
   const shell = useSessionShellState()
-  const terminalColumnEnd = shell.isFilesPanelOpen ? 4 : 3
+  const contentColumnEnd = shell.isFilesPanelOpen ? 6 : 4
 
   return (
     <div
-      className="hidden min-h-0 gap-2 overflow-hidden bg-background p-2 pt-0 md:grid"
+      className="hidden min-h-0 overflow-hidden bg-background p-2 pt-0 md:grid"
       style={{
         gridTemplateColumns: shell.desktopGridColumns,
         gridTemplateRows: shell.isTerminalPanelOpen
-          ? `minmax(0, 1fr) ${shell.terminalHeight}px`
+          ? `minmax(0, 1fr) ${PANEL_RESIZE_HANDLE_SIZE}px ${shell.terminalHeight}px`
           : "minmax(0, 1fr)",
       }}
     >
-      <div className="relative min-h-0 overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / -1" }}>
+      <div className="min-h-0 overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / -1" }}>
         <SessionSidebarPanel />
-        <ResizeHandle
-          edge="right"
-          label="chats panel"
-          onPointerDown={(event) =>
-            startColumnResize(event, {
-              max: 440,
-              min: 220,
-              side: "left",
-              startWidth: shell.sidebarWidth,
-              onResize: shell.setSidebarWidth,
-            })
-          }
-        />
       </div>
-      <div className="relative min-h-0 overflow-hidden rounded-xl" style={{ gridColumn: "2", gridRow: "1" }}>
+      <ResizeHandle
+        label="chats panel"
+        orientation="vertical"
+        style={{ gridColumn: "2", gridRow: "1 / -1" }}
+        onPointerDown={(event) =>
+          startColumnResize(event, {
+            max: 440,
+            min: 220,
+            side: "left",
+            startWidth: shell.sidebarWidth,
+            onResize: shell.setSidebarWidth,
+          })
+        }
+      />
+      <div className="min-h-0 overflow-hidden rounded-xl" style={{ gridColumn: "3", gridRow: "1" }}>
         <SessionMainContent onBackToChat={() => shell.setMainMode("chat")} />
-        {shell.isFilesPanelOpen ? (
+      </div>
+      {shell.isFilesPanelOpen ? (
+        <>
           <ResizeHandle
-            edge="right"
             label="files panel"
+            orientation="vertical"
+            style={{ gridColumn: "4", gridRow: "1" }}
             onPointerDown={(event) =>
               startColumnResize(event, {
                 max: 560,
@@ -1586,24 +1609,28 @@ function SessionDesktopWorkspace() {
               })
             }
           />
-        ) : null}
-      </div>
-      {shell.isFilesPanelOpen ? (
-        <div className="min-h-0 overflow-hidden" style={{ gridColumn: "3", gridRow: "1" }}>
-          <SessionRightPanel treeId="desktop-files" />
-        </div>
+          <div className="min-h-0 overflow-hidden" style={{ gridColumn: "5", gridRow: "1" }}>
+            <SessionRightPanel treeId="desktop-files" />
+          </div>
+        </>
       ) : null}
       {shell.isTerminalPanelOpen ? (
-        <div className="min-h-0 overflow-hidden" style={{ gridColumn: `2 / ${terminalColumnEnd}`, gridRow: "2" }}>
-          <SessionTerminalPanelHost
-            onResizeStart={(event) =>
+        <>
+          <ResizeHandle
+            label="terminal panel"
+            orientation="horizontal"
+            style={{ gridColumn: `3 / ${contentColumnEnd}`, gridRow: "2" }}
+            onPointerDown={(event) =>
               startTerminalResize(event, {
                 startHeight: shell.terminalHeight,
                 onResize: shell.setTerminalHeight,
               })
             }
           />
-        </div>
+          <div className="min-h-0 overflow-hidden" style={{ gridColumn: `3 / ${contentColumnEnd}`, gridRow: "3" }}>
+            <SessionTerminalPanelHost />
+          </div>
+        </>
       ) : null}
     </div>
   )
@@ -1616,28 +1643,34 @@ function SessionMobileMain() {
     <div
       className={cn(
         "grid h-full min-h-0 overflow-hidden bg-background md:hidden",
-        shell.isTerminalPanelOpen && "gap-2 p-2 pt-0",
+        shell.isTerminalPanelOpen && "p-2 pt-0",
       )}
       style={{
         gridTemplateRows: shell.isTerminalPanelOpen
-          ? `minmax(0, 1fr) clamp(${MIN_TERMINAL_HEIGHT}px, ${shell.terminalHeight}px, 46dvh)`
+          ? `minmax(0, 1fr) ${PANEL_RESIZE_HANDLE_SIZE}px clamp(${MIN_TERMINAL_HEIGHT}px, ${shell.terminalHeight}px, 46dvh)`
           : "minmax(0, 1fr)",
       }}
     >
-      <div className="min-h-0 overflow-hidden">
+      <div className="min-h-0 overflow-hidden" style={{ gridRow: "1" }}>
         <SessionMainContent onBackToChat={shell.switchToChat} />
       </div>
       {shell.isTerminalPanelOpen ? (
-        <div className="min-h-0 overflow-hidden">
-          <SessionTerminalPanelHost
-            onResizeStart={(event) =>
+        <>
+          <ResizeHandle
+            label="terminal panel"
+            orientation="horizontal"
+            style={{ gridColumn: "1", gridRow: "2" }}
+            onPointerDown={(event) =>
               startTerminalResize(event, {
                 startHeight: shell.terminalHeight,
                 onResize: shell.setTerminalHeight,
               })
             }
           />
-        </div>
+          <div className="min-h-0 overflow-hidden" style={{ gridRow: "3" }}>
+            <SessionTerminalPanelHost />
+          </div>
+        </>
       ) : null}
     </div>
   )
@@ -1689,11 +1722,7 @@ function SessionRightPanel({ treeId }: { treeId: string }) {
   )
 }
 
-function SessionTerminalPanelHost({
-  onResizeStart,
-}: {
-  onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
-}) {
+function SessionTerminalPanelHost() {
   const shell = useSessionShellState()
 
   if (!shell.activeWorkspace) {
@@ -1715,7 +1744,6 @@ function SessionTerminalPanelHost({
       onHide={() => shell.setIsTerminalPanelOpen(false)}
       onInput={shell.writeTerminalInput}
       onResize={shell.resizeTerminal}
-      onResizeStart={onResizeStart}
     />
   )
 }
@@ -1862,21 +1890,27 @@ function updateRecentWorkspaceOpenState(
 }
 
 function ResizeHandle({
-  edge,
   label,
+  orientation,
+  style,
   onPointerDown,
 }: {
-  edge: "right"
   label: string
+  orientation: "horizontal" | "vertical"
+  style?: CSSProperties
   onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void
 }) {
   return (
     <button
       aria-label={`Resize ${label}`}
       className={cn(
-        "absolute top-0 z-20 h-full w-2 cursor-col-resize bg-transparent outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-accent focus-visible:after:bg-primary",
-        edge === "right" && "right-[-4px]",
+        "relative z-20 min-h-0 min-w-0 bg-transparent outline-none after:absolute after:bg-transparent hover:after:bg-accent focus-visible:after:bg-primary",
+        orientation === "vertical" &&
+          "h-full w-full cursor-col-resize after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2",
+        orientation === "horizontal" &&
+          "h-full w-full cursor-row-resize after:left-1/2 after:top-1/2 after:h-px after:w-14 after:-translate-x-1/2 after:-translate-y-1/2",
       )}
+      style={style}
       type="button"
       onPointerDown={onPointerDown}
     />

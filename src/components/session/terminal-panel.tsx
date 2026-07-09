@@ -9,7 +9,6 @@ import {
 import {
   useEffect,
   useRef,
-  type PointerEvent as ReactPointerEvent,
 } from "react"
 import { useTheme } from "@/components/theme-provider"
 import { terminalThemeColors } from "@/lib/theme-colors"
@@ -42,7 +41,6 @@ export function SessionTerminalPanel({
   onHide,
   onInput,
   onResize,
-  onResizeStart,
 }: {
   activeTerminalId: string | null
   connectionState: TerminalConnectionState
@@ -57,22 +55,12 @@ export function SessionTerminalPanel({
   onHide: () => void
   onInput: (terminalId: string, data: string) => void
   onResize: (terminalId: string, cols: number, rows: number) => void
-  onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
 }) {
   const activeTerminal =
     terminals.find((terminal) => terminal.id === activeTerminalId) ?? terminals[0] ?? null
 
   return (
-    <section className="relative grid h-full min-h-0 grid-rows-[4px_36px_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-background">
-      <button
-        aria-label="Resize terminal panel"
-        className="group flex cursor-row-resize items-center justify-center bg-background outline-none hover:bg-accent/50 focus-visible:bg-accent/50"
-        type="button"
-        onPointerDown={onResizeStart}
-      >
-        <span className="h-px w-14 rounded-full bg-transparent group-hover:bg-border group-focus-visible:bg-primary" />
-      </button>
-
+    <section className="relative grid h-full min-h-0 grid-rows-[36px_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-background">
       <header className="flex min-w-0 items-center border-b border-border bg-secondary/40 px-2">
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden pr-2 ide-scrollbar" role="tablist">
           {terminals.length ? (

@@ -1,4 +1,3 @@
-import type { PointerEvent as ReactPointerEvent } from "react"
 import { Plus, Terminal, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -7,27 +6,17 @@ import type { TerminalSession } from "@/types/ide"
 export function TerminalPanel({
   activeTerminalId,
   terminals,
-  onResizeStart,
   onTerminalChange,
 }: {
   activeTerminalId: string | null
   terminals: TerminalSession[]
-  onResizeStart?: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onTerminalChange: (terminalId: string) => void
 }) {
   const activeTerminal =
     terminals.find((terminal) => terminal.id === activeTerminalId) ?? terminals[0] ?? null
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[4px_auto_minmax(0,1fr)] overflow-hidden border-t bg-ide-terminal">
-      <button
-        aria-label="Resize terminal panel"
-        className="group flex cursor-row-resize items-center justify-center bg-card"
-        type="button"
-        onPointerDown={onResizeStart}
-      >
-        <span className="h-0.5 w-12 rounded-full bg-muted-foreground/25 group-hover:bg-muted-foreground/60" />
-      </button>
+    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden border-t bg-ide-terminal">
       <div className="flex min-h-9 min-w-0 items-center gap-1 border-b bg-card px-2">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto ide-scrollbar" role="tablist">
           {terminals.map((terminal) => {

@@ -8,38 +8,66 @@ import * as pty from "node-pty"
 import type { Socket } from "socket.io"
 import { resolveWorkspaceDirectoryPath } from "./workspaces.server"
 
+type HostedTerminalStatus = "exited" | "running"
+
 type HostedTerminal = {
   cwd: string
-  dataListener: IDisposable
-  exitListener: IDisposable
+  dataListener: IDisposable | null
+  exitCode: number | null
+  exitListener: IDisposable | null
   id: string
   name: string
-  process: IPty
+  output: string
+  process: IPty | null
   shell: string
+  signal: number | null
+  status: HostedTerminalStatus
+  workspacePath: string
 }
 
 type TerminalMetadata = {
   cwd: string
+  exitCode: number | null
   id: string
   name: string
   shell: string
+  status: HostedTerminalStatus
+  workspacePath: string
+}
+
+type TerminalSnapshot = TerminalMetadata & {
+  output: string
 }
 
 type TerminalAck =
   | ((response: { ok: true; terminal: TerminalMetadata } | { error: string; ok: false }) => void)
   | undefined
 
-const terminalSessionsBySocket = new Map<string, Map<string, HostedTerminal>>()
+type TerminalAttachAck =
+  | ((response: { ok: true; terminals: TerminalSnapshot[]; workspacePath: string } | { error: string; ok: false }) => void)
+  | undefined
+
+const TERMINAL_OUTPUT_LIMIT = 260_000
+
+const terminalSessionsById = new Map<string, HostedTerminal>()
+const terminalIdsByWorkspacePath = new Map<string, Set<string>>()
+const terminalWorkspaceBySocket = new Map<string, string>()
 const require = createRequire(import.meta.url)
 let nodePtyHelperChecked = false
 
 export function installTerminalSocketHandlers(socket: Socket): void {
-  const sessions = new Map<string, HostedTerminal>()
-  terminalSessionsBySocket.set(socket.id, sessions)
+  socket.on("terminal.attach", (payload: unknown, reply?: TerminalAttachAck) => {
+    void attachTerminalWorkspace(socket, payload, reply)
+  })
+
+  socket.on("terminal.detach", (payload: unknown) => {
+    void detachTerminalWorkspace(socket, payload)
+  })
 
   socket.on("terminal.create", (payload: unknown, reply?: TerminalAck) => {
-    void createTerminal(socket, sessions, payload, reply)
+    void createTerminal(socket, payload, reply)
   })
+
   socket.on("terminal.input", (payload: unknown) => {
     const record = readRecord(payload)
     const terminalId = readString(record.id)
@@ -47,8 +75,12 @@ export function installTerminalSocketHandlers(socket: Socket): void {
     if (!terminalId || data === undefined) {
       return
     }
-    sessions.get(terminalId)?.process.write(data)
+    const session = terminalSessionsById.get(terminalId)
+    if (session?.status === "running") {
+      session.process?.write(data)
+    }
   })
+
   socket.on("terminal.resize", (payload: unknown) => {
     const record = readRecord(payload)
     const terminalId = readString(record.id)
@@ -57,54 +89,94 @@ export function installTerminalSocketHandlers(socket: Socket): void {
     if (!terminalId) {
       return
     }
-    sessions.get(terminalId)?.process.resize(cols, rows)
+    const session = terminalSessionsById.get(terminalId)
+    if (session?.status === "running") {
+      session.process?.resize(cols, rows)
+    }
   })
+
   socket.on("terminal.close", (payload: unknown) => {
     const terminalId = readString(readRecord(payload).id)
     if (!terminalId) {
       return
     }
-    const session = sessions.get(terminalId)
+    const session = terminalSessionsById.get(terminalId)
     if (!session) {
       return
     }
-    sessions.delete(terminalId)
-    closeHostedTerminal(session)
-    socket.emit("terminal.closed", { id: terminalId })
+    removeHostedTerminal(session)
+    emitTerminalEvent(socket, session.workspacePath, "terminal.closed", { id: terminalId, workspacePath: session.workspacePath })
   })
+
   socket.on("disconnect", () => {
-    for (const session of sessions.values()) {
-      closeHostedTerminal(session)
-    }
-    sessions.clear()
-    terminalSessionsBySocket.delete(socket.id)
+    terminalWorkspaceBySocket.delete(socket.id)
   })
 }
 
 export function closeAllHostedTerminals(): void {
-  for (const sessions of terminalSessionsBySocket.values()) {
-    for (const session of sessions.values()) {
-      try {
-        closeHostedTerminal(session)
-      } catch {
-        // Shutdown should continue even if a terminal has already exited.
-      }
+  for (const session of terminalSessionsById.values()) {
+    try {
+      closeHostedTerminal(session)
+    } catch {
+      // Shutdown should continue even if a terminal has already exited.
     }
-    sessions.clear()
   }
-  terminalSessionsBySocket.clear()
+  terminalSessionsById.clear()
+  terminalIdsByWorkspacePath.clear()
+  terminalWorkspaceBySocket.clear()
+}
+
+async function attachTerminalWorkspace(
+  socket: Socket,
+  payload: unknown,
+  reply: TerminalAttachAck,
+) {
+  try {
+    const workspacePath = await resolveTerminalWorkspacePath(payload)
+    joinTerminalWorkspace(socket, workspacePath)
+    reply?.({
+      ok: true,
+      terminals: listTerminalSnapshots(workspacePath),
+      workspacePath,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to attach terminal workspace."
+    reply?.({ error: message, ok: false })
+    socket.emit("terminal.error", { error: message })
+  }
+}
+
+async function detachTerminalWorkspace(socket: Socket, payload: unknown) {
+  const attachedWorkspacePath = terminalWorkspaceBySocket.get(socket.id)
+  if (!attachedWorkspacePath) {
+    return
+  }
+
+  const requestedWorkspacePath = readString(readRecord(payload).workspacePath)
+  if (requestedWorkspacePath) {
+    try {
+      const workspacePath = await resolveWorkspaceDirectoryPath(requestedWorkspacePath)
+      if (workspacePath !== attachedWorkspacePath) {
+        return
+      }
+    } catch {
+      return
+    }
+  }
+
+  terminalWorkspaceBySocket.delete(socket.id)
+  socket.leave(terminalRoom(attachedWorkspacePath))
 }
 
 async function createTerminal(
   socket: Socket,
-  sessions: Map<string, HostedTerminal>,
   payload: unknown,
   reply: TerminalAck,
 ) {
   try {
     const record = readRecord(payload)
-    const workspacePath = readString(record.workspacePath)
-    const cwd = await resolveWorkspaceDirectoryPath(workspacePath ?? null)
+    const cwd = await resolveWorkspaceDirectoryPath(readString(record.workspacePath) ?? null)
+    joinTerminalWorkspace(socket, cwd)
     const cols = readInt(record.cols, 80, 2, 500)
     const rows = readInt(record.rows, 24, 2, 200)
     const shell = resolveShell()
@@ -120,20 +192,48 @@ async function createTerminal(
     const id = randomUUID()
     const session: HostedTerminal = {
       cwd,
-      dataListener: terminal.onData((data) => socket.emit("terminal.output", { data, id })),
-      exitListener: terminal.onExit(({ exitCode, signal }) => {
-        sessions.delete(id)
-        socket.emit("terminal.exit", { exitCode, id, signal })
-      }),
+      dataListener: null,
+      exitCode: null,
+      exitListener: null,
       id,
       name,
+      output: "",
       process: terminal,
       shell,
+      signal: null,
+      status: "running",
+      workspacePath: cwd,
     }
-    sessions.set(id, session)
+
+    session.dataListener = terminal.onData((data) => {
+      appendTerminalOutput(session, data)
+      emitTerminalEvent(socket, session.workspacePath, "terminal.output", { data, id, workspacePath: session.workspacePath })
+    })
+    session.exitListener = terminal.onExit(({ exitCode, signal }) => {
+      session.status = "exited"
+      session.exitCode = exitCode
+      session.signal = signal ?? null
+      session.process = null
+      disposeTerminalListeners(session)
+      const exitMessage = `\r\n[process exited${exitCode === null ? "" : ` with code ${exitCode}`}]\r\n`
+      appendTerminalOutput(session, exitMessage)
+      emitTerminalEvent(socket, session.workspacePath, "terminal.output", {
+        data: exitMessage,
+        id,
+        workspacePath: session.workspacePath,
+      })
+      emitTerminalEvent(socket, session.workspacePath, "terminal.exit", {
+        exitCode,
+        id,
+        signal,
+        workspacePath: session.workspacePath,
+      })
+    })
+    addHostedTerminal(session)
+
     const metadata = terminalMetadata(session)
     reply?.({ ok: true, terminal: metadata })
-    socket.emit("terminal.created", metadata)
+    emitTerminalEvent(socket, session.workspacePath, "terminal.created", metadata)
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to start terminal."
     reply?.({ error: message, ok: false })
@@ -142,9 +242,66 @@ async function createTerminal(
 }
 
 function closeHostedTerminal(session: HostedTerminal) {
-  session.dataListener.dispose()
-  session.exitListener.dispose()
-  session.process.kill()
+  disposeTerminalListeners(session)
+  session.process?.kill()
+  session.process = null
+}
+
+function addHostedTerminal(session: HostedTerminal) {
+  terminalSessionsById.set(session.id, session)
+  const workspaceTerminals = terminalIdsByWorkspacePath.get(session.workspacePath) ?? new Set<string>()
+  workspaceTerminals.add(session.id)
+  terminalIdsByWorkspacePath.set(session.workspacePath, workspaceTerminals)
+}
+
+function removeHostedTerminal(session: HostedTerminal) {
+  terminalSessionsById.delete(session.id)
+  const workspaceTerminals = terminalIdsByWorkspacePath.get(session.workspacePath)
+  workspaceTerminals?.delete(session.id)
+  if (!workspaceTerminals?.size) {
+    terminalIdsByWorkspacePath.delete(session.workspacePath)
+  }
+  closeHostedTerminal(session)
+}
+
+function disposeTerminalListeners(session: HostedTerminal) {
+  session.dataListener?.dispose()
+  session.exitListener?.dispose()
+  session.dataListener = null
+  session.exitListener = null
+}
+
+function appendTerminalOutput(session: HostedTerminal, data: string) {
+  const output = session.output + data
+  session.output = output.length > TERMINAL_OUTPUT_LIMIT ? output.slice(-TERMINAL_OUTPUT_LIMIT) : output
+}
+
+function emitTerminalEvent(socket: Socket, workspacePath: string, event: string, payload: unknown) {
+  socket.nsp.to(terminalRoom(workspacePath)).emit(event, payload)
+}
+
+function joinTerminalWorkspace(socket: Socket, workspacePath: string) {
+  const previousWorkspacePath = terminalWorkspaceBySocket.get(socket.id)
+  if (previousWorkspacePath && previousWorkspacePath !== workspacePath) {
+    socket.leave(terminalRoom(previousWorkspacePath))
+  }
+  terminalWorkspaceBySocket.set(socket.id, workspacePath)
+  socket.join(terminalRoom(workspacePath))
+}
+
+function listTerminalSnapshots(workspacePath: string): TerminalSnapshot[] {
+  return [...(terminalIdsByWorkspacePath.get(workspacePath) ?? [])]
+    .map((id) => terminalSessionsById.get(id))
+    .filter((session): session is HostedTerminal => Boolean(session))
+    .map((session) => ({ ...terminalMetadata(session), output: session.output }))
+}
+
+async function resolveTerminalWorkspacePath(payload: unknown) {
+  return resolveWorkspaceDirectoryPath(readString(readRecord(payload).workspacePath) ?? null)
+}
+
+function terminalRoom(workspacePath: string) {
+  return `terminal:${workspacePath}`
 }
 
 function ensureNodePtySpawnHelperExecutable() {
@@ -167,9 +324,12 @@ function ensureNodePtySpawnHelperExecutable() {
 function terminalMetadata(session: HostedTerminal): TerminalMetadata {
   return {
     cwd: session.cwd,
+    exitCode: session.exitCode,
     id: session.id,
     name: session.name,
     shell: session.shell,
+    status: session.status,
+    workspacePath: session.workspacePath,
   }
 }
 
