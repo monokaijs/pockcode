@@ -223,12 +223,21 @@ function useSessionShellController() {
       const history = await apiClient.workspaces.listHistory()
       setRecentWorkspaces(history)
       const nextWorkspaces: Workspace[] = []
+      const openHistory = history.filter((item) => item.isOpen)
       const targetHistory = history.find((item) => item.id === routeTarget.workspaceId)
-      if (targetHistory) {
-        const workspace = await workspaceFromHistory(targetHistory, nextWorkspaces)
+      const historiesToOpen = targetHistory && !openHistory.some((item) => item.id === targetHistory.id || samePath(item.path, targetHistory.path))
+        ? [targetHistory, ...openHistory]
+        : openHistory
+      for (const historyItem of historiesToOpen) {
+        const workspace = await workspaceFromHistory(historyItem, nextWorkspaces)
         if (workspace) {
           nextWorkspaces.push(workspace)
         }
+      }
+      if (targetHistory && !targetHistory.isOpen) {
+        void apiClient.workspaces.saveHistory(targetHistory.path)
+          .then((saved) => setRecentWorkspaces((current) => upsertRecentWorkspace(current, saved)))
+          .catch(() => undefined)
       }
       setWorkspaces(nextWorkspaces)
       setExpandedFolderIds(new Set(nextWorkspaces.flatMap((workspace) => collectInitialFolderIds(workspace))))
@@ -237,6 +246,7 @@ function useSessionShellController() {
       setActiveWorkspaceId((current) =>
         nextWorkspaces.find((workspace) => workspace.id === current)?.id ??
         nextWorkspaces.find((workspace) => workspace.id === routeTarget.workspaceId)?.id ??
+        nextWorkspaces[0]?.id ??
         null,
       )
     } catch (error) {
@@ -685,7 +695,10 @@ function useSessionShellController() {
     const existingWorkspace = workspaces.find((workspace) => samePath(workspace.path, directory.path))
     if (existingWorkspace) {
       setActiveWorkspaceId(existingWorkspace.id)
-      await apiClient.workspaces.saveHistory(existingWorkspace.path).catch(() => undefined)
+      const saved = await apiClient.workspaces.saveHistory(existingWorkspace.path).catch(() => null)
+      if (saved) {
+        setRecentWorkspaces((current) => upsertRecentWorkspace(current, saved))
+      }
       setRouteTargetPending(false)
       setWorkspaceBrowserOpen(false)
       setMobileDrawer(null)
@@ -696,6 +709,9 @@ function useSessionShellController() {
       setWorkspaceLoadError(readError(error))
       return null
     })
+    if (savedWorkspace) {
+      setRecentWorkspaces((current) => upsertRecentWorkspace(current, savedWorkspace))
+    }
     const workspace = createWorkspaceFromBrowserEntry(directory, workspaces, savedWorkspace?.id)
     setWorkspaces((current) => [...current, workspace])
     setOpenFileIdsByWorkspace((current) => ({
@@ -724,7 +740,10 @@ function useSessionShellController() {
     const existingWorkspace = workspaces.find((workspace) => workspace.id === recent.id || samePath(workspace.path, recent.path))
     if (existingWorkspace) {
       setActiveWorkspaceId(existingWorkspace.id)
-      await apiClient.workspaces.saveHistory(existingWorkspace.path).catch(() => undefined)
+      const saved = await apiClient.workspaces.saveHistory(existingWorkspace.path).catch(() => null)
+      if (saved) {
+        setRecentWorkspaces((current) => upsertRecentWorkspace(current, saved))
+      }
       setWorkspaceBrowserOpen(false)
       setMobileDrawer(null)
       setRouteTargetPending(false)
@@ -755,11 +774,22 @@ function useSessionShellController() {
       setRouteTargetPending(false)
       const saved = await apiClient.workspaces.saveHistory(workspace.path).catch(() => null)
       if (saved) {
-        setRecentWorkspaces((current) => [saved, ...current.filter((item) => item.id !== saved.id)])
+        setRecentWorkspaces((current) => upsertRecentWorkspace(current, saved))
       }
     } catch (error) {
       setWorkspaceLoadError(readError(error))
     }
+  }
+
+  const selectWorkspace = (workspaceId: string) => {
+    const workspace = workspaces.find((item) => item.id === workspaceId)
+    setActiveWorkspaceId(workspaceId)
+    if (!workspace) {
+      return
+    }
+    void apiClient.workspaces.saveHistory(workspace.path)
+      .then((saved) => setRecentWorkspaces((current) => upsertRecentWorkspace(current, saved)))
+      .catch(() => undefined)
   }
 
   const closeWorkspace = (workspaceId: string) => {
@@ -784,7 +814,8 @@ function useSessionShellController() {
     })
     setOpenFileIdsByWorkspace((current) => omitRecordKey(current, workspaceId))
     setSelectedFileByWorkspace((current) => omitRecordKey(current, workspaceId))
-    void apiClient.workspaces.deleteHistory(closingWorkspace.path).catch(() => undefined)
+    setRecentWorkspaces((current) => updateRecentWorkspaceOpenState(current, closingWorkspace.path, false))
+    void apiClient.workspaces.closeHistory(closingWorkspace.path).catch(() => undefined)
   }
 
   const loadFileContent = async (file: FileNode) => {
@@ -1408,6 +1439,7 @@ function useSessionShellController() {
     selectFile,
     selectManagementView,
     selectSchedule,
+    selectWorkspace,
     selectedFile,
     selectedFileContent,
     selectedFileId,
@@ -1416,7 +1448,6 @@ function useSessionShellController() {
     setActivePanelTab,
     setActiveScheduleId,
     setActiveTerminalId: terminalHost.setActiveTerminalId,
-    setActiveWorkspaceId,
     setFilesWidth,
     setInstructionsDialogOpen,
     setIsFilesPanelOpen,
@@ -1474,7 +1505,7 @@ function SessionShellView() {
           onCloseWorkspace={shell.closeWorkspace}
           onOpenFilesDrawer={() => shell.setMobileDrawer("files")}
           onOpenSessionsDrawer={() => shell.setMobileDrawer("sessions")}
-          onSelectWorkspace={shell.setActiveWorkspaceId}
+          onSelectWorkspace={shell.selectWorkspace}
           onToggleFilesPanel={() => shell.setIsFilesPanelOpen((current) => !current)}
           onToggleTerminalPanel={() => shell.setIsTerminalPanelOpen((current) => !current)}
         />
@@ -1815,6 +1846,20 @@ function EmptyWorkspacePane({
   )
 }
 
+function upsertRecentWorkspace(current: WorkspaceHistoryResponse[], workspace: WorkspaceHistoryResponse) {
+  return [
+    workspace,
+    ...current.filter((item) => item.id !== workspace.id && !samePath(item.path, workspace.path)),
+  ]
+}
+
+function updateRecentWorkspaceOpenState(
+  current: WorkspaceHistoryResponse[],
+  workspacePath: string,
+  isOpen: boolean,
+) {
+  return current.map((item) => samePath(item.path, workspacePath) ? { ...item, isOpen } : item)
+}
 
 function ResizeHandle({
   edge,
