@@ -177,6 +177,7 @@ function useSessionShellController() {
   const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
   const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null)
   const [workspaceBrowserOpen, setWorkspaceBrowserOpen] = useState(false)
+  const [workspaceStartOpen, setWorkspaceStartOpen] = useState(false)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const activeChatIdRef = useRef<string | null>(null)
   const activeScheduleIdRef = useRef<string | null>(null)
@@ -764,6 +765,7 @@ function useSessionShellController() {
       }
       setRouteTargetPending(false)
       setWorkspaceBrowserOpen(false)
+      setWorkspaceStartOpen(false)
       setMobileDrawer(null)
       return
     }
@@ -796,6 +798,7 @@ function useSessionShellController() {
     setMainMode("chat")
     setMobileDrawer(null)
     setWorkspaceBrowserOpen(false)
+    setWorkspaceStartOpen(false)
     setRouteTargetPending(false)
   }
 
@@ -808,6 +811,7 @@ function useSessionShellController() {
         setRecentWorkspaces((current) => upsertRecentWorkspace(current, saved))
       }
       setWorkspaceBrowserOpen(false)
+      setWorkspaceStartOpen(false)
       setMobileDrawer(null)
       setRouteTargetPending(false)
       return
@@ -834,6 +838,7 @@ function useSessionShellController() {
       setMcpServersDialogOpen(false)
       setMainMode("chat")
       setMobileDrawer(null)
+      setWorkspaceStartOpen(false)
       setRouteTargetPending(false)
       const saved = await apiClient.workspaces.saveHistory(workspace.path).catch(() => null)
       if (saved) {
@@ -847,6 +852,7 @@ function useSessionShellController() {
   const selectWorkspace = (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId)
     setActiveWorkspaceId(workspaceId)
+    setWorkspaceStartOpen(false)
     if (!workspace) {
       return
     }
@@ -1683,6 +1689,8 @@ function useSessionShellController() {
     setSidebarTab,
     setTerminalHeight,
     setWorkspaceBrowserOpen,
+    setWorkspaceLoadError,
+    setWorkspaceStartOpen,
     sidebarWidth,
     sidebarTab,
     startNewChat,
@@ -1710,6 +1718,7 @@ function useSessionShellController() {
     writeTerminalInput: terminalHost.writeTerminalInput,
     workspaceBrowserOpen,
     workspaceLoadError,
+    workspaceStartOpen,
     workspaces,
   }
 }
@@ -1725,7 +1734,11 @@ function SessionShellView() {
           isFilesPanelOpen={shell.isFilesPanelOpen}
           isTerminalPanelOpen={shell.isTerminalPanelOpen}
           workspaces={shell.workspaces}
-          onAddWorkspace={() => shell.setWorkspaceBrowserOpen(true)}
+          onAddWorkspace={() => {
+            shell.setWorkspaceLoadError(null)
+            shell.setWorkspaceStartOpen(true)
+            shell.setMobileDrawer(null)
+          }}
           onCloseWorkspace={shell.closeWorkspace}
           onOpenFilesDrawer={() => shell.setMobileDrawer("files")}
           onOpenSessionsDrawer={() => shell.setMobileDrawer("sessions")}
@@ -1744,7 +1757,7 @@ function SessionShellView() {
 function SessionWorkspaceContent() {
   const shell = useSessionShellState()
 
-  if (!shell.activeWorkspace) {
+  if (!shell.activeWorkspace || shell.workspaceStartOpen) {
     return (
       <EmptyWorkspacePane
         error={shell.workspaceLoadError}

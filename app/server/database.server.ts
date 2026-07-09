@@ -4,7 +4,10 @@ import { prisma } from "./prisma.server"
 let ensurePromise: Promise<void> | null = null
 
 export function ensureDatabase(): Promise<void> {
-  ensurePromise ??= setupDatabase()
+  ensurePromise ??= setupDatabase().catch((error) => {
+    ensurePromise = null
+    throw error
+  })
   return ensurePromise
 }
 

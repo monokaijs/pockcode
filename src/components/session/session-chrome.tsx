@@ -1,4 +1,5 @@
-import type { ReactNode } from "react"
+import type { ReactNode, Ref } from "react"
+import { useEffect, useRef } from "react"
 import { PanelLeft, PanelRight, Plus, Terminal, X } from "lucide-react"
 import { ThemeModeToggle } from "@/components/theme-mode-toggle"
 import { PushNotificationButton } from "@/components/session/push-notification-button"
@@ -104,13 +105,20 @@ function WorkspaceTabs({
   onCloseWorkspace: (workspaceId: string) => void
   onSelectWorkspace: (workspaceId: string) => void
 }) {
+  const activeTabRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+  }, [activeWorkspaceId, workspaces.length])
+
   return (
-    <div className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-hidden px-2">
+    <div className="workspace-tabs-scroll flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden px-2">
       {workspaces.map((workspace) => (
         <WorkspaceTab
           active={workspace.id === activeWorkspaceId}
           key={workspace.id}
           label={workspace.name}
+          tabRef={workspace.id === activeWorkspaceId ? activeTabRef : undefined}
           onClose={() => onCloseWorkspace(workspace.id)}
           onSelect={() => onSelectWorkspace(workspace.id)}
         />
@@ -130,11 +138,13 @@ function WorkspaceTabs({
 function WorkspaceTab({
   active,
   label,
+  tabRef,
   onClose,
   onSelect,
 }: {
   active?: boolean
   label: string
+  tabRef?: Ref<HTMLDivElement>
   onClose: () => void
   onSelect: () => void
 }) {
@@ -146,6 +156,7 @@ function WorkspaceTab({
           ? "border-border bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
       )}
+      ref={tabRef}
       title={label}
     >
       <button className="min-w-0 flex-1 px-1.5 text-left" type="button" onClick={onSelect}>
