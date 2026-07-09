@@ -416,7 +416,7 @@ export const codexProviderAdapter: ProviderAdapter = {
           approvalPolicy: accessMode.approvalPolicy,
           collaborationMode: collaborationModePayload(input.collaborationMode, settings),
           sandboxPolicy: accessMode.sandboxPolicy,
-          serviceTier: settings?.serviceTier ?? undefined,
+          ...(settings?.serviceTier ? { serviceTier: settings.serviceTier } : {}),
         },
         30_000,
       )
