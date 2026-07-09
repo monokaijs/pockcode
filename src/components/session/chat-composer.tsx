@@ -446,13 +446,13 @@ function ComposerAccessModeSelect() {
       <SelectTrigger
         aria-label="Access mode"
         className={cn(
-          "!size-7 shrink-0 justify-center gap-0 !rounded-md border-border bg-transparent p-0 text-[12px] font-semibold text-foreground shadow-none hover:bg-accent [&>svg:last-child]:hidden lg:!h-7 lg:!w-auto lg:gap-1.5 lg:px-2 lg:[&>svg:last-child]:block",
+          "!size-7 shrink-0 justify-center gap-0 !rounded-md border-transparent bg-transparent p-0 text-[12px] font-medium text-muted-foreground shadow-none hover:bg-accent hover:text-foreground data-open:bg-accent data-open:text-foreground dark:bg-transparent dark:hover:bg-accent [&>svg:last-child]:hidden lg:!h-7 lg:!w-auto lg:gap-1.5 lg:px-2 lg:[&>svg:last-child]:block",
         )}
         size="sm"
         title={composerAccessModeLabel(pane.accessMode)}
       >
         <span className="flex min-w-0 items-center justify-center gap-0 lg:justify-start lg:gap-1.5">
-          <Shield className={cn("size-3.5 shrink-0 text-muted-foreground", isFullAccess && "text-warning")} />
+          <Shield className={cn("size-3.5 shrink-0", isFullAccess && "text-warning")} />
           <span className="hidden min-w-0 truncate lg:inline">{composerAccessModeLabel(pane.accessMode)}</span>
         </span>
       </SelectTrigger>
