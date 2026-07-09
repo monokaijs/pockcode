@@ -6,6 +6,7 @@ import {
   type McpServerResponse,
   type McpServerStatusItem,
   type ProviderAccountResponse,
+  type ProviderDefinitionResponse,
 } from "@/lib/api-client"
 import { delay, readError } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -29,6 +30,7 @@ export function McpServersManagementDialog({
   const [isLoading, setIsLoading] = useState(true)
   const [notice, setNotice] = useState<{ kind: "error" | "info"; text: string } | null>(null)
   const [oauthing, setOauthing] = useState(false)
+  const [providers, setProviders] = useState<ProviderDefinitionResponse[]>([])
   const [refreshingStatus, setRefreshingStatus] = useState(false)
   const [saving, setSaving] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -36,7 +38,11 @@ export function McpServersManagementDialog({
   const [statusAccountId, setStatusAccountId] = useState("")
   const [statusItems, setStatusItems] = useState<McpServerStatusItem[]>([])
   const [syncing, setSyncing] = useState(false)
-  const codexAccounts = accounts.filter((account) => account.providerId === "codex")
+  const providerById = new Map(providers.map((provider) => [provider.id, provider]))
+  const mcpAccounts = accounts.filter((account) => providerById.get(account.providerId)?.capabilities.includes("mcp"))
+  const oauthAccounts = mcpAccounts.filter((account) => providerById.get(account.providerId)?.capabilities.includes("mcpOauth"))
+  const oauthAccountIds = new Set(oauthAccounts.map((account) => account.id))
+  const oauthAccountId = [statusAccountId, ...draft.accountIds, oauthAccounts[0]?.id ?? ""].find((accountId) => oauthAccountIds.has(accountId)) ?? ""
   const selectedServer = servers.find((server) => server.id === selectedId) ?? null
   const selectedStatus = selectedServer
     ? statusItems.find((item) => item.name === selectedServer.name)
@@ -46,17 +52,20 @@ export function McpServersManagementDialog({
     setIsLoading(true)
     setNotice(null)
     try {
-      const [nextServers, nextAccounts] = await Promise.all([
+      const [nextServers, nextAccounts, nextProviders] = await Promise.all([
         apiClient.mcpServers.list(),
         apiClient.providerAccounts.list(),
+        apiClient.providers.list(),
       ])
       setServers(nextServers)
       setAccounts(nextAccounts)
+      setProviders(nextProviders)
       const nextSelected = nextServers.find((server) => server.id === preferredSelectedId) ?? nextServers[0] ?? null
       setSelectedId(nextSelected?.id ?? null)
       setDraft(nextSelected ? mcpDraftFromServer(nextSelected) : emptyMcpDraft())
-      const firstCodexAccountId = nextAccounts.find((account) => account.providerId === "codex")?.id ?? ""
-      setStatusAccountId((current) => current || nextSelected?.installations[0]?.accountId || firstCodexAccountId)
+      const nextProviderById = new Map(nextProviders.map((provider) => [provider.id, provider]))
+      const firstMcpAccountId = nextAccounts.find((account) => nextProviderById.get(account.providerId)?.capabilities.includes("mcp"))?.id ?? ""
+      setStatusAccountId((current) => current || nextSelected?.installations[0]?.accountId || firstMcpAccountId)
     } catch (error) {
       setNotice({ kind: "error", text: readError(error) })
     } finally {
@@ -144,9 +153,9 @@ export function McpServersManagementDialog({
     }
   }
 
-  const refreshStatus = async (accountId = statusAccountId || draft.accountIds[0] || codexAccounts[0]?.id || "") => {
+  const refreshStatus = async (accountId = statusAccountId || draft.accountIds[0] || mcpAccounts[0]?.id || "") => {
     if (!accountId) {
-      setNotice({ kind: "error", text: "Choose a Codex account." })
+      setNotice({ kind: "error", text: "Choose an MCP-capable provider account." })
       return
     }
     setRefreshingStatus(true)
@@ -167,9 +176,9 @@ export function McpServersManagementDialog({
       setNotice({ kind: "error", text: "Save this MCP server before OAuth login." })
       return
     }
-    const accountId = statusAccountId || draft.accountIds[0] || codexAccounts[0]?.id
+    const accountId = oauthAccountId
     if (!accountId) {
-      setNotice({ kind: "error", text: "Choose a Codex account." })
+      setNotice({ kind: "error", text: "Choose a provider account that supports MCP OAuth." })
       return
     }
     setOauthing(true)
@@ -374,9 +383,9 @@ export function McpServersManagementDialog({
 
               <div className="grid gap-2">
                 <div className="text-[12px] font-medium text-foreground">Accounts</div>
-                {codexAccounts.length ? (
+                {mcpAccounts.length ? (
                   <div className="grid gap-1 md:grid-cols-2">
-                    {codexAccounts.map((account) => (
+                    {mcpAccounts.map((account) => (
                       <label
                         className="flex min-w-0 items-center gap-2 rounded-md border border-border px-2 py-1.5 text-[12px] text-foreground"
                         key={account.id}
@@ -394,14 +403,14 @@ export function McpServersManagementDialog({
                             )
                           }}
                         />
-                        <ProviderMark icon="codex" className="size-3.5 shrink-0 text-info" />
+                        <ProviderMark icon={providerById.get(account.providerId)?.icon ?? account.providerId} className="size-3.5 shrink-0 text-info" />
                         <span className="min-w-0 flex-1 truncate">{account.displayName}</span>
                         <ProviderStatusBadge status={account.status} />
                       </label>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-[12px] text-muted-foreground">No Codex accounts</div>
+                  <div className="text-[12px] text-muted-foreground">No MCP-capable accounts</div>
                 )}
               </div>
 
@@ -413,7 +422,7 @@ export function McpServersManagementDialog({
                     onChange={(event) => setStatusAccountId(event.currentTarget.value)}
                   >
                     <option value="">Account</option>
-                    {codexAccounts.map((account) => (
+                    {mcpAccounts.map((account) => (
                       <option key={account.id} value={account.id}>{account.displayName}</option>
                     ))}
                   </select>
@@ -465,15 +474,17 @@ export function McpServersManagementDialog({
               <RefreshCw className={cn("size-3.5", syncing && "animate-spin")} />
               Sync
             </button>
-            <button
-              className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-[12px] text-foreground hover:bg-accent disabled:opacity-50"
-              disabled={!selectedServer || draft.transportType !== "streamable_http" || oauthing}
-              type="button"
-              onClick={() => void startOauthLogin()}
-            >
-              <ExternalLink className="size-3.5" />
-              OAuth
-            </button>
+            {oauthAccounts.length ? (
+              <button
+                className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-[12px] text-foreground hover:bg-accent disabled:opacity-50"
+                disabled={!selectedServer || draft.transportType !== "streamable_http" || oauthing || !oauthAccountId}
+                type="button"
+                onClick={() => void startOauthLogin()}
+              >
+                <ExternalLink className="size-3.5" />
+                OAuth
+              </button>
+            ) : null}
             <button
               className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground hover:bg-primary/80 disabled:opacity-60"
               disabled={saving}

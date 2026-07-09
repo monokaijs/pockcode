@@ -15,7 +15,7 @@ import type {
   UpdateMessageScheduleRequest,
   UpdateQueuedChatRunRequest,
   UpdateChatRequest,
-  UpdateCodexInstructionsRequest,
+  UpdateProviderInstructionsRequest,
   UpdateProviderAccountRequest,
 } from "../types/providers"
 import type { PluginSettingsUpdateRequest } from "../types/plugins"
@@ -95,8 +95,7 @@ import {
   syncMcpServer,
   updateMcpServer,
 } from "./mcp.service"
-import { readCodexInstructions, updateCodexInstructions } from "./providers/codex.server"
-import { listProviders } from "./providers.service"
+import { listProviders, readProviderInstructions, updateProviderInstructions } from "./providers.service"
 import { listPlugins, runPluginAction, updatePlugin } from "./plugins.service"
 import {
   deleteWebPushSubscription,
@@ -166,13 +165,15 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     return
   }
 
-  if (url.pathname === "/api/providers/codex/instructions") {
+  const providerInstructionsMatch = url.pathname.match(/^\/api\/providers\/([^/]+)\/instructions$/)
+  if (providerInstructionsMatch) {
     requireMethod(method, ["GET", "PUT"])
+    const providerId = decodeURIComponent(providerInstructionsMatch[1])
     if (method === "PUT") {
-      sendJson(res, await updateCodexInstructions(readCodexInstructionsRequest(await readNodeJsonBody(req)).instructions))
+      sendJson(res, await updateProviderInstructions(providerId, readProviderInstructionsRequest(await readNodeJsonBody(req))))
       return
     }
-    sendJson(res, await readCodexInstructions())
+    sendJson(res, await readProviderInstructions(providerId))
     return
   }
 
@@ -627,7 +628,7 @@ function readPluginSettingsUpdateRequest(body: Partial<PluginSettingsUpdateReque
   }
 }
 
-function readCodexInstructionsRequest(body: Partial<UpdateCodexInstructionsRequest>): UpdateCodexInstructionsRequest {
+function readProviderInstructionsRequest(body: Partial<UpdateProviderInstructionsRequest>): UpdateProviderInstructionsRequest {
   if (body.instructions === undefined) {
     return { instructions: "" }
   }
@@ -949,10 +950,10 @@ function readAuthMode(value: unknown): AccountAuthMode {
   if (value === undefined || value === null) {
     return "browser"
   }
-  if (value === "browser" || value === "device" || value === "local") {
+  if (value === "browser" || value === "device" || value === "environment" || value === "local") {
     return value
   }
-  throw new HttpError(400, "mode must be browser, device, or local.")
+  throw new HttpError(400, "mode must be browser, device, environment, or local.")
 }
 
 function readHeader(value: string | string[] | undefined): string | null {

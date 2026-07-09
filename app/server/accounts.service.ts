@@ -175,7 +175,7 @@ export function serializeAccount(account: ProviderAccount): ProviderAccountRespo
     authState: (account.authState as JsonObject | null) ?? null,
     lastAuthUrl: account.lastAuthUrl,
     lastAuthMode:
-      account.lastAuthMode === "browser" || account.lastAuthMode === "device" || account.lastAuthMode === "local"
+      account.lastAuthMode === "browser" || account.lastAuthMode === "device" || account.lastAuthMode === "environment" || account.lastAuthMode === "local"
         ? account.lastAuthMode
         : null,
     lastAuthLoginId: account.lastAuthLoginId,

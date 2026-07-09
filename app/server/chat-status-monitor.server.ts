@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises"
 import { listChats, publishMessageDeltas, refreshChatStatusesForWorkspaces, syncProviderChatsOnce } from "./chats.service"
 import { ensureDatabase } from "./database.server"
 import { prisma } from "./prisma.server"
-import { readCodexHistoryWatchPaths } from "./providers/codex.server"
+import { listProviderAdapters } from "./providers/registry.server"
 import { listWatchedWorkspacePaths, onWorkspaceWatchChange, publishProviderEvent } from "./socket.server"
 
 type ChatStatusSnapshot = {
@@ -29,7 +29,7 @@ export function startChatStatusMonitor(): void {
   }
   started = true
   onWorkspaceWatchChange(() => scheduleProviderSync())
-  void refreshCodexWatchers().then(() => syncProviderState({ publishExisting: false }))
+  void refreshProviderWatchers().then(() => syncProviderState({ publishExisting: false }))
 }
 
 export function stopChatStatusMonitor(): void {
@@ -51,7 +51,7 @@ export function stopChatStatusMonitor(): void {
 
 function scheduleProviderSync(change?: { filename: string | Buffer | null }): void {
   if (change) {
-    const threadId = readCodexThreadId(change.filename)
+    const threadId = readProviderThreadId(change.filename)
     if (threadId) {
       pendingExternalThreadIds.add(threadId)
     } else {
@@ -76,7 +76,7 @@ async function syncProviderState({ publishExisting }: { publishExisting: boolean
   let targetAllMessages = false
   let targetExternalThreadIds = new Set<string>()
   try {
-    await refreshCodexWatchers()
+    await refreshProviderWatchers()
     targetAllMessages = pendingAllMessages
     targetExternalThreadIds = pendingExternalThreadIds
     pendingAllMessages = false
@@ -119,24 +119,36 @@ async function syncProviderState({ publishExisting }: { publishExisting: boolean
   }
 }
 
-async function refreshCodexWatchers(): Promise<void> {
+async function refreshProviderWatchers(): Promise<void> {
   await ensureDatabase()
   const accounts = await prisma.providerAccount.findMany({
     orderBy: { createdAt: "asc" },
-    where: { providerId: "codex", status: "CONNECTED" },
+    where: { status: "CONNECTED" },
   })
-  const paths = new Set(readCodexHistoryWatchPaths())
+  const paths = new Set<string>()
+  for (const adapter of listProviderAdapters()) {
+    if (!adapter.readHistoryWatchPaths) {
+      continue
+    }
+    for (const path of adapter.readHistoryWatchPaths()) {
+      paths.add(path)
+    }
+  }
   for (const account of accounts) {
-    for (const path of readCodexHistoryWatchPaths(account)) {
+    const adapter = listProviderAdapters().find((entry) => entry.definition.id === account.providerId)
+    if (!adapter?.readHistoryWatchPaths) {
+      continue
+    }
+    for (const path of adapter.readHistoryWatchPaths(account)) {
       paths.add(path)
     }
   }
   for (const path of paths) {
-    await watchCodexPath(path)
+    await watchProviderPath(path)
   }
 }
 
-async function watchCodexPath(path: string): Promise<void> {
+async function watchProviderPath(path: string): Promise<void> {
   if (watchers.has(path)) {
     return
   }
@@ -146,7 +158,7 @@ async function watchCodexPath(path: string): Promise<void> {
   }
   try {
     const watcher = watch(path, { persistent: false, recursive: true }, (_eventType, filename) => {
-      if (isCodexHistoryChange(filename)) {
+      if (isProviderHistoryChange(filename)) {
         scheduleProviderSync({ filename })
       }
     })
@@ -157,7 +169,7 @@ async function watchCodexPath(path: string): Promise<void> {
     watchers.set(path, watcher)
   } catch {
     const watcher = watch(path, { persistent: false }, (_eventType, filename) => {
-      if (isCodexHistoryChange(filename)) {
+      if (isProviderHistoryChange(filename)) {
         scheduleProviderSync({ filename })
       }
     })
@@ -169,18 +181,16 @@ async function watchCodexPath(path: string): Promise<void> {
   }
 }
 
-function isCodexHistoryChange(filename: string | Buffer | null): boolean {
-  if (!filename) {
-    return true
-  }
-  const path = filename.toString()
-  return (
-    path.endsWith(".jsonl") ||
-    path.includes("session_index.jsonl") ||
-    path.includes("logs_2.sqlite")
-  )
+function isProviderHistoryChange(filename: string | Buffer | null): boolean {
+  return listProviderAdapters().some((adapter) => adapter.watchHistoryChange?.(filename))
 }
 
-function readCodexThreadId(filename: string | Buffer | null): string | null {
-  return filename?.toString().match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu)?.[1] ?? null
+function readProviderThreadId(filename: string | Buffer | null): string | null {
+  for (const adapter of listProviderAdapters()) {
+    const threadId = adapter.readThreadIdFromHistoryChange?.(filename)
+    if (threadId) {
+      return threadId
+    }
+  }
+  return null
 }

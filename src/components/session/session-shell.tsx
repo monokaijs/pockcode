@@ -2020,7 +2020,11 @@ function SessionDialogHost() {
         onClose={() => shell.setWorkspaceBrowserOpen(false)}
         onSelect={shell.openWorkspaceFromFolder}
       />
-      <CodexInstructionsDialog open={shell.instructionsDialogOpen} onClose={() => shell.setInstructionsDialogOpen(false)} />
+      <CodexInstructionsDialog
+        open={shell.instructionsDialogOpen}
+        providers={shell.providerDefinitions}
+        onClose={() => shell.setInstructionsDialogOpen(false)}
+      />
       <ProvidersManagementDialog
         open={shell.providersDialogOpen}
         onClose={() => shell.setProvidersDialogOpen(false)}

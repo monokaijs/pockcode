@@ -1,5 +1,10 @@
 import { Prisma } from "@prisma/client"
-import type { ProviderDefinitionResponse, ProviderSettingsResponse } from "../types/providers"
+import type {
+  ProviderDefinitionResponse,
+  ProviderInstructionsResponse,
+  ProviderSettingsResponse,
+  UpdateProviderInstructionsRequest,
+} from "../types/providers"
 import type { JsonObject } from "../types/json"
 import { ensureDatabase } from "./database.server"
 import { prisma } from "./prisma.server"
@@ -39,6 +44,27 @@ export async function updateProviderSettings(providerId: string, settings: JsonO
     provider: serializeProviderDefinition(adapter.definition),
     settings: row.settings as JsonObject,
   }
+}
+
+export async function readProviderInstructions(providerId: string): Promise<ProviderInstructionsResponse> {
+  await ensureDatabase()
+  const adapter = getProviderAdapter(providerId)
+  if (!adapter.readInstructions) {
+    return { instructions: "", paths: [] }
+  }
+  return adapter.readInstructions()
+}
+
+export async function updateProviderInstructions(
+  providerId: string,
+  request: UpdateProviderInstructionsRequest,
+): Promise<ProviderInstructionsResponse> {
+  await ensureDatabase()
+  const adapter = getProviderAdapter(providerId)
+  if (!adapter.updateInstructions) {
+    return { instructions: request.instructions, paths: [] }
+  }
+  return adapter.updateInstructions(request)
 }
 
 function mergeJson(base: JsonObject, override: JsonObject | null): JsonObject {

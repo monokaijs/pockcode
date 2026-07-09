@@ -370,10 +370,10 @@ export function useChatPaneState({
         setDraft("")
         return true
       case "skills":
-        await sendComposerMessage("List the available Codex skills for this workspace.")
+        await sendComposerMessage("List the available provider skills for this workspace.")
         return true
       case "hooks":
-        await sendComposerMessage("List the active Codex hooks for this workspace.")
+        await sendComposerMessage("List the active provider hooks for this workspace.")
         return true
       case "diff":
         await sendComposerMessage(argument || "Show the current diff.")

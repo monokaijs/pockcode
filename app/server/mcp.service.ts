@@ -1,7 +1,4 @@
 import { Prisma, type McpServer, type McpServerInstallation, type ProviderAccount } from "@prisma/client"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import { parse, stringify } from "smol-toml"
 import type {
   CreateMcpServerRequest,
   McpAuthStatus,
@@ -25,14 +22,9 @@ import { ensureDatabase } from "./database.server"
 import { HttpError } from "./http.server"
 import { asJsonObject, readBoolean, readNumber, readString } from "./json.server"
 import { prisma } from "./prisma.server"
-import {
-  listCodexMcpServerStatuses,
-  reloadCodexMcpServerConfig,
-  resolveCodexAccountHome,
-  startCodexMcpOauthLogin,
-} from "./providers/codex.server"
+import { getProviderAdapter } from "./providers/registry.server"
+import type { ProviderMcpSyncResult } from "./providers/types.server"
 
-const codexProviderId = "codex"
 const serverNamePattern = /^[A-Za-z0-9_-]+$/
 const maxStatusErrorLength = 2000
 
@@ -42,12 +34,6 @@ type McpServerWithInstallations = McpServer & {
 
 type McpInstallationWithServer = McpServerInstallation & {
   server: McpServer
-}
-
-type CodexSyncResult = {
-  accountId: string
-  error?: string | null
-  status: string
 }
 
 export async function listMcpServers(): Promise<McpServerResponse[]> {
@@ -132,7 +118,7 @@ export async function deleteMcpServer(serverId: string): Promise<McpServerRespon
   const accountIds = server.installations.map((installation) => installation.accountId)
   const response = serializeMcpServer(server)
   await prisma.mcpServer.delete({ where: { id: serverId } })
-  await Promise.allSettled([...new Set(accountIds)].map((accountId) => syncCodexAccountMcpConfig(accountId)))
+  await Promise.allSettled([...new Set(accountIds)].map((accountId) => syncAccountMcpConfig(accountId)))
   return response
 }
 
@@ -145,7 +131,7 @@ export async function syncMcpServer(serverId: string, dto: SyncMcpServerRequest 
   const targetAccountIds = dto.accountIds !== undefined
     ? uniqueStrings([...previousAccountIds, ...dto.accountIds])
     : uniqueStrings(server.installations.map((installation) => installation.accountId))
-  const results = await Promise.all(targetAccountIds.map((accountId) => syncCodexAccountMcpConfig(accountId)))
+  const results = await Promise.all(targetAccountIds.map((accountId) => syncAccountMcpConfig(accountId)))
   const failed = results.find((result) => result.error)
   if (failed) {
     throw new HttpError(502, failed.error ?? "Unable to sync MCP server.")
@@ -155,15 +141,16 @@ export async function syncMcpServer(serverId: string, dto: SyncMcpServerRequest 
 
 export async function listMcpServerStatuses(accountId: string): Promise<McpServerStatusResponse> {
   await ensureDatabase()
-  const account = await getCodexAccount(accountId)
+  const account = await getMcpAccount(accountId)
+  const adapter = getProviderAdapter(account.providerId)
   const installations = await prisma.mcpServerInstallation.findMany({
     include: { server: true },
     orderBy: { server: { name: "asc" } },
-    where: { accountId, providerId: codexProviderId },
+    where: { accountId, providerId: account.providerId },
   })
   let rawStatuses: unknown[] = []
   try {
-    rawStatuses = await listCodexMcpServerStatuses(account)
+    rawStatuses = adapter.listMcpServerStatuses ? await adapter.listMcpServerStatuses(account) : []
   } catch (error) {
     const message = errorMessage(error)
     return {
@@ -207,19 +194,23 @@ export async function startMcpServerOauthLogin(
   if (transport.type !== "streamable_http") {
     throw new HttpError(400, "OAuth login is only available for HTTP MCP servers.")
   }
-  const account = await getCodexAccount(dto.accountId)
+  const account = await getMcpAccount(dto.accountId)
+  const adapter = getProviderAdapter(account.providerId)
+  if (!adapter.definition.capabilities.includes("mcpOauth") || !adapter.startMcpServerOauthLogin) {
+    throw new HttpError(400, `${adapter.definition.label} starts MCP OAuth through runtime prompts.`)
+  }
   const installation = await prisma.mcpServerInstallation.findFirst({
-    where: { accountId: account.id, providerId: codexProviderId, serverId },
+    where: { accountId: account.id, providerId: account.providerId, serverId },
   })
   if (!installation) {
     throw new HttpError(400, "Install this MCP server to the selected account before starting OAuth login.")
   }
-  const sync = await syncCodexAccountMcpConfig(account.id)
+  const sync = await syncAccountMcpConfig(account.id)
   if (sync.error) {
     throw new HttpError(502, sync.error)
   }
   const scopes = dto.scopes?.length ? dto.scopes : transport.scopes
-  return startCodexMcpOauthLogin(account, server.name, scopes)
+  return adapter.startMcpServerOauthLogin(account, server.name, scopes)
 }
 
 async function getMcpServerRecord(serverId: string): Promise<McpServerWithInstallations> {
@@ -234,13 +225,14 @@ async function getMcpServerRecord(serverId: string): Promise<McpServerWithInstal
   return server
 }
 
-async function getCodexAccount(accountId: string): Promise<ProviderAccount> {
+async function getMcpAccount(accountId: string): Promise<ProviderAccount> {
   const account = await prisma.providerAccount.findUnique({ where: { id: accountId } })
   if (!account) {
     throw new HttpError(404, "Provider account not found.")
   }
-  if (account.providerId !== codexProviderId) {
-    throw new HttpError(400, "MCP sync currently supports Codex accounts only.")
+  const adapter = getProviderAdapter(account.providerId)
+  if (!adapter.definition.capabilities.includes("mcp")) {
+    throw new HttpError(400, `${adapter.definition.label} does not support MCP servers.`)
   }
   return account
 }
@@ -251,36 +243,41 @@ async function replaceMcpServerInstallations(serverId: string, accountIds: strin
   }
   const uniqueAccountIds = uniqueStrings(accountIds)
   if (!uniqueAccountIds.length) {
-    await prisma.mcpServerInstallation.deleteMany({ where: { providerId: codexProviderId, serverId } })
+    await prisma.mcpServerInstallation.deleteMany({ where: { serverId } })
     return
   }
   const accounts = await prisma.providerAccount.findMany({
-    where: { id: { in: uniqueAccountIds }, providerId: codexProviderId },
+    where: { id: { in: uniqueAccountIds } },
   })
   const foundIds = new Set(accounts.map((account) => account.id))
   const missing = uniqueAccountIds.find((accountId) => !foundIds.has(accountId))
   if (missing) {
-    throw new HttpError(400, `Codex account ${missing} was not found.`)
+    throw new HttpError(400, `Provider account ${missing} was not found.`)
+  }
+  for (const account of accounts) {
+    const adapter = getProviderAdapter(account.providerId)
+    if (!adapter.definition.capabilities.includes("mcp")) {
+      throw new HttpError(400, `${adapter.definition.label} account ${account.displayName} does not support MCP servers.`)
+    }
   }
   await prisma.mcpServerInstallation.deleteMany({
     where: {
       accountId: { notIn: uniqueAccountIds },
-      providerId: codexProviderId,
       serverId,
     },
   })
-  await Promise.all(uniqueAccountIds.map((accountId) =>
+  await Promise.all(accounts.map((account) =>
     prisma.mcpServerInstallation.upsert({
       create: {
-        accountId,
-        providerId: codexProviderId,
+        accountId: account.id,
+        providerId: account.providerId,
         serverId,
       },
       update: { enabled: true },
       where: {
         serverId_providerId_accountId: {
-          accountId,
-          providerId: codexProviderId,
+          accountId: account.id,
+          providerId: account.providerId,
           serverId,
         },
       },
@@ -288,144 +285,37 @@ async function replaceMcpServerInstallations(serverId: string, accountIds: strin
   ))
 }
 
-async function syncCodexAccountMcpConfig(accountId: string): Promise<CodexSyncResult> {
-  const account = await getCodexAccount(accountId)
+async function syncAccountMcpConfig(accountId: string): Promise<ProviderMcpSyncResult> {
+  const account = await getMcpAccount(accountId)
+  const adapter = getProviderAdapter(account.providerId)
   const installations = await prisma.mcpServerInstallation.findMany({
     include: { server: true },
     orderBy: { server: { name: "asc" } },
-    where: { accountId, providerId: codexProviderId },
+    where: { accountId, providerId: account.providerId },
   })
   const startedAt = new Date()
   try {
-    await writeCodexMcpConfig(account, installations)
+    const result = adapter.syncMcpServers
+      ? await adapter.syncMcpServers(account, installations)
+      : { accountId, error: null, status: "SYNCED" }
+    await markInstallationsSynced(accountId, account.providerId, startedAt, result.status, result.error ?? null)
+    return result
   } catch (error) {
     const message = errorMessage(error)
-    await markInstallationsSynced(accountId, startedAt, "ERROR", message)
+    await markInstallationsSynced(accountId, account.providerId, startedAt, "ERROR", message)
     return { accountId, error: message, status: "ERROR" }
   }
-
-  try {
-    await reloadCodexMcpServerConfig(account)
-  } catch (error) {
-    const message = errorMessage(error)
-    await markInstallationsSynced(accountId, startedAt, "ERROR", message)
-    return { accountId, error: message, status: "ERROR" }
-  }
-
-  await markInstallationsSynced(accountId, startedAt, "SYNCED", null)
-  return { accountId, error: null, status: "SYNCED" }
 }
 
-async function markInstallationsSynced(accountId: string, syncedAt: Date, status: string, error: string | null): Promise<void> {
+async function markInstallationsSynced(accountId: string, providerId: string, syncedAt: Date, status: string, error: string | null): Promise<void> {
   await prisma.mcpServerInstallation.updateMany({
     data: {
       lastError: error ? truncateError(error) : null,
       lastStatus: status,
       lastSyncAt: syncedAt,
     },
-    where: { accountId, providerId: codexProviderId },
+    where: { accountId, providerId },
   })
-}
-
-async function writeCodexMcpConfig(account: ProviderAccount, installations: McpInstallationWithServer[]): Promise<void> {
-  const codexHome = resolveCodexAccountHome(account)
-  await mkdir(codexHome, { mode: 0o700, recursive: true })
-  const configPath = join(codexHome, "config.toml")
-  const currentConfig = await readCodexTomlConfig(configPath)
-  const mcpServers: Record<string, JsonSerializable> = {}
-  for (const installation of installations) {
-    mcpServers[installation.server.name] = codexConfigForServer(installation.server, installation)
-  }
-  if (Object.keys(mcpServers).length) {
-    currentConfig.mcp_servers = mcpServers
-  } else {
-    delete currentConfig.mcp_servers
-  }
-  await writeFile(configPath, stringify(currentConfig), "utf8")
-}
-
-async function readCodexTomlConfig(configPath: string): Promise<JsonObject> {
-  const source = await readFile(configPath, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") {
-      return ""
-    }
-    throw error
-  })
-  if (!source.trim()) {
-    return {}
-  }
-  const parsed = parse(source)
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Codex config.toml must contain a TOML table.")
-  }
-  return parsed as JsonObject
-}
-
-function codexConfigForServer(server: McpServer, installation: McpServerInstallation): JsonObject {
-  const transport = serializeMcpTransport(server)
-  const toolPolicy = serializeToolPolicy(server.toolPolicy)
-  const entry: JsonObject = {
-    enabled: server.enabled && installation.enabled,
-    required: server.required,
-  }
-  if (transport.type === "stdio") {
-    entry.command = transport.command
-    if (transport.args.length) {
-      entry.args = transport.args
-    }
-    if (Object.keys(transport.env).length) {
-      entry.env = transport.env
-    }
-    if (transport.envVars.length) {
-      entry.env_vars = transport.envVars.map(envVarName)
-    }
-    if (transport.cwd) {
-      entry.cwd = transport.cwd
-    }
-  } else {
-    entry.url = transport.url
-    if (transport.bearerTokenEnvVar) {
-      entry.bearer_token_env_var = transport.bearerTokenEnvVar
-    }
-    if (Object.keys(transport.httpHeaders).length) {
-      entry.http_headers = transport.httpHeaders
-    }
-    if (Object.keys(transport.envHttpHeaders).length) {
-      entry.env_http_headers = transport.envHttpHeaders
-    }
-    if (transport.oauthClientId) {
-      entry.oauth = { client_id: transport.oauthClientId }
-    }
-    if (transport.oauthResource) {
-      entry.oauth_resource = transport.oauthResource
-    }
-    if (transport.scopes.length) {
-      entry.scopes = transport.scopes
-    }
-  }
-  if (server.startupTimeoutSec !== null) {
-    entry.startup_timeout_sec = server.startupTimeoutSec
-  }
-  if (server.toolTimeoutSec !== null) {
-    entry.tool_timeout_sec = server.toolTimeoutSec
-  }
-  if (toolPolicy.defaultToolsApprovalMode) {
-    entry.default_tools_approval_mode = toolPolicy.defaultToolsApprovalMode
-  }
-  if (toolPolicy.enabledTools?.length) {
-    entry.enabled_tools = toolPolicy.enabledTools
-  }
-  if (toolPolicy.disabledTools?.length) {
-    entry.disabled_tools = toolPolicy.disabledTools
-  }
-  if (toolPolicy.tools && Object.keys(toolPolicy.tools).length) {
-    const tools: JsonObject = {}
-    for (const [toolName, override] of Object.entries(toolPolicy.tools)) {
-      tools[toolName] = override.approvalMode ? { approval_mode: override.approvalMode } : {}
-    }
-    entry.tools = tools
-  }
-  return entry
 }
 
 function readMcpServerDraft(
@@ -750,10 +640,6 @@ function readEnvVarRefs(value: unknown): McpEnvVarRef[] {
     const source = record.source === "local" || record.source === "remote" ? record.source : undefined
     return source ? { name, source } : { name }
   })
-}
-
-function envVarName(value: McpEnvVarRef): string {
-  return typeof value === "string" ? value : value.name
 }
 
 function readApprovalMode(value: unknown, field: string): McpToolApprovalMode | null {

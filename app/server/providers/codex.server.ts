@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto"
 import { chmodSync, mkdirSync } from "node:fs"
 import { copyFile, cp, mkdir, open as openFile, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
+import { parse, stringify } from "smol-toml"
 import type {
   AccountAuthMode,
   AuthenticateProviderAccountResponse,
@@ -19,6 +20,7 @@ import { ensureDatabase } from "../database.server"
 import { asJsonObject, normalizeJsonObject, readNumber, readString } from "../json.server"
 import { prisma } from "../prisma.server"
 import { resolveHomePath, resolveProviderDataHome } from "../runtime-paths.server"
+import { codexMcpConfigForInstallation } from "./mcp-config.server"
 import type {
   ProviderAdapter,
   ProviderChatStateSnapshot,
@@ -87,6 +89,11 @@ const definition: ProviderDefinition = {
   id: "codex",
   label: "OpenAI Codex",
   icon: "codex",
+  authModes: [
+    { mode: "browser", label: "Browser", description: "Authenticate with ChatGPT in a browser." },
+    { mode: "device", label: "Device code", description: "Authenticate with a device code." },
+    { mode: "local", label: "Local account", description: "Reuse the local Codex account from the shared Codex home." },
+  ],
   capabilities: [
     "auth",
     "chat",
@@ -105,6 +112,7 @@ const definition: ProviderDefinition = {
     "hooks",
     "plugins",
     "mcp",
+    "mcpOauth",
     "config",
     "commandExec",
     "shellCommand",
@@ -341,6 +349,10 @@ export const codexProviderAdapter: ProviderAdapter = {
     const response = await requestCodexRuntime(runtimeForAccount(account), "plugin/list", {}, 30_000)
     return jsonFromUnknown(response.result)
   },
+  listMcpServerStatuses: listCodexMcpServerStatuses,
+  readHistoryWatchPaths: readCodexHistoryWatchPaths,
+  readInstructions: readCodexInstructions,
+  readThreadIdFromHistoryChange: readCodexThreadIdFromHistoryChange,
   async sendMessage(account, input) {
     if (input.threadId) {
       await hydrateKnownCodexThreadToAccount(input.threadId, account)
@@ -446,6 +458,8 @@ export const codexProviderAdapter: ProviderAdapter = {
   respondToServerRequest(account, requestId, response) {
     return runtimeForAccount(account).respondToServerRequest(requestId, response.result ?? serverRequestResultFromResponse(response))
   },
+  startMcpServerOauthLogin: startCodexMcpOauthLogin,
+  syncMcpServers: syncCodexMcpServers,
   async interrupt(account, threadId, turnId) {
     const runtime = runtimeForAccount(account)
     const activeTurnId = turnId ?? await readCodexActiveTurnId(runtime, threadId).catch(() => null)
@@ -486,6 +500,10 @@ export const codexProviderAdapter: ProviderAdapter = {
   async syncThreadFromAccount(threadId, account) {
     return syncAccountThreadToCanonical(threadId, account)
   },
+  updateInstructions(request) {
+    return updateCodexInstructions(request.instructions)
+  },
+  watchHistoryChange: isCodexHistoryChange,
   async hydrateThreadForAccount(threadId, account) {
     return hydrateCanonicalThreadToAccount(threadId, account)
   },
@@ -606,6 +624,52 @@ export async function startCodexMcpOauthLogin(
   return { authorizationUrl }
 }
 
+export async function syncCodexMcpServers(
+  account: ProviderAccount,
+  installations: Parameters<NonNullable<ProviderAdapter["syncMcpServers"]>>[1],
+): Promise<{ accountId: string; error: null; status: string }> {
+  await writeCodexMcpConfig(account, installations)
+  await reloadCodexMcpServerConfig(account)
+  return { accountId: account.id, error: null, status: "SYNCED" }
+}
+
+async function writeCodexMcpConfig(
+  account: ProviderAccount,
+  installations: Parameters<NonNullable<ProviderAdapter["syncMcpServers"]>>[1],
+): Promise<void> {
+  const codexHome = resolveCodexAccountHome(account)
+  await mkdir(codexHome, { mode: 0o700, recursive: true })
+  const configPath = join(codexHome, "config.toml")
+  const currentConfig = await readCodexTomlConfig(configPath)
+  const mcpServers: Record<string, JsonSerializable> = {}
+  for (const installation of installations) {
+    mcpServers[installation.server.name] = codexMcpConfigForInstallation(installation)
+  }
+  if (Object.keys(mcpServers).length) {
+    currentConfig.mcp_servers = mcpServers
+  } else {
+    delete currentConfig.mcp_servers
+  }
+  await writeFile(configPath, stringify(currentConfig), "utf8")
+}
+
+async function readCodexTomlConfig(configPath: string): Promise<JsonObject> {
+  const source = await readFile(configPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") {
+      return ""
+    }
+    throw error
+  })
+  if (!source.trim()) {
+    return {}
+  }
+  const parsed = parse(source)
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Codex config.toml must contain a TOML table.")
+  }
+  return parsed as JsonObject
+}
+
 function readCodexMcpServerStatusList(result: unknown): unknown[] {
   if (Array.isArray(result)) {
     return result
@@ -627,6 +691,22 @@ export function readCodexHistoryWatchPaths(account?: ProviderAccount): string[] 
     paths.push(resolveAccountCodexHome(account))
   }
   return [...new Set(paths)]
+}
+
+export function isCodexHistoryChange(filename: string | Buffer | null): boolean {
+  if (!filename) {
+    return true
+  }
+  const path = filename.toString()
+  return (
+    path.endsWith(".jsonl") ||
+    path.includes("session_index.jsonl") ||
+    path.includes("logs_2.sqlite")
+  )
+}
+
+export function readCodexThreadIdFromHistoryChange(filename: string | Buffer | null): string | null {
+  return filename?.toString().match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu)?.[1] ?? null
 }
 
 function resolveCanonicalHistoryHome(): string {

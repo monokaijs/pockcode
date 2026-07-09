@@ -3,7 +3,6 @@ import type {
   AuthenticateProviderAccountResponse,
   CompactChatRequest,
   ChatResponse,
-  CodexInstructionsResponse,
   CreateChatRequest,
   CreateMessageScheduleRequest,
   CreateProviderAccountRequest,
@@ -17,6 +16,7 @@ import type {
   ProviderAccountResponse,
   ProviderAccountLimitsResponse,
   ProviderDefinitionResponse,
+  ProviderInstructionsResponse,
   ProviderModelListResponse,
   QueuedChatRunResponse,
   ReorderQueuedChatRunsRequest,
@@ -27,8 +27,8 @@ import type {
   UpdateMessageScheduleRequest,
   UpdateQueuedChatRunRequest,
   UpdateChatRequest,
-  UpdateCodexInstructionsRequest,
   UpdateProviderAccountRequest,
+  UpdateProviderInstructionsRequest,
   WorkspaceHistoryResponse,
 } from "../../app/types/providers"
 import type {
@@ -77,7 +77,7 @@ export type {
   ProviderDefinitionResponse,
   ProviderLimitsResponse,
   RefreshChatResponse,
-  CodexInstructionsResponse,
+  ProviderInstructionsResponse,
   ProviderModelListResponse,
   ServerRequestResponseRequest,
   UpdateMessageScheduleRequest,
@@ -407,8 +407,13 @@ export const apiClient = {
   },
   providers: {
     codexInstructions() {
-      return requestJson<CodexInstructionsResponse>("/api/providers/codex/instructions", {
+      return requestJson<ProviderInstructionsResponse>("/api/providers/codex/instructions", {
         fallbackMessage: "Unable to load Codex instructions.",
+      })
+    },
+    instructions(providerId: string) {
+      return requestJson<ProviderInstructionsResponse>(`/api/providers/${encodeURIComponent(providerId)}/instructions`, {
+        fallbackMessage: "Unable to load provider instructions.",
       })
     },
     list() {
@@ -416,10 +421,18 @@ export const apiClient = {
         fallbackMessage: "Unable to load providers.",
       })
     },
-    updateCodexInstructions(body: UpdateCodexInstructionsRequest) {
-      return requestJson<CodexInstructionsResponse>("/api/providers/codex/instructions", {
+    updateCodexInstructions(body: UpdateProviderInstructionsRequest) {
+      return requestJson<ProviderInstructionsResponse>("/api/providers/codex/instructions", {
         body: JSON.stringify(body),
         fallbackMessage: "Unable to save Codex instructions.",
+        headers: { "Content-Type": "application/json" },
+        method: "PUT",
+      })
+    },
+    updateInstructions(providerId: string, body: UpdateProviderInstructionsRequest) {
+      return requestJson<ProviderInstructionsResponse>(`/api/providers/${encodeURIComponent(providerId)}/instructions`, {
+        body: JSON.stringify(body),
+        fallbackMessage: "Unable to save provider instructions.",
         headers: { "Content-Type": "application/json" },
         method: "PUT",
       })

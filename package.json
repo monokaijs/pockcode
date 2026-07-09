@@ -29,9 +29,11 @@
     "preview": "node dist/pockcode.js --host 0.0.0.0",
     "test": "vitest run",
     "test:real-codex": "node scripts/real-codex-smoke.mjs",
+    "test:real-claude": "node scripts/real-claude-smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.205",
     "@base-ui/react": "^1.6.0",
     "@fontsource-variable/geist": "^5.2.9",
     "@monaco-editor/react": "^4.7.0",

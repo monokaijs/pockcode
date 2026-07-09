@@ -120,7 +120,9 @@ const codexComposerFeatures: ProviderComposerFeature[] = [
   "imageAttachment",
   "planMode",
 ]
+const claudeComposerFeatures: ProviderComposerFeature[] = codexComposerFeatures
 export const defaultCodexModel = "gpt-5.5"
+export const defaultClaudeModel = "sonnet"
 
 const codexReasoningEffortOptions = [
   { description: "None", reasoningEffort: "none" },
@@ -159,6 +161,38 @@ const codexModelOptions: ProviderModelListResponse["data"] = [
     displayName: "GPT-5.3-Codex-Spark",
     defaultReasoningEffort: "medium",
     supportedReasoningEfforts: codexReasoningEffortOptions,
+  },
+]
+
+const claudeReasoningEffortOptions = [
+  { description: "Low", reasoningEffort: "low" },
+  { description: "Medium", reasoningEffort: "medium" },
+  { description: "High", reasoningEffort: "high" },
+  { description: "Extra High", reasoningEffort: "xhigh" },
+  { description: "Max", reasoningEffort: "max" },
+]
+
+const claudeModelOptions: ProviderModelListResponse["data"] = [
+  {
+    id: "sonnet",
+    model: "sonnet",
+    displayName: "Sonnet",
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: claudeReasoningEffortOptions,
+  },
+  {
+    id: "opus",
+    model: "opus",
+    displayName: "Opus",
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: claudeReasoningEffortOptions,
+  },
+  {
+    id: "haiku",
+    model: "haiku",
+    displayName: "Haiku",
+    defaultReasoningEffort: "low",
+    supportedReasoningEfforts: claudeReasoningEffortOptions,
   },
 ]
 
@@ -211,16 +245,16 @@ export const chatSlashCommands: ChatSlashCommand[] = [
   { id: "permissions", usage: "/permissions <ask|full>", description: "Change access mode" },
   { id: "plan", usage: "/plan [prompt]", description: "Toggle or send in plan mode" },
   { id: "goal", usage: "/goal <objective>", description: "Attach a goal to the next turn" },
-  { id: "review", usage: "/review [instructions]", description: "Start a Codex review" },
+  { id: "review", usage: "/review [instructions]", description: "Start a provider review" },
   { id: "compact", usage: "/compact", description: "Compact the current thread" },
   { id: "fork", usage: "/fork", description: "Fork the current thread" },
   { id: "new", usage: "/new", description: "Start a new chat" },
   { id: "status", usage: "/status", description: "Refresh chat status" },
   { id: "usage", usage: "/usage", description: "Open provider usage" },
   { id: "mcp", usage: "/mcp", description: "Open MCP servers" },
-  { id: "skills", usage: "/skills", description: "Check Codex skills support" },
-  { id: "hooks", usage: "/hooks", description: "Check Codex hooks support" },
-  { id: "diff", usage: "/diff", description: "Ask Codex for the current diff" },
+  { id: "skills", usage: "/skills", description: "Check provider skills support" },
+  { id: "hooks", usage: "/hooks", description: "Check provider hooks support" },
+  { id: "diff", usage: "/diff", description: "Ask for the current diff" },
   { id: "clear", usage: "/clear", description: "Clear the composer" },
 ]
 
@@ -248,7 +282,13 @@ export function matchingChatSlashCommands(value: string): ChatSlashCommand[] {
 }
 
 export function fallbackComposerFeatures(providerId: string | null | undefined): ProviderComposerFeature[] {
-  return providerId === "codex" ? codexComposerFeatures : []
+  if (providerId === "codex") {
+    return codexComposerFeatures
+  }
+  if (providerId === "claude") {
+    return claudeComposerFeatures
+  }
+  return []
 }
 
 export function readComposerAccessMode(value: string | null | undefined): ChatComposerAccessMode {
@@ -264,24 +304,30 @@ export function composerAccessModeValue(value: ChatComposerAccessMode): string {
 }
 
 export function defaultModelOptionsForProvider(providerId: string | null | undefined): ProviderModelListResponse["data"] {
-  return providerId === "codex" ? codexModelOptions : []
+  if (providerId === "codex") {
+    return codexModelOptions
+  }
+  if (providerId === "claude") {
+    return claudeModelOptions
+  }
+  return []
 }
 
 export function defaultRuntimeDefaultValue(providerId: string | null | undefined, key: string): string {
-  if (providerId !== "codex") {
-    return ""
-  }
-  if (key === "model") {
-    return defaultCodexModel
-  }
-  if (key === "permissionMode") {
+  if (key === "permissionMode" && (providerId === "codex" || providerId === "claude")) {
     return "askForApproval"
   }
-  if (key === "reasoningEffort") {
+  if (key === "reasoningEffort" && (providerId === "codex" || providerId === "claude")) {
     return "medium"
   }
-  if (key === "serviceTier") {
+  if (providerId === "codex" && key === "model") {
+    return defaultCodexModel
+  }
+  if (providerId === "codex" && key === "serviceTier") {
     return "standard"
+  }
+  if (providerId === "claude" && key === "model") {
+    return defaultClaudeModel
   }
   return ""
 }
@@ -481,9 +527,22 @@ export function isToolMessage(message: ChatMessageResponse): boolean {
   )
 }
 
-export function serverRequestResponseFor(message: ChatMessageResponse, approved: boolean): ServerRequestResponseRequest {
+export function serverRequestResponseFor(
+  message: ChatMessageResponse,
+  approved: boolean,
+  options: { allowForSession?: boolean } = {},
+): ServerRequestResponseRequest {
   const method = readRecordString(readRecord(message.metadata), "serverRequestMethod")
   const normalizedMethod = normalizedServerRequestMethod(method)
+  if (normalizedMethod === "claudecanusetool") {
+    return {
+      kind: "approval",
+      result: {
+        decision: approved ? "accept" : "decline",
+        ...(approved && options.allowForSession ? { updatedPermissions: claudePermissionSuggestionsFromRequest(message) } : {}),
+      } as ServerRequestResponseRequest["result"],
+    }
+  }
   if (normalizedMethod.includes("permissionsrequestapproval")) {
     return {
       kind: "permissions",
@@ -598,6 +657,16 @@ export function grantedPermissionsFromRequest(message: ChatMessageResponse): Rec
     granted.fileSystem = fileSystem
   }
   return granted
+}
+
+export function hasClaudePermissionSuggestions(message: ChatMessageResponse): boolean {
+  const suggestions = readRecord(message.rawPayload).suggestions
+  return Array.isArray(suggestions) && suggestions.length > 0
+}
+
+function claudePermissionSuggestionsFromRequest(message: ChatMessageResponse): unknown[] {
+  const suggestions = readRecord(message.rawPayload).suggestions
+  return Array.isArray(suggestions) ? suggestions : []
 }
 
 export function firstToolAction(content: string): string | null {

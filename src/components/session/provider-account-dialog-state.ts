@@ -154,7 +154,7 @@ export function useProviderAccountDialogState(
     return updated
   }
 
-  async function authenticate(mode: AccountAuthMode = "browser") {
+  async function authenticate(mode: AccountAuthMode = provider?.authModes?.[0]?.mode ?? "browser") {
     setAuthenticating(true)
     setAuthMenuOpen(false)
     setNotice(null)

@@ -1,4 +1,4 @@
-import type { ProviderAccount } from "@prisma/client"
+import type { McpServer, McpServerInstallation, ProviderAccount } from "@prisma/client"
 import type {
   AccountAuthMode,
   AuthenticateProviderAccountResponse,
@@ -13,15 +13,18 @@ import type {
   ProviderCapability,
   ProviderDefinitionResponse,
   ProviderFieldDefinition,
+  ProviderInstructionsResponse,
   ProviderLimitsResponse,
   ProviderModelListResponse,
   ReviewChatRequest,
   ServerRequestResponseRequest,
+  UpdateProviderInstructionsRequest,
 } from "../../types/providers"
 import type { JsonObject, JsonSerializable } from "../../types/json"
 
 export type ProviderDefinition = {
   accountFields: ProviderFieldDefinition[]
+  authModes?: ProviderDefinitionResponse["authModes"]
   capabilities: ProviderCapability[]
   composerFeatures: ProviderDefinitionResponse["composerFeatures"]
   defaultSettings: JsonObject
@@ -115,6 +118,20 @@ export type ProviderThreadActionResult = {
   turnId?: string | null
 }
 
+export type ProviderMcpInstallation = McpServerInstallation & {
+  server: McpServer
+}
+
+export type ProviderMcpSyncResult = {
+  accountId: string
+  error?: string | null
+  status: string
+}
+
+export type ProviderMcpOauthLoginResult = {
+  authorizationUrl: string
+}
+
 export type ProviderAdapter = {
   definition: ProviderDefinition
   authenticate(account: ProviderAccount, mode: AccountAuthMode): Promise<AuthenticateProviderAccountResponse>
@@ -144,13 +161,21 @@ export type ProviderAdapter = {
   listHooks?(account: ProviderAccount, workingDirectory?: string | null): Promise<JsonSerializable>
   listPlugins?(account: ProviderAccount): Promise<JsonSerializable>
   listSkills?(account: ProviderAccount, workingDirectory?: string | null): Promise<JsonSerializable>
+  listMcpServerStatuses?(account: ProviderAccount): Promise<unknown[]>
+  readHistoryWatchPaths?(account?: ProviderAccount): string[]
+  readInstructions?(): Promise<ProviderInstructionsResponse>
+  readThreadIdFromHistoryChange?(filename: string | Buffer | null): string | null
   renameThread?(account: ProviderAccount, externalThreadId: string, title: string, workingDirectory?: string | null): Promise<boolean>
   respondToServerRequest?(account: ProviderAccount, requestId: string, response: ServerRequestResponseRequest): Promise<void>
   reviewThread?(account: ProviderAccount, externalThreadId: string, request?: ReviewChatRequest, workingDirectory?: string | null): Promise<ProviderThreadActionResult>
   sendMessage(account: ProviderAccount, input: ProviderRuntimeMessageInput): Promise<ProviderRuntimeMessageResult>
+  startMcpServerOauthLogin?(account: ProviderAccount, serverName: string, scopes?: string[]): Promise<ProviderMcpOauthLoginResult>
   steerMessage?(account: ProviderAccount, input: ProviderRuntimeSteerInput): Promise<ProviderRuntimeSteerResult>
   stopAccountRuntime(accountId: string): void
+  syncMcpServers?(account: ProviderAccount, installations: ProviderMcpInstallation[]): Promise<ProviderMcpSyncResult>
   syncThreadFromAccount(threadId: string, account: ProviderAccount): Promise<boolean>
+  updateInstructions?(request: UpdateProviderInstructionsRequest): Promise<ProviderInstructionsResponse>
+  watchHistoryChange?(filename: string | Buffer | null): boolean
   beforeAccountSwitch?(context: ProviderAccountSwitchContext): Promise<void>
   afterAccountSwitch?(context: ProviderAccountSwitchContext): Promise<void>
 }

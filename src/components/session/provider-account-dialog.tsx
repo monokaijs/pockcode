@@ -1,4 +1,4 @@
-import { ChevronDown, ExternalLink, HardDrive, X } from "lucide-react"
+import { ChevronDown, ExternalLink, HardDrive, KeyRound, MonitorCog, X } from "lucide-react"
 import { ProviderGlyph, ProviderStatusBadge } from "@/components/session/provider-icons"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import type { ProviderAccountResponse, ProviderDefinitionResponse } from "@/lib/api-client"
@@ -87,7 +87,7 @@ function ProviderAccountDialogBody({
     <div className="min-h-0 overflow-auto p-3 ide-scrollbar">
       <ProviderAccountNotice notice={dialog.notice} />
       <div className="space-y-3">
-        <ProviderAccountNameAuth dialog={dialog} />
+        <ProviderAccountNameAuth dialog={dialog} provider={provider} />
         {provider.id === "codex" ? <ProviderPersonalityField dialog={dialog} /> : null}
         {dialog.hasCodexHomeField ? <ProviderCodexHomeField dialog={dialog} /> : null}
         {dialog.hasDefaultModelField || dialog.hasDefaultPermissionField || dialog.hasDefaultReasoningField || dialog.hasDefaultServiceTierField
@@ -117,7 +117,7 @@ function ProviderAccountNotice({ notice }: { notice: ProviderAccountDialogState[
   )
 }
 
-function ProviderAccountNameAuth({ dialog }: { dialog: ProviderAccountDialogState }) {
+function ProviderAccountNameAuth({ dialog, provider }: { dialog: ProviderAccountDialogState; provider: ProviderDefinitionResponse }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
       <label className="block">
@@ -128,12 +128,12 @@ function ProviderAccountNameAuth({ dialog }: { dialog: ProviderAccountDialogStat
           onChange={(event) => dialog.setDisplayName(event.target.value)}
         />
       </label>
-      <ProviderAccountAuthMenu dialog={dialog} />
+      <ProviderAccountAuthMenu dialog={dialog} provider={provider} />
     </div>
   )
 }
 
-function ProviderAccountAuthMenu({ dialog }: { dialog: ProviderAccountDialogState }) {
+function ProviderAccountAuthMenu({ dialog, provider }: { dialog: ProviderAccountDialogState; provider: ProviderDefinitionResponse }) {
   return (
     <div className="relative">
       <button
@@ -148,30 +148,41 @@ function ProviderAccountAuthMenu({ dialog }: { dialog: ProviderAccountDialogStat
         </span>
         <ChevronDown className="size-3.5 text-muted-foreground" />
       </button>
-      {dialog.authMenuOpen ? <ProviderAccountAuthOptions dialog={dialog} /> : null}
+      {dialog.authMenuOpen ? <ProviderAccountAuthOptions dialog={dialog} provider={provider} /> : null}
     </div>
   )
 }
 
-function ProviderAccountAuthOptions({ dialog }: { dialog: ProviderAccountDialogState }) {
+function ProviderAccountAuthOptions({ dialog, provider }: { dialog: ProviderAccountDialogState; provider: ProviderDefinitionResponse }) {
+  const authModes = provider.authModes?.length
+    ? provider.authModes
+    : [
+        { mode: "browser" as const, label: "Browser" },
+        { mode: "local" as const, label: "Local account" },
+      ]
   return (
-    <div className="absolute right-0 top-9 z-10 w-40 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-xl">
-      <button
-        className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-foreground hover:bg-accent"
-        type="button"
-        onClick={() => void dialog.authenticate("browser")}
-      >
-        <ExternalLink className="size-3.5 text-info" />
-        Browser
-      </button>
-      <button
-        className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-foreground hover:bg-accent"
-        type="button"
-        onClick={() => void dialog.authenticate("local")}
-      >
-        <HardDrive className="size-3.5 text-info" />
-        Local account
-      </button>
+    <div className="absolute right-0 top-9 z-10 w-48 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-xl">
+      {authModes.map((authMode) => {
+        const Icon = authMode.mode === "local"
+          ? HardDrive
+          : authMode.mode === "environment"
+            ? KeyRound
+            : authMode.mode === "device"
+              ? MonitorCog
+              : ExternalLink
+        return (
+          <button
+            className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-foreground hover:bg-accent"
+            key={authMode.mode}
+            title={authMode.description}
+            type="button"
+            onClick={() => void dialog.authenticate(authMode.mode)}
+          >
+            <Icon className="size-3.5 text-info" />
+            {authMode.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

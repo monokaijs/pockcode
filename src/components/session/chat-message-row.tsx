@@ -5,6 +5,7 @@ import { MarkdownContent } from "@/components/session/chat-markdown"
 import { apiClient, type ChatMessageResponse } from "@/lib/api-client"
 import {
   firstToolAction,
+  hasClaudePermissionSuggestions,
   isOptimisticMessage,
   isToolMessage,
   parseFileChangeMessage,
@@ -370,14 +371,15 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
   const hasDetail = message.kind === "FILE_CHANGE" || Boolean(detail)
   const canRespond = message.status === "PENDING" && Boolean(message.requestId) &&
     message.kind === "APPROVAL"
+  const canApproveForSession = canRespond && hasClaudePermissionSuggestions(message)
 
-  const respond = async (approved: boolean) => {
+  const respond = async (approved: boolean, options: { allowForSession?: boolean } = {}) => {
     if (!message.requestId) {
       return
     }
     setResponding(approved ? "approve" : "deny")
     try {
-      await apiClient.chats.respondToServerRequest(message.chatId, message.requestId, serverRequestResponseFor(message, approved))
+      await apiClient.chats.respondToServerRequest(message.chatId, message.requestId, serverRequestResponseFor(message, approved, options))
     } finally {
       setResponding(null)
     }
@@ -416,6 +418,16 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
             >
               {responding === "approve" ? "Approving" : "Approve"}
             </button>
+            {canApproveForSession ? (
+              <button
+                className="rounded px-1.5 py-0.5 text-[11px] text-success hover:bg-success/10 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={Boolean(responding)}
+                type="button"
+                onClick={() => void respond(true, { allowForSession: true })}
+              >
+                Session
+              </button>
+            ) : null}
             <button
               className="rounded px-1.5 py-0.5 text-[11px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={Boolean(responding)}

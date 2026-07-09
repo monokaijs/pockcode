@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  defaultModelOptionsForProvider,
+  defaultRuntimeDefaultValue,
+  hasClaudePermissionSuggestions,
   isToolMessage,
   isQueuedUserMessage,
   groupChatRenderEntries,
@@ -8,6 +11,7 @@ import {
   readChatAccountSwitchEvent,
   readUserInputQuestions,
   renderAssistantSegment,
+  serverRequestResponseFor,
   workDurationLabel,
 } from "@/lib/session"
 import type { ChatMessageResponse } from "@/lib/api-client"
@@ -27,6 +31,15 @@ describe("chat slash commands", () => {
 
   it("ignores unknown commands", () => {
     expect(parseChatSlashCommand("/does-not-exist")).toBeNull()
+  })
+})
+
+describe("provider fallbacks", () => {
+  it("provides Claude defaults before the server model catalog loads", () => {
+    expect(defaultRuntimeDefaultValue("claude", "model")).toBe("sonnet")
+    expect(defaultRuntimeDefaultValue("claude", "permissionMode")).toBe("askForApproval")
+    expect(defaultRuntimeDefaultValue("claude", "reasoningEffort")).toBe("medium")
+    expect(defaultModelOptionsForProvider("claude").map((option) => option.model)).toEqual(["sonnet", "opus", "haiku"])
   })
 })
 
@@ -312,6 +325,40 @@ describe("user input prompts", () => {
       options: [],
       question: "Tell Codex what to do next.",
     }])
+  })
+})
+
+describe("Claude permission responses", () => {
+  it("sends one-time approval by default", () => {
+    const message = chatMessage({
+      kind: "APPROVAL",
+      metadata: { serverRequestMethod: "claude/canUseTool" },
+      rawPayload: { suggestions: [{ type: "setMode", mode: "default", destination: "session" }] },
+      requestId: "request-1",
+      status: "PENDING",
+    })
+
+    expect(hasClaudePermissionSuggestions(message)).toBe(true)
+    expect(serverRequestResponseFor(message, true)).toEqual({
+      kind: "approval",
+      result: { decision: "accept" },
+    })
+  })
+
+  it("can send Claude session permission updates explicitly", () => {
+    const suggestions = [{ type: "setMode", mode: "default", destination: "session" }]
+    const message = chatMessage({
+      kind: "APPROVAL",
+      metadata: { serverRequestMethod: "claude/canUseTool" },
+      rawPayload: { suggestions },
+      requestId: "request-1",
+      status: "PENDING",
+    })
+
+    expect(serverRequestResponseFor(message, true, { allowForSession: true })).toEqual({
+      kind: "approval",
+      result: { decision: "accept", updatedPermissions: suggestions },
+    })
   })
 })
 

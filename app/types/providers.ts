@@ -1,7 +1,7 @@
 import type { JsonObject, JsonSerializable } from "./json"
 
 export type ProviderAccountStatus = "DISCONNECTED" | "AUTHENTICATING" | "CONNECTED" | "INVALIDATED" | "ERROR"
-export type AccountAuthMode = "browser" | "device" | "local"
+export type AccountAuthMode = "browser" | "device" | "environment" | "local"
 export type RunStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED"
 export type ChatStatus = "IDLE" | "RUNNING" | "ARCHIVED"
 export type MessageScheduleStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVED"
@@ -41,6 +41,7 @@ export type ProviderCapability =
   | "hooks"
   | "plugins"
   | "mcp"
+  | "mcpOauth"
   | "config"
   | "commandExec"
   | "shellCommand"
@@ -58,14 +59,22 @@ export type ProviderFieldDefinition = {
   description?: string
   key: string
   label: string
+  options?: { description?: string; label: string; value: string }[]
   placeholder?: string
   required?: boolean
   secret?: boolean
   type: "boolean" | "json" | "path" | "string" | "stringArray"
 }
 
+export type ProviderAuthModeDefinition = {
+  description?: string
+  label: string
+  mode: AccountAuthMode
+}
+
 export type ProviderDefinitionResponse = {
   accountFields: ProviderFieldDefinition[]
+  authModes?: ProviderAuthModeDefinition[]
   capabilities: ProviderCapability[]
   composerFeatures: ProviderComposerFeature[]
   defaultSettings: JsonObject
@@ -135,6 +144,10 @@ export type CodexInstructionsResponse = {
 export type UpdateCodexInstructionsRequest = {
   instructions: string
 }
+
+export type ProviderInstructionsResponse = CodexInstructionsResponse
+
+export type UpdateProviderInstructionsRequest = UpdateCodexInstructionsRequest
 
 export type CompleteProviderAccountLoginRequest = {
   redirectUrl: string
