@@ -9,6 +9,8 @@ import {
   matchingChatSlashCommands,
   parseChatSlashCommand,
   readChatAccountSwitchEvent,
+  readAcpAvailableCommands,
+  readAcpSessionConfig,
   readUserInputQuestions,
   renderAssistantSegment,
   serverRequestResponseFor,
@@ -31,6 +33,39 @@ describe("chat slash commands", () => {
 
   it("ignores unknown commands", () => {
     expect(parseChatSlashCommand("/does-not-exist")).toBeNull()
+  })
+
+  it("uses commands and live configuration announced by ACP", () => {
+    const messages = [chatMessage({
+      kind: "SESSION_UPDATE",
+      rawPayload: { updates: [
+        {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [{ name: "deploy", description: "Deploy the app", input: { hint: "<env>" } }],
+        },
+        {
+          sessionUpdate: "config_option_update",
+          configOptions: [
+            { id: "model", currentValue: "gpt-5.4-mini" },
+            { id: "reasoning_effort", currentValue: "low" },
+            { id: "fast-mode", currentValue: "on" },
+            { id: "mode", currentValue: "agent-full-access" },
+          ],
+        },
+      ] },
+    })]
+
+    expect(readAcpAvailableCommands(messages)).toEqual([{
+      description: "Deploy the app",
+      id: "deploy",
+      usage: "/deploy <env>",
+    }])
+    expect(readAcpSessionConfig(messages)).toMatchObject({
+      model: "gpt-5.4-mini",
+      permissionMode: "fullAccess",
+      reasoningEffort: "low",
+      serviceTier: "fast",
+    })
   })
 })
 
@@ -229,6 +264,16 @@ describe("tool message grouping", () => {
       1_000_000,
     )).toBe("14s")
   })
+
+  it("does not merge adjacent assistant output from distinct real turns", () => {
+    const first = chatMessage({ id: "first", sequence: 1, turnId: "turn-1", content: "First turn" })
+    const second = chatMessage({ id: "second", sequence: 2, turnId: "turn-2", content: "Second turn" })
+
+    expect(groupChatRenderEntries([first, second], false)).toEqual([
+      { type: "message", message: first },
+      { type: "message", message: second },
+    ])
+  })
 })
 
 describe("queued messages", () => {
@@ -325,6 +370,18 @@ describe("user input prompts", () => {
       options: [],
       question: "Tell Codex what to do next.",
     }])
+  })
+
+  it("maps ACP enum defaults to the displayed option labels", () => {
+    expect(readUserInputQuestions({
+      questions: [{
+        id: "targets",
+        defaultValue: ["web-app"],
+        multiple: true,
+        options: [{ label: "Web app", value: "web-app" }, { label: "API", value: "api" }],
+        question: "Select targets",
+      }],
+    })[0]).toMatchObject({ defaultValues: ["Web app"], multiple: true })
   })
 })
 

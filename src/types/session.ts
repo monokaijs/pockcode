@@ -67,11 +67,22 @@ export type ChatComposerSubmit = {
 }
 
 export type UserInputQuestion = {
+  defaultValues?: string[]
   header: string
   id: string
+  inputType?: "date" | "datetime-local" | "email" | "number" | "text" | "url"
   isSecret: boolean
-  options: { description: string; label: string }[]
+  maximum?: number | null
+  maximumLength?: number | null
+  maximumSelections?: number | null
+  minimum?: number | null
+  minimumLength?: number | null
+  minimumSelections?: number | null
+  multiple?: boolean
+  options: { description: string; label: string; value?: string }[]
+  pattern?: string | null
   question: string
+  required?: boolean
 }
 
 export type VisibleTreeItem = {
@@ -90,15 +101,6 @@ export type ParsedFileChange = {
   deletions: number
   path: string
 }
-
-export type MarkdownBlock =
-  | { type: "blockquote"; lines: string[] }
-  | { type: "code"; language: string; value: string }
-  | { type: "heading"; level: number; text: string }
-  | { type: "hr" }
-  | { type: "list"; items: string[]; ordered: boolean }
-  | { type: "paragraph"; lines: string[] }
-  | { type: "table"; headers: string[]; rows: string[][] }
 
 export type WorkRenderEntry =
   | { type: "actionGroup"; id: string; messages: ChatMessageResponse[] }

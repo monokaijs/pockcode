@@ -1,5 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
 
@@ -20,6 +20,11 @@ let stdoutBuffer = ""
 
 try {
   mkdirSync(codexHome, { recursive: true })
+  const sourceCodexHome = process.env.POCKCODE_SMOKE_CODEX_HOME ?? process.env.CODEX_HOME ?? join(homedir(), ".codex")
+  const sourceAuth = join(sourceCodexHome, "auth.json")
+  if (existsSync(sourceAuth)) {
+    copyFileSync(sourceAuth, join(codexHome, "auth.json"))
+  }
   writeFileSync(join(root, "workspace-marker"), "")
   await import("node:fs/promises").then(({ mkdir, writeFile }) =>
     mkdir(workspace, { recursive: true }).then(() => writeFile(join(workspace, "README.md"), "smoke test workspace\n")),

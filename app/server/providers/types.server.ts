@@ -8,6 +8,8 @@ import type {
   ChatAttachmentRequest,
   ForkChatRequest,
   MessageKind,
+  MessageContentBlock,
+  MessageToolCall,
   MessageRole,
   MessageStatus,
   ProviderCapability,
@@ -87,6 +89,7 @@ export type ProviderChatStateSnapshot = {
 }
 
 export type ProviderChatMessageItem = {
+  blocks?: MessageContentBlock[] | null
   content: string
   createdAt?: string | null
   itemId?: string | null
@@ -97,6 +100,7 @@ export type ProviderChatMessageItem = {
   role: MessageRole
   status?: MessageStatus
   turnId?: string | null
+  toolCall?: MessageToolCall | null
 }
 
 export type ProviderAccountSwitchContext = {

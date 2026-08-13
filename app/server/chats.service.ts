@@ -368,6 +368,10 @@ function messageSnapshot(message: ChatMessageResponse): string {
     message.createdAt,
     message.completedAt,
     message.content,
+    JSON.stringify(message.blocks ?? null),
+    JSON.stringify(message.toolCall ?? null),
+    JSON.stringify(message.metadata ?? null),
+    message.turnId,
   ].join(messageSnapshotSeparator)
 }
 
@@ -1568,6 +1572,7 @@ function serializeProviderMessage(
   const createdAt = parseProviderDate(message.createdAt) ?? new Date()
   const status = message.status ?? "COMPLETED"
   return {
+    blocks: message.blocks ?? null,
     id: message.id ?? `provider:${chatId}:${message.itemId ?? sequence}`,
     chatId,
     runId: message.runId,
@@ -1576,6 +1581,7 @@ function serializeProviderMessage(
     kind: message.kind ?? "CHAT",
     status,
     turnId: message.turnId ?? null,
+    toolCall: message.toolCall ?? null,
     itemId: message.itemId,
     requestId: message.requestId ?? null,
     content: message.content,

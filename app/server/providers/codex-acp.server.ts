@@ -10,6 +10,8 @@ import {
   type PermissionOption,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
+  type SessionConfigOption,
+  type SessionModeState,
   type SessionNotification,
   type SessionUpdate,
   type ToolCall,
@@ -19,7 +21,12 @@ import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { Readable, Writable } from "node:stream"
 import type { JsonObject, JsonSerializable } from "../../types/json"
-import type { ServerRequestResponseRequest } from "../../types/providers"
+import type {
+  MessageContentBlock,
+  MessageToolCall,
+  MessageToolCallContent,
+  ServerRequestResponseRequest,
+} from "../../types/providers"
 import type {
   ProviderChatMessageItem,
   ProviderRuntimeMessageInput,
@@ -50,6 +57,8 @@ type SessionState = {
   messages: ProviderChatMessageItem[]
   messagesByItemId: Map<string, number>
   planSequence: number
+  rawUpdatesByItemId: Map<string, SessionUpdate[]>
+  streamedOutputByToolCallId: Map<string, string>
   toolCalls: Map<string, ToolCall>
 }
 
@@ -73,7 +82,11 @@ export class CodexAcpRuntime {
     await this.ensureStarted()
     const sessionId = await this.ensureSession(input.threadId ?? null, input.workingDirectory)
     await input.onThreadReady?.(sessionId)
-    await this.configureSession(sessionId, input)
+    const configOptions = await this.configureSession(sessionId, input)
+    const state = this.sessions.get(sessionId)
+    if (state && configOptions.length) {
+      applyAcpUpdate(state, { configOptions, sessionUpdate: "config_option_update" })
+    }
     if (input.goalObjective?.trim()) {
       await this.connection?.extMethod("_session/goal", {
         action: "set",
@@ -85,8 +98,6 @@ export class CodexAcpRuntime {
     if (input.onMessage) {
       this.liveHandlers.set(sessionId, input.onMessage)
     }
-    const localTurnId = `acp-${randomUUID()}`
-    await input.onTurnStarted?.(localTurnId)
     try {
       const response = await withTimeout(
         this.requiredConnection().prompt({
@@ -97,9 +108,19 @@ export class CodexAcpRuntime {
         "Codex ACP prompt timed out.",
       )
       this.finalizeStreamingMessages(sessionId)
+      const failure = readSessionFailure(record(response)._meta)
+      if (failure?.phase === "active") {
+        const message = sessionFailureMessage(failure)
+        const state = this.sessions.get(sessionId)
+        if (state) {
+          upsertMessage(state, message.itemId ?? `session:error:${state.messages.length}`, message)
+        }
+        input.onMessage?.(message)
+        throw new Error(failure.safeMessage || "Codex turn failed.")
+      }
       return {
         threadId: sessionId,
-        turnId: localTurnId,
+        turnId: null,
         raw: toJson({ protocol: "acp", response }),
       }
     } finally {
@@ -197,6 +218,7 @@ export class CodexAcpRuntime {
       requestPermission: (request) => this.requestPermission(request),
       sessionUpdate: (notification) => this.handleSessionUpdate(notification),
       unstable_createElicitation: (request) => this.requestElicitation(request),
+      unstable_completeElicitation: () => undefined,
     }
     const output = Writable.toWeb(this.child.stdin) as WritableStream<Uint8Array>
     const input = Readable.toWeb(this.child.stdout) as ReadableStream<Uint8Array>
@@ -204,8 +226,16 @@ export class CodexAcpRuntime {
     await this.connection.initialize({
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {
-        elicitation: { form: {} },
+        elicitation: { form: {}, url: {} },
         plan: {},
+        _meta: {
+          jetbrains: {
+            air: {
+              capabilities: ["sessionFailure"],
+              version: 1,
+            },
+          },
+        },
       },
       clientInfo: {
         name: "pockcode",
@@ -222,45 +252,49 @@ export class CodexAcpRuntime {
     const connection = this.requiredConnection()
     if (!sessionId) {
       const response = await connection.newSession({ cwd, mcpServers: [] })
-      this.sessions.set(response.sessionId, emptySessionState(true))
+      const state = emptySessionState(true)
+      this.sessions.set(response.sessionId, state)
+      applyInitialSessionState(state, response.modes, response.configOptions)
       return response.sessionId
     }
 
     const state = this.sessions.get(sessionId) ?? emptySessionState(false)
     this.sessions.set(sessionId, state)
-    await connection.loadSession({ cwd, mcpServers: [], sessionId })
+    const response = await connection.loadSession({ cwd, mcpServers: [], sessionId })
+    applyInitialSessionState(state, response.modes, response.configOptions)
     state.loaded = true
     this.finalizeStreamingMessages(sessionId)
     return sessionId
   }
 
-  private async configureSession(sessionId: string, input: ProviderRuntimeMessageInput): Promise<void> {
+  private async configureSession(sessionId: string, input: ProviderRuntimeMessageInput): Promise<SessionConfigOption[]> {
     const connection = this.requiredConnection()
-    await connection.setSessionConfigOption({
+    let response = await connection.setSessionConfigOption({
       configId: "mode",
       sessionId,
       value: input.permissionMode === "fullAccess" ? "agent-full-access" : "agent",
     })
     if (input.model?.trim()) {
-      await connection.setSessionConfigOption({ configId: "model", sessionId, value: input.model.trim() })
+      response = await connection.setSessionConfigOption({ configId: "model", sessionId, value: input.model.trim() })
     }
     if (input.reasoningEffort?.trim()) {
-      await connection.setSessionConfigOption({
+      response = await connection.setSessionConfigOption({
         configId: "reasoning_effort",
         sessionId,
         value: normalizeReasoningEffort(input.reasoningEffort),
       })
     }
-    await connection.setSessionConfigOption({
+    response = await connection.setSessionConfigOption({
       configId: "collaboration_mode",
       sessionId,
       value: input.collaborationMode === "plan" ? "plan" : "default",
     })
-    await connection.setSessionConfigOption({
+    response = await connection.setSessionConfigOption({
       configId: "fast-mode",
       sessionId,
       value: input.serviceTier === "fast" ? "on" : "off",
     })
+    return response.configOptions
   }
 
   private handleSessionUpdate(notification: SessionNotification): void {
@@ -285,23 +319,34 @@ export class CodexAcpRuntime {
       createdAt: new Date().toISOString(),
       itemId: `request:${requestId}`,
       kind: "APPROVAL",
-      metadata: { serverRequestMethod: "acp/session/request_permission" },
+      metadata: {
+        permissionOptions: toJson(request.options),
+        serverRequestMethod: "acp/session/request_permission",
+      },
       rawPayload: toJson(request),
       requestId,
       role: "TOOL",
       status: "PENDING",
+      toolCall: normalizeToolCall(request.toolCall),
+      turnId: readTurnId(request._meta),
     })
 
     return new Promise((resolve) => {
       const finish = (outcome: RequestPermissionResponse["outcome"]) => {
         liveHandler?.({
-          content: "Request resolved",
+          content: formatPermissionRequest(request),
           createdAt: new Date().toISOString(),
           itemId: `request:${requestId}`,
           kind: "APPROVAL",
+          metadata: {
+            permissionOptions: toJson(request.options),
+            serverRequestMethod: "acp/session/request_permission",
+          },
+          rawPayload: toJson(request),
           requestId,
           role: "TOOL",
           status: "COMPLETED",
+          toolCall: normalizeToolCall(request.toolCall),
         })
         resolve({ outcome })
       }
@@ -317,12 +362,19 @@ export class CodexAcpRuntime {
     const sessionId = "sessionId" in request && typeof request.sessionId === "string" ? request.sessionId : null
     const requestId = `acp-elicitation-${randomUUID()}`
     const liveHandler = sessionId ? this.liveHandlers.get(sessionId) : undefined
+    const urlMode = request.mode === "url"
     liveHandler?.({
-      content: request.message || "User input requested",
+      content: request.mode === "url"
+        ? `${request.message || "Authorization required"}\n\n[Open authorization page](${request.url})`
+        : request.message || "User input requested",
       createdAt: new Date().toISOString(),
       itemId: `request:${requestId}`,
-      kind: "USER_INPUT_PROMPT",
-      metadata: { serverRequestMethod: "item/tool/requestUserInput" },
+      kind: urlMode ? "APPROVAL" : "USER_INPUT_PROMPT",
+      metadata: {
+        ...(urlMode ? { actionLabels: { approve: "Continue", deny: "Cancel" } } : {}),
+        elicitationMode: request.mode,
+        serverRequestMethod: "acp/elicitation/create",
+      },
       rawPayload: codexAcpElicitationPayload(request),
       requestId,
       role: "TOOL",
@@ -331,10 +383,18 @@ export class CodexAcpRuntime {
     return new Promise((resolve) => {
       const finish = (response: CreateElicitationResponse) => {
         liveHandler?.({
-          content: "Input received",
+          content: request.mode === "url"
+            ? `${request.message || "Authorization requested"}\n\n[Open authorization page](${request.url})`
+            : request.message || "User input requested",
           createdAt: new Date().toISOString(),
           itemId: `request:${requestId}`,
-          kind: "USER_INPUT_PROMPT",
+          kind: urlMode ? "APPROVAL" : "USER_INPUT_PROMPT",
+          metadata: {
+            ...(urlMode ? { actionLabels: { approve: "Continue", deny: "Cancel" } } : {}),
+            elicitationMode: request.mode,
+            serverRequestMethod: "acp/elicitation/create",
+          },
+          rawPayload: codexAcpElicitationPayload(request),
           requestId,
           role: "TOOL",
           status: "COMPLETED",
@@ -429,7 +489,26 @@ function emptySessionState(loaded: boolean): SessionState {
     messages: [],
     messagesByItemId: new Map(),
     planSequence: 0,
+    rawUpdatesByItemId: new Map(),
+    streamedOutputByToolCallId: new Map(),
     toolCalls: new Map(),
+  }
+}
+
+function applyInitialSessionState(
+  state: SessionState,
+  modes?: SessionModeState | null,
+  configOptions?: SessionConfigOption[] | null,
+): void {
+  if (modes) {
+    applyAcpUpdate(state, {
+      _meta: { initialModeState: toJson(modes) },
+      currentModeId: modes.currentModeId,
+      sessionUpdate: "current_mode_update",
+    })
+  }
+  if (configOptions?.length) {
+    applyAcpUpdate(state, { configOptions, sessionUpdate: "config_option_update" })
   }
 }
 
@@ -440,10 +519,8 @@ function applyAcpUpdate(state: SessionState, update: SessionUpdate): ProviderCha
     update.sessionUpdate === "agent_message_chunk" ||
     update.sessionUpdate === "agent_thought_chunk"
   ) {
-    const content = contentBlockText(update.content)
-    if (!content) {
-      return null
-    }
+    const block = normalizeContentBlock(update.content)
+    const content = contentBlockText(block)
     const prefix = update.sessionUpdate === "user_message_chunk"
       ? "user"
       : update.sessionUpdate === "agent_thought_chunk" ? "thought" : "assistant"
@@ -452,27 +529,38 @@ function applyAcpUpdate(state: SessionState, update: SessionUpdate): ProviderCha
     if (update.sessionUpdate === "user_message_chunk" && !existing) {
       state.currentStructuredPlanId = null
     }
+    const blocks = appendContentBlock(existing?.blocks ?? [], block)
+    const phase = stringValue(record(record(update._meta).codex).phase)
     return upsertMessage(state, itemId, {
+      blocks,
       content: `${existing?.content ?? ""}${content}`,
       createdAt: existing?.createdAt ?? now,
       itemId,
       kind: update.sessionUpdate === "agent_thought_chunk" ? "THINKING" : "CHAT",
-      rawPayload: toJson(update),
+      metadata: phase ? { acpMessagePhase: phase } : existing?.metadata,
+      rawPayload: aggregateRawUpdate(state, itemId, update),
       role: update.sessionUpdate === "user_message_chunk" ? "USER" : "ASSISTANT",
       status: "STREAMING",
+      turnId: readTurnId(update._meta) ?? existing?.turnId ?? null,
     })
   }
 
   if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
     const previous = state.toolCalls.get(update.toolCallId)
+    const streamedOutput = mergeStreamedToolOutput(state, update)
     const toolCall = update.sessionUpdate === "tool_call"
       ? update
       : ({
           ...previous,
           ...update,
-          content: update.content ?? previous?.content,
-          locations: update.locations ?? previous?.locations,
+          content: update.content === undefined ? previous?.content : update.content ?? [],
+          locations: update.locations === undefined ? previous?.locations : update.locations ?? [],
+          title: update.title ?? previous?.title ?? "Tool call",
+          _meta: { ...record(previous?._meta), ...record(update._meta) },
         } as ToolCall)
+    if (streamedOutput && update.rawOutput === undefined) {
+      toolCall.rawOutput = { formatted_output: streamedOutput }
+    }
     if (!toolCall.title) {
       toolCall.title = previous?.title ?? "Tool call"
     }
@@ -480,7 +568,11 @@ function applyAcpUpdate(state: SessionState, update: SessionUpdate): ProviderCha
     return upsertMessage(
       state,
       update.toolCallId,
-      toolCallMessage(toolCall, messageById(state, update.toolCallId)?.createdAt ?? now),
+      toolCallMessage(
+        toolCall,
+        messageById(state, update.toolCallId)?.createdAt ?? now,
+        aggregateRawUpdate(state, update.toolCallId, update),
+      ),
     )
   }
 
@@ -501,13 +593,18 @@ function applyAcpUpdate(state: SessionState, update: SessionUpdate): ProviderCha
     let content = ""
     if (plan.type === "items") {
       metadata.planSteps = toJson(plan.entries.map((entry) => ({
+        priority: entry.priority,
         status: entry.status === "in_progress" ? "inProgress" : entry.status,
         step: entry.content,
       })))
+      metadata.planType = "items"
     } else if (plan.type === "markdown") {
       content = plan.content
+      metadata.planType = "markdown"
     } else {
-      content = plan.uri
+      content = `[Open plan file](${plan.uri})`
+      metadata.planType = "file"
+      metadata.planUri = plan.uri
     }
     return upsertMessage(state, itemId, {
       content,
@@ -515,39 +612,78 @@ function applyAcpUpdate(state: SessionState, update: SessionUpdate): ProviderCha
       itemId,
       kind: "PLAN",
       metadata,
-      rawPayload: toJson(update),
+      rawPayload: aggregateRawUpdate(state, itemId, update),
       role: "ASSISTANT",
       status: "STREAMING",
+      turnId: readTurnId(update._meta),
     })
   }
 
   if (update.sessionUpdate === "plan_removed") {
     return upsertMessage(state, `plan:${update.planId}`, {
-      content: "",
+      content: "Plan removed",
       createdAt: now,
       itemId: `plan:${update.planId}`,
       kind: "PLAN",
-      metadata: { planPresentation: "update", planSteps: [] },
-      rawPayload: toJson(update),
+      metadata: { planPresentation: "update", planRemoved: true, planSteps: [] },
+      rawPayload: aggregateRawUpdate(state, `plan:${update.planId}`, update),
       role: "ASSISTANT",
       status: "COMPLETED",
+      turnId: readTurnId(update._meta),
     })
   }
-  return null
+
+  if (update.sessionUpdate === "available_commands_update") {
+    const itemId = "session:available-commands"
+    return sessionUpdateMessage(state, itemId, update, `${update.availableCommands.length} commands available`, now)
+  }
+  if (update.sessionUpdate === "current_mode_update") {
+    const itemId = "session:current-mode"
+    return sessionUpdateMessage(state, itemId, update, `Session mode: ${update.currentModeId}`, now)
+  }
+  if (update.sessionUpdate === "config_option_update") {
+    const itemId = "session:config-options"
+    return sessionUpdateMessage(state, itemId, update, "Session configuration updated", now)
+  }
+  if (update.sessionUpdate === "usage_update") {
+    const itemId = "session:usage"
+    const cost = update.cost ? ` · ${update.cost.amount} ${update.cost.currency}` : ""
+    return sessionUpdateMessage(state, itemId, update, `Context: ${update.used.toLocaleString()} / ${update.size.toLocaleString()} tokens${cost}`, now)
+  }
+  if (update.sessionUpdate === "session_info_update") {
+    const failure = readSessionFailure(update._meta)
+    if (failure) {
+      const message = sessionFailureMessage(failure)
+      return upsertMessage(state, message.itemId ?? `session:error:${state.messages.length}`, {
+        ...message,
+        rawPayload: aggregateRawUpdate(state, message.itemId ?? failure.id, update),
+      })
+    }
+    const itemId = "session:info"
+    const title = update.title ? `Session title: ${update.title}` : sessionInfoSummary(update)
+    return sessionUpdateMessage(state, itemId, update, title, update.updatedAt ?? now)
+  }
+  return assertNever(update)
 }
 
-function toolCallMessage(toolCall: ToolCall, createdAt: string): ProviderChatMessageItem {
+function toolCallMessage(
+  toolCall: ToolCall,
+  createdAt: string,
+  rawPayload: JsonSerializable = toJson(toolCall),
+): ProviderChatMessageItem {
   const kind = toolMessageKind(toolCall)
   return {
     content: formatToolCall(toolCall, kind),
     createdAt,
     itemId: toolCall.toolCallId,
     kind,
-    rawPayload: toJson(toolCall),
+    rawPayload,
     role: "TOOL",
     status: toolCall.status === "failed"
       ? "FAILED"
       : toolCall.status === "completed" ? "COMPLETED" : "STREAMING",
+    toolCall: normalizeToolCall(toolCall),
+    turnId: readTurnId(toolCall._meta),
   }
 }
 
@@ -601,11 +737,16 @@ function formatToolCall(toolCall: ToolCall, kind: NonNullable<ProviderChatMessag
   }
   for (const entry of toolCall.content ?? []) {
     if (entry.type === "content") {
-      const text = contentBlockText(entry.content)
+      const text = contentBlockText(normalizeContentBlock(entry.content))
       if (text) {
         parts.push(text)
       }
+    } else if (entry.type === "terminal") {
+      parts.push(`Terminal: \`${entry.terminalId}\``)
     }
+  }
+  for (const location of toolCall.locations ?? []) {
+    parts.push(`Location: \`${location.path}${location.line ? `:${location.line}` : ""}\``)
   }
   return parts.join("\n\n")
 }
@@ -655,20 +796,248 @@ function codexAcpPrompt(
   return blocks
 }
 
-function contentBlockText(block: ContentBlock): string {
+function contentBlockText(block: MessageContentBlock): string {
   if (block.type === "text") {
     return block.text
   }
   if (block.type === "resource_link") {
     return `[${block.name}](${block.uri})`
   }
-  if (block.type === "resource" && "text" in block.resource) {
+  if (block.type === "resource" && block.resource.type === "text") {
     return block.resource.text
   }
   if (block.type === "image") {
     return block.uri ? `![image](${block.uri})` : `[Image: ${block.mimeType}]`
   }
-  return ""
+  if (block.type === "audio") {
+    return `[Audio: ${block.mimeType}]`
+  }
+  return `[Resource: ${block.resource.uri}]`
+}
+
+function normalizeContentBlock(block: ContentBlock): MessageContentBlock {
+  const common = {
+    annotations: block.annotations ? {
+      audience: block.annotations.audience ?? null,
+      lastModified: block.annotations.lastModified ?? null,
+      priority: block.annotations.priority ?? null,
+    } : null,
+    meta: block._meta ? toJson(block._meta) : null,
+  }
+  if (block.type === "text") {
+    return { ...common, text: block.text, type: "text" }
+  }
+  if (block.type === "image") {
+    return { ...common, data: block.data, mimeType: block.mimeType, type: "image", uri: block.uri ?? null }
+  }
+  if (block.type === "audio") {
+    return { ...common, data: block.data, mimeType: block.mimeType, type: "audio" }
+  }
+  if (block.type === "resource_link") {
+    return {
+      ...common,
+      description: block.description ?? null,
+      mimeType: block.mimeType ?? null,
+      name: block.name,
+      size: block.size ?? null,
+      title: block.title ?? null,
+      type: "resource_link",
+      uri: block.uri,
+    }
+  }
+  const resource = "text" in block.resource
+    ? {
+        meta: block.resource._meta ? toJson(block.resource._meta) : null,
+        mimeType: block.resource.mimeType ?? null,
+        text: block.resource.text,
+        type: "text" as const,
+        uri: block.resource.uri,
+      }
+    : {
+        blob: block.resource.blob,
+        meta: block.resource._meta ? toJson(block.resource._meta) : null,
+        mimeType: block.resource.mimeType ?? null,
+        type: "blob" as const,
+        uri: block.resource.uri,
+      }
+  return { ...common, resource, type: "resource" }
+}
+
+function appendContentBlock(
+  blocks: MessageContentBlock[],
+  block: MessageContentBlock,
+): MessageContentBlock[] {
+  const previous = blocks.at(-1)
+  if (
+    previous?.type === "text" &&
+    block.type === "text" &&
+    JSON.stringify(previous.annotations ?? null) === JSON.stringify(block.annotations ?? null) &&
+    JSON.stringify(previous.meta ?? null) === JSON.stringify(block.meta ?? null)
+  ) {
+    return [...blocks.slice(0, -1), { ...previous, text: `${previous.text}${block.text}` }]
+  }
+  return [...blocks, block]
+}
+
+function normalizeToolCall(toolCall: ToolCall | RequestPermissionRequest["toolCall"]): MessageToolCall {
+  return {
+    content: (toolCall.content ?? []).map(normalizeToolCallContent),
+    kind: toolCall.kind ?? null,
+    locations: (toolCall.locations ?? []).map((location) => ({
+      line: location.line ?? null,
+      meta: location._meta ? toJson(location._meta) : null,
+      path: location.path,
+    })),
+    meta: toolCall._meta ? toJson(toolCall._meta) : null,
+    name: toolCall.name ?? null,
+    rawInput: toJson(toolCall.rawInput),
+    rawOutput: toJson(toolCall.rawOutput),
+    status: toolCall.status ?? null,
+    title: toolCall.title ?? "Tool call",
+    toolCallId: toolCall.toolCallId,
+  }
+}
+
+function normalizeToolCallContent(content: NonNullable<ToolCall["content"]>[number]): MessageToolCallContent {
+  if (content.type === "content") {
+    return {
+      content: normalizeContentBlock(content.content),
+      meta: content._meta ? toJson(content._meta) : null,
+      type: "content",
+    }
+  }
+  if (content.type === "diff") {
+    return {
+      meta: content._meta ? toJson(content._meta) : null,
+      newText: content.newText,
+      oldText: content.oldText ?? null,
+      path: content.path,
+      type: "diff",
+    }
+  }
+  return {
+    meta: content._meta ? toJson(content._meta) : null,
+    terminalId: content.terminalId,
+    type: "terminal",
+  }
+}
+
+function aggregateRawUpdate(state: SessionState, itemId: string, update: SessionUpdate): JsonSerializable {
+  const updates = [...(state.rawUpdatesByItemId.get(itemId) ?? []), update]
+  state.rawUpdatesByItemId.set(itemId, updates)
+  return toJson({ protocol: "acp", updates })
+}
+
+function mergeStreamedToolOutput(
+  state: SessionState,
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call" | "tool_call_update" }>,
+): string {
+  const meta = record(update._meta)
+  const terminalDelta = record(meta.terminal_output_delta).data
+  const mcpDelta = record(meta.mcp_output_delta).data
+  const terminalComplete = record(meta.terminal_output).data
+  const delta = typeof terminalDelta === "string" ? terminalDelta : typeof mcpDelta === "string" ? mcpDelta : null
+  const complete = typeof terminalComplete === "string" ? terminalComplete : null
+  if (complete !== null) {
+    state.streamedOutputByToolCallId.set(update.toolCallId, complete)
+    return complete
+  }
+  if (delta !== null) {
+    const next = `${state.streamedOutputByToolCallId.get(update.toolCallId) ?? ""}${delta}`
+    state.streamedOutputByToolCallId.set(update.toolCallId, next)
+    return next
+  }
+  return state.streamedOutputByToolCallId.get(update.toolCallId) ?? ""
+}
+
+function sessionUpdateMessage(
+  state: SessionState,
+  itemId: string,
+  update: SessionUpdate,
+  content: string,
+  createdAt: string,
+): ProviderChatMessageItem {
+  return upsertMessage(state, itemId, {
+    content,
+    createdAt,
+    itemId,
+    kind: "SESSION_UPDATE",
+    metadata: { acpSessionUpdate: update.sessionUpdate },
+    rawPayload: aggregateRawUpdate(state, itemId, update),
+    role: "TOOL",
+    status: "COMPLETED",
+    turnId: readTurnId(update._meta),
+  })
+}
+
+type AcpSessionFailure = {
+  actions?: JsonSerializable | null
+  category?: string | null
+  id: string
+  phase: string
+  retryable?: boolean | null
+  revision?: number | null
+  safeMessage?: string | null
+  turnId?: string | null
+}
+
+function readSessionFailure(meta: unknown): AcpSessionFailure | null {
+  const failure = record(record(record(meta).jetbrains).air).sessionFailure
+  const value = record(failure)
+  const id = stringValue(value.id)
+  const phase = stringValue(value.phase)
+  if (!id || !phase) {
+    return null
+  }
+  return {
+    actions: value.actions === undefined ? null : toJson(value.actions),
+    category: stringValue(value.category),
+    id,
+    phase,
+    retryable: typeof value.retryable === "boolean" ? value.retryable : null,
+    revision: typeof value.revision === "number" ? value.revision : null,
+    safeMessage: stringValue(value.safeMessage),
+    turnId: stringValue(value.turnId),
+  }
+}
+
+function sessionFailureMessage(failure: AcpSessionFailure): ProviderChatMessageItem {
+  const active = failure.phase === "active"
+  return {
+    content: active ? failure.safeMessage ?? "Codex turn failed." : "Codex session recovered.",
+    createdAt: new Date().toISOString(),
+    itemId: failure.id,
+    kind: active ? "ERROR" : "SESSION_UPDATE",
+    metadata: {
+      acpSessionFailure: toJson(failure),
+      retryable: failure.retryable ?? false,
+    },
+    role: active ? "ASSISTANT" : "TOOL",
+    status: active ? "FAILED" : "COMPLETED",
+    turnId: failure.turnId ?? null,
+  }
+}
+
+function sessionInfoSummary(update: Extract<SessionUpdate, { sessionUpdate: "session_info_update" }>): string {
+  const meta = record(update._meta)
+  const goal = record(meta.goal)
+  const codex = record(meta.codex)
+  if (Object.keys(goal).length) {
+    return `Goal ${stringValue(goal.status) ?? "updated"}`
+  }
+  if (Object.keys(codex).length) {
+    return `Session: ${Object.entries(codex).map(([key, value]) => `${key}=${String(value)}`).join(", ")}`
+  }
+  return "Session information updated"
+}
+
+function readTurnId(meta: unknown): string | null {
+  const value = record(meta)
+  return stringValue(value.turnId) ?? stringValue(record(value.codex).turnId)
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unsupported ACP session update: ${prettyJson(value)}`)
 }
 
 function permissionOutcome(
@@ -676,6 +1045,10 @@ function permissionOutcome(
   response: ServerRequestResponseRequest,
 ): RequestPermissionResponse["outcome"] {
   const result = record(response.result)
+  const selectedOptionId = stringValue(result.optionId) ?? stringValue(response.decision)
+  if (selectedOptionId && options.some((entry) => entry.optionId === selectedOptionId)) {
+    return { outcome: "selected", optionId: selectedOptionId }
+  }
   const decision = stringValue(result.decision) ?? stringValue(response.decision)
   const approved = decision === "accept" || decision === "approved" || decision === "allow"
   const option = options.find((entry) => approved ? entry.kind.startsWith("allow") : entry.kind.startsWith("reject"))
@@ -687,6 +1060,13 @@ function elicitationOutcome(
   request: CreateElicitationRequest,
 ): CreateElicitationResponse {
   const result = record(response.result)
+  const decision = stringValue(result.decision) ?? stringValue(response.decision)
+  if (decision === "decline" || decision === "deny" || decision === "reject" || decision === "cancel") {
+    return { action: decision === "cancel" ? "cancel" : "decline" }
+  }
+  if (request.mode === "url") {
+    return { action: "accept" }
+  }
   const answers = record(result.answers)
   const properties = request.mode === "form" ? record(record(request).requestedSchema).properties : {}
   const propertyRecords = record(properties)
@@ -694,14 +1074,19 @@ function elicitationOutcome(
   for (const [id, answerValue] of Object.entries(answers)) {
     const answer = record(answerValue)
     const values = Array.isArray(answer.answers) ? answer.answers : []
-    const first = values.find((value): value is string => typeof value === "string")
+    const strings = values.filter((value): value is string => typeof value === "string")
+    const first = strings[0]
     if (first !== undefined) {
       const property = record(propertyRecords[id])
       const oneOf = Array.isArray(property.oneOf) ? property.oneOf.map(record) : []
       const selected = oneOf.find((option) => option.title === first || option.const === first)
       const selectedValue = stringValue(selected?.const)
       const propertyType = stringValue(property.type)
-      if (selectedValue) {
+      if (propertyType === "array") {
+        const items = record(property.items)
+        const anyOf = Array.isArray(items.anyOf) ? items.anyOf.map(record) : []
+        content[id] = strings.map((value) => stringValue(anyOf.find((option) => option.title === value || option.const === value)?.const) ?? value)
+      } else if (selectedValue) {
         content[id] = selectedValue
       } else if (propertyType === "boolean") {
         content[id] = first.toLowerCase() === "true" || first.toLowerCase() === "yes"
@@ -721,6 +1106,9 @@ export function codexAcpElicitationPayload(request: CreateElicitationRequest): J
     return toJson(request)
   }
   const requestedSchema = record(record(request).requestedSchema)
+  const required = new Set(Array.isArray(requestedSchema.required)
+    ? requestedSchema.required.filter((value): value is string => typeof value === "string")
+    : [])
   const questions = Object.entries(record(requestedSchema.properties)).map(([id, propertyValue]) => {
     const property = record(propertyValue)
     const oneOf = Array.isArray(property.oneOf) ? property.oneOf.map(record) : []
@@ -734,6 +1122,20 @@ export function codexAcpElicitationPayload(request: CreateElicitationRequest): J
           value: stringValue(option.const) ?? stringValue(option.title) ?? "option",
         }))
       : enumValues.map((value) => ({ description: "", label: value, value }))
+    const items = record(property.items)
+    const itemAnyOf = Array.isArray(items.anyOf) ? items.anyOf.map(record) : []
+    const itemEnum = Array.isArray(items.enum)
+      ? items.enum.filter((value): value is string => typeof value === "string")
+      : []
+    if (property.type === "array") {
+      options.push(...(itemAnyOf.length
+        ? itemAnyOf.map((option) => ({
+            description: stringValue(option.description) ?? "",
+            label: stringValue(option.title) ?? stringValue(option.const) ?? "Option",
+            value: stringValue(option.const) ?? stringValue(option.title) ?? "option",
+          }))
+        : itemEnum.map((value) => ({ description: "", label: value, value }))))
+    }
     if (property.type === "boolean" && options.length === 0) {
       options.push(
         { description: "", label: "Yes", value: "true" },
@@ -741,13 +1143,35 @@ export function codexAcpElicitationPayload(request: CreateElicitationRequest): J
       )
     }
     return {
+      defaultValue: toJson(property.default),
       header: stringValue(property.title) ?? "",
       id,
+      inputType: elicitationInputType(property),
+      isSecret: record(property._meta).secret === true || record(property._meta).isSecret === true,
+      maximum: typeof property.maximum === "number" ? property.maximum : null,
+      maximumLength: typeof property.maxLength === "number" ? property.maxLength : null,
+      maximumSelections: typeof property.maxItems === "number" ? property.maxItems : null,
+      minimum: typeof property.minimum === "number" ? property.minimum : null,
+      minimumLength: typeof property.minLength === "number" ? property.minLength : null,
+      minimumSelections: typeof property.minItems === "number" ? property.minItems : null,
+      multiple: property.type === "array",
       options,
+      pattern: stringValue(property.pattern),
       question: stringValue(property.description) ?? stringValue(property.title) ?? request.message,
+      required: required.has(id),
     }
   })
   return toJson({ ...request, questions })
+}
+
+function elicitationInputType(property: Record<string, unknown>): string {
+  const format = stringValue(property.format)
+  if (format === "email") return "email"
+  if (format === "uri") return "url"
+  if (format === "date") return "date"
+  if (format === "date-time") return "datetime-local"
+  if (property.type === "number" || property.type === "integer") return "number"
+  return "text"
 }
 
 function formatPermissionRequest(request: RequestPermissionRequest): string {

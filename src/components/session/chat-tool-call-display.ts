@@ -23,6 +23,9 @@ export function toolCallIcon(message: ChatMessageResponse): LucideIcon {
 }
 
 export function toolCallTitle(message: ChatMessageResponse): string {
+  if (message.toolCall?.title) {
+    return message.toolCall.title
+  }
   if (message.status === "STREAMING") {
     if (message.kind === "FILE_CHANGE") {
       const files = parseFileChangeMessage(message)

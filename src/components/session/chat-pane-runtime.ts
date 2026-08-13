@@ -15,6 +15,7 @@ import {
   readRecordString,
 } from "@/lib/session"
 import type { ChatComposerReasoningEffort, ChatComposerServiceTier } from "@/types/session"
+import type { AcpSessionConfig } from "@/lib/session"
 import { apiClient } from "@/lib/api-client"
 
 type RuntimeSettingsChange = (chatId: string, settings: {
@@ -27,11 +28,13 @@ export function useChatPaneRuntimeSettings({
   account,
   chat,
   providerDefinition,
+  sessionConfig,
   onRuntimeSettingsChange,
 }: {
   account: ProviderAccountResponse | null
   chat: ChatResponse | null
   providerDefinition: ProviderDefinitionResponse | null
+  sessionConfig?: AcpSessionConfig
   onRuntimeSettingsChange: RuntimeSettingsChange
 }) {
   const [model, setModel] = useState("")
@@ -49,9 +52,9 @@ export function useChatPaneRuntimeSettings({
       defaultRuntimeDefaultValue(account?.providerId, "reasoningEffort")
     const defaultServiceTier = readRecordString(account?.runtimeDefaults, "serviceTier") ||
       defaultRuntimeDefaultValue(account?.providerId, "serviceTier")
-    setModel(chat?.model ?? defaultModel)
-    setReasoningEffort(readComposerReasoningEffort(chat?.reasoningEffort ?? defaultReasoningEffort))
-    setServiceTier(readComposerServiceTier(chat?.serviceTier ?? defaultServiceTier))
+    setModel(sessionConfig?.model ?? chat?.model ?? defaultModel)
+    setReasoningEffort(readComposerReasoningEffort(sessionConfig?.reasoningEffort ?? chat?.reasoningEffort ?? defaultReasoningEffort))
+    setServiceTier(readComposerServiceTier(sessionConfig?.serviceTier ?? chat?.serviceTier ?? defaultServiceTier))
   }, [
     account?.id,
     account?.providerId,
@@ -60,6 +63,9 @@ export function useChatPaneRuntimeSettings({
     chat?.model,
     chat?.reasoningEffort,
     chat?.serviceTier,
+    sessionConfig?.model,
+    sessionConfig?.reasoningEffort,
+    sessionConfig?.serviceTier,
   ])
 
   useEffect(() => {

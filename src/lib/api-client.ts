@@ -64,6 +64,8 @@ export type {
   ChatAccountSwitchEvent,
   ChatAccountSwitchPhase,
   ChatMessageResponse,
+  MessageContentBlock,
+  MessageToolCall,
   ChatResponse,
   CreateMessageScheduleRequest,
   MessageScheduleRecurrence,

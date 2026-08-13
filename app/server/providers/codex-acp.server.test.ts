@@ -160,6 +160,148 @@ describe("Codex ACP message normalization", () => {
       }],
     })
   })
+
+  it("preserves every ACP content block instead of flattening media and resources", () => {
+    const messages = normalizeCodexAcpUpdates([
+      { sessionUpdate: "agent_message_chunk", messageId: "media-1", content: { type: "text", text: "Result" } },
+      { sessionUpdate: "agent_message_chunk", messageId: "media-1", content: { type: "image", data: "aW1hZ2U=", mimeType: "image/png" } },
+      { sessionUpdate: "agent_message_chunk", messageId: "media-1", content: { type: "audio", data: "YXVkaW8=", mimeType: "audio/wav" } },
+      {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "media-1",
+        content: { type: "resource_link", name: "Report", uri: "https://example.com/report", mimeType: "text/html" },
+      },
+      {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "media-1",
+        content: { type: "resource", resource: { uri: "file:///notes.md", mimeType: "text/markdown", text: "# Notes" } },
+      },
+      {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "media-1",
+        content: { type: "resource", resource: { uri: "file:///archive.bin", mimeType: "application/octet-stream", blob: "AAE=" } },
+      },
+    ])
+
+    expect(messages[0]?.blocks?.map((block) => block.type)).toEqual([
+      "text", "image", "audio", "resource_link", "resource", "resource",
+    ])
+    expect(messages[0]?.content).toContain("[Audio: audio/wav]")
+    expect(messages[0]?.blocks?.[1]).toMatchObject({ data: "aW1hZ2U=", mimeType: "image/png" })
+  })
+
+  it("preserves full tool content, locations, metadata, and streamed terminal output", () => {
+    const messages = normalizeCodexAcpUpdates([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "terminal-1",
+        title: "Run checks",
+        kind: "execute",
+        status: "in_progress",
+        content: [
+          { type: "terminal", terminalId: "terminal-1" },
+          { type: "diff", path: "/workspace/a.ts", oldText: "old", newText: "new" },
+          { type: "content", content: { type: "image", data: "aW1hZ2U=", mimeType: "image/png" } },
+        ],
+        locations: [{ path: "/workspace/a.ts", line: 7 }],
+        rawInput: { command: "pnpm test" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "terminal-1",
+        _meta: { terminal_output_delta: { data: "first\n", terminal_id: "terminal-1" } },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "terminal-1",
+        status: "completed",
+        _meta: { terminal_output_delta: { data: "second", terminal_id: "terminal-1" } },
+      },
+    ])
+
+    expect(messages[0]?.toolCall).toMatchObject({
+      content: [
+        { type: "terminal", terminalId: "terminal-1" },
+        { type: "diff", path: "/workspace/a.ts", oldText: "old", newText: "new" },
+        { type: "content", content: { type: "image", mimeType: "image/png" } },
+      ],
+      locations: [{ path: "/workspace/a.ts", line: 7 }],
+      rawOutput: { formatted_output: "first\nsecond" },
+    })
+  })
+
+  it("handles every non-content session update and typed Codex failures", () => {
+    const messages = normalizeCodexAcpUpdates([
+      { sessionUpdate: "available_commands_update", availableCommands: [{ name: "/review", description: "Review changes" }] },
+      { sessionUpdate: "current_mode_update", currentModeId: "agent" },
+      { sessionUpdate: "config_option_update", configOptions: [] },
+      { sessionUpdate: "usage_update", used: 100, size: 1000, cost: { amount: 0.01, currency: "USD" } },
+      { sessionUpdate: "session_info_update", title: "ACP audit", updatedAt: "2026-08-13T00:00:00.000Z" },
+      {
+        sessionUpdate: "session_info_update",
+        _meta: {
+          jetbrains: {
+            air: {
+              sessionFailure: {
+                id: "turn-1:error",
+                phase: "active",
+                category: "provider_error",
+                safeMessage: "The provider failed.",
+                retryable: true,
+                revision: 1,
+                turnId: "turn-1",
+              },
+            },
+          },
+        },
+      },
+    ])
+
+    expect(messages.filter((message) => message.kind === "SESSION_UPDATE")).toHaveLength(5)
+    expect(messages.at(-1)).toMatchObject({
+      content: "The provider failed.",
+      itemId: "turn-1:error",
+      kind: "ERROR",
+      status: "FAILED",
+      turnId: "turn-1",
+    })
+  })
+
+  it("maps ACP multi-select and validation metadata for the frontend form", () => {
+    const payload = codexAcpElicitationPayload({
+      mode: "form",
+      sessionId: "session-1",
+      message: "Configure the run",
+      requestedSchema: {
+        type: "object",
+        required: ["targets"],
+        properties: {
+          targets: {
+            type: "array",
+            title: "Targets",
+            minItems: 1,
+            maxItems: 2,
+            items: { type: "string", enum: ["web", "api", "worker"] },
+          },
+          retries: { type: "integer", title: "Retries", minimum: 0, maximum: 5, default: 2 },
+        },
+      },
+    })
+
+    expect(payload).toMatchObject({
+      questions: [
+        {
+          id: "targets",
+          multiple: true,
+          required: true,
+          minimumSelections: 1,
+          maximumSelections: 2,
+          options: [{ value: "web" }, { value: "api" }, { value: "worker" }],
+        },
+        { id: "retries", inputType: "number", defaultValue: 2, minimum: 0, maximum: 5, required: false },
+      ],
+    })
+  })
 })
 
 function messageChunk(

@@ -21,7 +21,56 @@ export type MessageKind =
   | "WARNING"
   | "COMPACTION"
   | "SUBAGENT_ACTIVITY"
+  | "SESSION_UPDATE"
   | "ERROR"
+
+export type MessageContentAnnotations = {
+  audience?: ("assistant" | "user")[] | null
+  lastModified?: string | null
+  priority?: number | null
+}
+
+export type MessageContentBlock =
+  | { annotations?: MessageContentAnnotations | null; meta?: JsonSerializable | null; text: string; type: "text" }
+  | { annotations?: MessageContentAnnotations | null; data: string; meta?: JsonSerializable | null; mimeType: string; type: "image"; uri?: string | null }
+  | { annotations?: MessageContentAnnotations | null; data: string; meta?: JsonSerializable | null; mimeType: string; type: "audio" }
+  | {
+      annotations?: MessageContentAnnotations | null
+      description?: string | null
+      meta?: JsonSerializable | null
+      mimeType?: string | null
+      name: string
+      size?: number | null
+      title?: string | null
+      type: "resource_link"
+      uri: string
+    }
+  | {
+      annotations?: MessageContentAnnotations | null
+      meta?: JsonSerializable | null
+      resource:
+        | { meta?: JsonSerializable | null; mimeType?: string | null; text: string; type: "text"; uri: string }
+        | { blob: string; meta?: JsonSerializable | null; mimeType?: string | null; type: "blob"; uri: string }
+      type: "resource"
+    }
+
+export type MessageToolCallContent =
+  | { content: MessageContentBlock; meta?: JsonSerializable | null; type: "content" }
+  | { meta?: JsonSerializable | null; newText: string; oldText?: string | null; path: string; type: "diff" }
+  | { meta?: JsonSerializable | null; terminalId: string; type: "terminal" }
+
+export type MessageToolCall = {
+  content: MessageToolCallContent[]
+  kind?: string | null
+  locations: { line?: number | null; meta?: JsonSerializable | null; path: string }[]
+  meta?: JsonSerializable | null
+  name?: string | null
+  rawInput?: JsonSerializable | null
+  rawOutput?: JsonSerializable | null
+  status?: string | null
+  title: string
+  toolCallId: string
+}
 
 export type ProviderCapability =
   | "auth"
@@ -330,6 +379,7 @@ export type ChatStatsResponse = {
 }
 
 export type ChatMessageResponse = {
+  blocks?: MessageContentBlock[] | null
   chatId: string
   completedAt?: string | null
   content: string
@@ -345,6 +395,7 @@ export type ChatMessageResponse = {
   sequence: number
   status: MessageStatus
   turnId?: string | null
+  toolCall?: MessageToolCall | null
 }
 
 export type MessagePageResponse = {

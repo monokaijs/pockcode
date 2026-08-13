@@ -260,6 +260,7 @@ function PendingUserInputPrompt() {
 function PendingUserInputQuestion({ question }: { question: UserInputQuestion }) {
   const pane = useChatPane()
   const answer = pane.userInputAnswerValue(question)
+  const answers = pane.userInputAnswerValues(question)
   const freeform = pane.userInputUsesFreeform(question)
 
   return (
@@ -268,7 +269,7 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
       {question.options.length ? (
         <div className="grid gap-1.5">
           {question.options.map((option) => {
-            const selected = answer === option.label && !freeform
+            const selected = answers.includes(option.label) && !freeform
             return (
               <button
                 className={cn(
@@ -287,7 +288,7 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
               </button>
             )
           })}
-          <button
+          {!question.multiple ? <button
             className={cn(
               "grid min-h-9 w-full gap-0.5 rounded-md border px-2.5 py-1.5 text-left text-[11px] font-medium",
               freeform
@@ -298,14 +299,20 @@ function PendingUserInputQuestion({ question }: { question: UserInputQuestion })
             onClick={() => pane.chooseUserInputFreeform(question)}
           >
             <span className="text-[12px] text-foreground">Other</span>
-          </button>
+          </button> : null}
         </div>
       ) : null}
       {freeform ? (
         <input
           className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-primary"
           autoFocus
-          type={question.isSecret ? "password" : "text"}
+          max={question.maximum ?? undefined}
+          maxLength={question.maximumLength ?? undefined}
+          min={question.minimum ?? undefined}
+          minLength={question.minimumLength ?? undefined}
+          pattern={question.pattern ?? undefined}
+          required={question.required !== false}
+          type={question.isSecret ? "password" : question.inputType ?? "text"}
           value={answer}
           onChange={(event) => pane.updateUserInputAnswer(question.id, event.target.value, { freeform: true })}
           onKeyDown={(event) => {

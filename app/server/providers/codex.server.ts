@@ -356,7 +356,57 @@ export const codexProviderAdapter: ProviderAdapter = {
       await hydrateKnownCodexThreadToAccount(input.threadId, account)
     }
     try {
-      return await acpRuntimeForAccount(account, input.workingDirectory).sendMessage(input)
+      const appServerRuntime = runtimeForAccount(account, input.workingDirectory)
+      const previousTurnId = input.threadId
+        ? readLastCodexTurnId(await readCodexAppServerThread(appServerRuntime, input.threadId).catch(() => null))
+        : null
+      let resolveThreadReady: (threadId: string) => void = () => undefined
+      const threadReady = new Promise<string>((resolve) => {
+        resolveThreadReady = resolve
+      })
+      const resultPromise = acpRuntimeForAccount(account, input.workingDirectory).sendMessage({
+        ...input,
+        onThreadReady: async (threadId) => {
+          await input.onThreadReady?.(threadId)
+          resolveThreadReady(threadId)
+        },
+      })
+      const threadId = await Promise.race([
+        threadReady,
+        resultPromise.then((result) => result.threadId),
+      ])
+      const turnWait = new AbortController()
+      const turnIdPromise = waitForCodexTurnId(appServerRuntime, threadId, previousTurnId, turnWait.signal)
+      const first = await Promise.race([
+        resultPromise.then((result) => ({ result, type: "result" as const })),
+        turnIdPromise.then((turnId) => ({ turnId, type: "turn" as const })),
+      ])
+      let result
+      let turnId: string | null
+      if (first.type === "turn") {
+        turnId = first.turnId
+        if (turnId) {
+          await input.onTurnStarted?.(turnId)
+        }
+        result = await resultPromise
+        turnWait.abort()
+        if (!turnId) {
+          const thread = await readCodexAppServerThread(appServerRuntime, result.threadId).catch(() => null)
+          turnId = readLastCodexTurnId(thread)
+          if (turnId && turnId !== previousTurnId) {
+            await input.onTurnStarted?.(turnId)
+          }
+        }
+      } else {
+        turnWait.abort()
+        result = first.result
+        const thread = await readCodexAppServerThread(appServerRuntime, result.threadId).catch(() => null)
+        turnId = readLastCodexTurnId(thread)
+        if (turnId && turnId !== previousTurnId) {
+          await input.onTurnStarted?.(turnId)
+        }
+      }
+      return { ...result, turnId }
     } catch (error) {
       await maybeMarkInvalidated(account.id, error)
       throw error
@@ -413,6 +463,24 @@ export const codexProviderAdapter: ProviderAdapter = {
   stopAccountRuntime(accountId) {
     stopCodexAccountRuntimes(accountId)
   },
+}
+
+async function waitForCodexTurnId(
+  runtime: Pick<CodexRuntime, "request">,
+  threadId: string,
+  previousTurnId: string | null,
+  signal?: AbortSignal,
+  timeoutMs = 10_000,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs
+  while (!signal?.aborted && Date.now() < deadline) {
+    const turnId = readLastCodexTurnId(await readCodexAppServerThread(runtime, threadId, 2_000).catch(() => null))
+    if (turnId && turnId !== previousTurnId) {
+      return turnId
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return null
 }
 
 export function isCodexAccountInvalidated(accountId: string): boolean {
@@ -863,7 +931,9 @@ async function loadCodexChatMessages(
         .loadMessages(externalThreadId, appServerResult.workingDirectory)
         .catch(() => null)
       : null
-    const normalizedMessages = acpMessages?.length ? acpMessages : appServerResult.messages
+    const normalizedMessages = acpMessages?.length
+      ? mergeAcpAndCodexAppServerMessages(acpMessages, appServerResult.messages)
+      : appServerResult.messages
     const storedStatus = appServerResult.status === "RUNNING"
       ? null
       : await readCodexStoredChatStatus(account, externalThreadId)
@@ -874,6 +944,41 @@ async function loadCodexChatMessages(
   }
 
   return loadCodexStoredChatMessages(account, externalThreadId)
+}
+
+function readLastCodexTurnId(thread: JsonObject | null): string | null {
+  const turns = thread && Array.isArray(thread.turns) ? thread.turns : []
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = asJsonObject(turns[index])
+    const turnId = readString(turn?.id) ?? readString(turn?.turnId) ?? readString(turn?.turn_id)
+    if (turnId) {
+      return turnId
+    }
+  }
+  return null
+}
+
+function mergeAcpAndCodexAppServerMessages(
+  acpMessages: ProviderChatMessageItem[],
+  appServerMessages: ProviderChatMessageItem[],
+): ProviderChatMessageItem[] {
+  const nativeByItemId = new Map(
+    appServerMessages.flatMap((message) => message.itemId ? [[message.itemId, message] as const] : []),
+  )
+  const enriched = acpMessages.map((message) => {
+    const native = message.itemId ? nativeByItemId.get(message.itemId) : undefined
+    if (!native) {
+      return message
+    }
+    nativeByItemId.delete(message.itemId!)
+    return {
+      ...native,
+      ...message,
+      createdAt: native.createdAt ?? message.createdAt,
+      turnId: native.turnId ?? message.turnId,
+    }
+  })
+  return mergeCodexMessages(enriched, [...nativeByItemId.values()])
 }
 
 async function readCodexChatStatus(account: ProviderAccount, externalThreadId: string): Promise<"IDLE" | "RUNNING" | null> {

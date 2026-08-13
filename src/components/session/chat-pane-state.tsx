@@ -18,6 +18,8 @@ import {
   moveItemAround,
   parseChatSlashCommand,
   queuedMessageRunIds,
+  readAcpAvailableCommands,
+  readAcpSessionConfig,
   readComposerAccessMode,
   readError,
   readRecordString,
@@ -112,6 +114,8 @@ export function useChatPaneState({
   const supportsImages = composerFeatures.includes("imageAttachment")
   const supportsPlanMode = composerFeatures.includes("planMode")
   const telegramDeepLink = useTelegramDeepLink(chat?.id)
+  const acpCommands = useMemo(() => readAcpAvailableCommands(messages), [messages])
+  const acpSessionConfig = useMemo(() => readAcpSessionConfig(messages), [messages])
   const {
     changeModel,
     changeReasoningEffort,
@@ -128,6 +132,7 @@ export function useChatPaneState({
     account,
     chat,
     providerDefinition,
+    sessionConfig: acpSessionConfig,
     onRuntimeSettingsChange,
   })
   const {
@@ -140,20 +145,22 @@ export function useChatPaneState({
     pendingUserInputPrompt,
     pendingUserInputQuestions,
     submitUserInput,
+    toggleUserInputOption,
     updateUserInputAnswer,
+    userInputAnswerValues,
     userInputAnswerValue,
     userInputIsLastStage,
     userInputStageIndex,
     userInputSubmitting,
     userInputUsesFreeform,
   } = usePendingUserInputState({ chat, messages, setActionError })
-  const slashMatches = useMemo(() => matchingChatSlashCommands(draft), [draft])
+  const slashMatches = useMemo(() => matchingChatSlashCommands(draft, acpCommands), [acpCommands, draft])
 
   useEffect(() => {
     const defaultPermissionMode = readRecordString(account?.runtimeDefaults, "permissionMode") || defaultRuntimeDefaultValue(account?.providerId, "permissionMode")
-    setAccessMode(readComposerAccessMode(chat?.permissionMode ?? defaultPermissionMode))
+    setAccessMode(readComposerAccessMode(acpSessionConfig.permissionMode ?? chat?.permissionMode ?? defaultPermissionMode))
     setGoalObjective(null)
-    setPlanMode(chat?.collaborationMode === "plan")
+    setPlanMode((acpSessionConfig.collaborationMode ?? chat?.collaborationMode) === "plan")
   }, [
     account?.id,
     account?.providerId,
@@ -161,6 +168,8 @@ export function useChatPaneState({
     chat?.id,
     chat?.permissionMode,
     chat?.collaborationMode,
+    acpSessionConfig.collaborationMode,
+    acpSessionConfig.permissionMode,
   ])
 
   useEffect(() => {
@@ -382,6 +391,8 @@ export function useChatPaneState({
         setDraft("")
         setAttachments([])
         return true
+      default:
+        return false
     }
   }
 
@@ -572,6 +583,7 @@ export function useChatPaneState({
     slashMatches,
     submit,
     submitUserInput,
+    toggleUserInputOption,
     supportsAccessMode,
     supportsFiles,
     supportsFolders,
@@ -584,6 +596,7 @@ export function useChatPaneState({
     textareaRef,
     threadAction,
     updateUserInputAnswer,
+    userInputAnswerValues,
     userInputAnswerValue,
     userInputIsLastStage,
     userInputSubmitting,

@@ -1,5 +1,5 @@
 import { apiClient, type BrowserDirectoryResponse, type BrowserEntry, type ChatAccountSwitchEvent, type ChatMessageResponse, type ChatResponse, type ProviderAccountResponse, type ProviderComposerFeature, type ProviderDefinitionResponse, type ProviderLimitsResponse, type ProviderModelListResponse, type ServerRequestResponseRequest, type WorkspaceHistoryResponse } from "@/lib/api-client"
-import type { ChatComposerAccessMode, ChatComposerAttachment, ChatComposerReasoningEffort, ChatComposerServiceTier, ChatFileLinkTarget, ChatRenderEntry, FileNode, MarkdownBlock, ParsedFileChange, ProviderClientEvent, SessionRouteTarget, UserInputQuestion, VisibleTreeItem, WorkRenderEntry, Workspace } from "@/types/session"
+import type { ChatComposerAccessMode, ChatComposerAttachment, ChatComposerReasoningEffort, ChatComposerServiceTier, ChatFileLinkTarget, ChatRenderEntry, FileNode, ParsedFileChange, ProviderClientEvent, SessionRouteTarget, UserInputQuestion, VisibleTreeItem, WorkRenderEntry, Workspace } from "@/types/session"
 
 export function formatJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2)
@@ -239,7 +239,7 @@ export type ChatSlashCommandId =
 
 export type ChatSlashCommand = {
   description: string
-  id: ChatSlashCommandId
+  id: string
   usage: string
 }
 
@@ -281,13 +281,74 @@ export function parseChatSlashCommand(value: string): ParsedChatSlashCommand | n
   return command ? { command, argument: match[2]?.trim() ?? "" } : null
 }
 
-export function matchingChatSlashCommands(value: string): ChatSlashCommand[] {
+export function matchingChatSlashCommands(value: string, additionalCommands: ChatSlashCommand[] = []): ChatSlashCommand[] {
   const trimmed = value.trim()
   if (!trimmed.startsWith("/")) {
     return []
   }
   const query = trimmed.slice(1).split(/\s/u, 1)[0]?.toLowerCase() ?? ""
-  return chatSlashCommands.filter((command) => command.id.startsWith(query)).slice(0, 8)
+  const commands = new Map([...chatSlashCommands, ...additionalCommands].map((command) => [command.id, command]))
+  return [...commands.values()].filter((command) => command.id.startsWith(query)).slice(0, 8)
+}
+
+export function readAcpAvailableCommands(messages: ChatMessageResponse[]): ChatSlashCommand[] {
+  const update = findLastAcpSessionUpdate(messages, "available_commands_update")
+  const commands = update && Array.isArray(update.availableCommands) ? update.availableCommands : []
+  return commands.flatMap((value) => {
+    const command = readRecord(value)
+    const rawName = readRecordString(command, "name")
+    if (!rawName) return []
+    const id = rawName.replace(/^\//u, "")
+    const input = readRecord(command.input)
+    const hint = readRecordString(input, "hint")
+    return [{
+      description: readRecordString(command, "description") || "Agent command",
+      id,
+      usage: `/${id}${hint ? ` ${hint}` : ""}`,
+    }]
+  })
+}
+
+export type AcpSessionConfig = {
+  collaborationMode?: string
+  model?: string
+  permissionMode?: string
+  reasoningEffort?: string
+  serviceTier?: string
+}
+
+export function readAcpSessionConfig(messages: ChatMessageResponse[]): AcpSessionConfig {
+  const update = findLastAcpSessionUpdate(messages, "config_option_update")
+  const options = update && Array.isArray(update.configOptions) ? update.configOptions : []
+  const values = new Map<string, string>()
+  for (const value of options) {
+    const option = readRecord(value)
+    const id = readRecordString(option, "id")
+    const current = option.currentValue
+    if (id && (typeof current === "string" || typeof current === "boolean")) {
+      values.set(id, String(current))
+    }
+  }
+  const mode = values.get("mode")
+  return {
+    collaborationMode: values.get("collaboration_mode"),
+    model: values.get("model"),
+    permissionMode: mode === "agent-full-access" ? "fullAccess" : mode ? "askForApproval" : undefined,
+    reasoningEffort: values.get("reasoning_effort"),
+    serviceTier: values.get("fast-mode") === "on" || values.get("fast-mode") === "true" ? "fast" : values.has("fast-mode") ? "standard" : undefined,
+  }
+}
+
+function findLastAcpSessionUpdate(messages: ChatMessageResponse[], sessionUpdate: string): Record<string, unknown> | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const payload = readRecord(messages[index]?.rawPayload)
+    const updates = Array.isArray(payload.updates) ? payload.updates : []
+    for (let updateIndex = updates.length - 1; updateIndex >= 0; updateIndex -= 1) {
+      const update = readRecord(updates[updateIndex])
+      if (readRecordString(update, "sessionUpdate") === sessionUpdate) return update
+    }
+  }
+  return null
 }
 
 export function fallbackComposerFeatures(providerId: string | null | undefined): ProviderComposerFeature[] {
@@ -530,6 +591,7 @@ export function isToolMessage(message: ChatMessageResponse): boolean {
     message.kind === "FILE_CHANGE" ||
     message.kind === "REVIEW" ||
     message.kind === "SUBAGENT_ACTIVITY" ||
+    message.kind === "SESSION_UPDATE" ||
     message.kind === "USER_INPUT_PROMPT" ||
     message.kind === "TOOL_ACTIVITY" ||
     message.kind === "WARNING"
@@ -598,12 +660,31 @@ export function readUserInputQuestions(value: unknown): UserInputQuestion[] {
     if (!prompt) {
       return []
     }
+    const rawDefaultValues = Array.isArray(question.defaultValue)
+      ? question.defaultValue.filter((value): value is string => typeof value === "string")
+      : typeof question.defaultValue === "string" || typeof question.defaultValue === "number" || typeof question.defaultValue === "boolean"
+        ? [String(question.defaultValue)]
+        : []
+    const inputType = readRecordString(question, "inputType")
+    const options = readUserInputOptions(question.options)
+    const defaultValues = rawDefaultValues.map((value) => options.find((option) => option.value === value)?.label ?? value)
     return [{
+      ...(defaultValues.length ? { defaultValues } : {}),
       header: readRecordString(question, "header"),
       id,
+      ...(inputType ? { inputType: readUserInputType(inputType) } : {}),
       isSecret: question.isSecret === true || question.is_secret === true,
-      options: readUserInputOptions(question.options),
+      ...(typeof question.maximum === "number" ? { maximum: question.maximum } : {}),
+      ...(typeof question.maximumLength === "number" ? { maximumLength: question.maximumLength } : {}),
+      ...(typeof question.maximumSelections === "number" ? { maximumSelections: question.maximumSelections } : {}),
+      ...(typeof question.minimum === "number" ? { minimum: question.minimum } : {}),
+      ...(typeof question.minimumLength === "number" ? { minimumLength: question.minimumLength } : {}),
+      ...(typeof question.minimumSelections === "number" ? { minimumSelections: question.minimumSelections } : {}),
+      ...(question.multiple === true ? { multiple: true } : {}),
+      options,
+      ...(readRecordString(question, "pattern") ? { pattern: readRecordString(question, "pattern") } : {}),
       question: prompt,
+      ...(typeof question.required === "boolean" ? { required: question.required } : {}),
     }]
   })
   return parsedQuestions.length ? parsedQuestions : [fallbackUserInputQuestion(source)]
@@ -647,11 +728,19 @@ export function readUserInputOptions(value: unknown): UserInputQuestion["options
     if (!label) {
       return []
     }
+    const value = readRecordString(option, "value")
     return [{
       description: readRecordString(option, "description") ?? "",
       label,
+      ...(value ? { value } : {}),
     }]
   })
+}
+
+function readUserInputType(value: unknown): UserInputQuestion["inputType"] {
+  return value === "date" || value === "datetime-local" || value === "email" || value === "number" || value === "url"
+    ? value
+    : "text"
 }
 
 export function grantedPermissionsFromRequest(message: ChatMessageResponse): Record<string, unknown> {
@@ -704,8 +793,17 @@ export function groupChatRenderEntries(messages: ChatMessageResponse[], chatRunn
     const previousEntry = entries.at(-1)
     const previousUser = previousEntry?.type === "message" ? previousEntry.message : null
     const segment: ChatMessageResponse[] = []
+    let segmentTurnId: string | null = null
     while (index < messages.length && messages[index]?.role !== "USER") {
-      segment.push(messages[index])
+      const next = messages[index]
+      if (!next) {
+        break
+      }
+      if (segmentTurnId && next.turnId && next.turnId !== segmentTurnId) {
+        break
+      }
+      segmentTurnId ??= next.turnId ?? null
+      segment.push(next)
       index += 1
     }
     entries.push(...renderAssistantSegment(segment, previousUser?.role === "USER" ? previousUser : null, chatRunning && index >= messages.length))
@@ -828,7 +926,10 @@ export function moveItemAround(items: string[], source: string, target: string, 
 }
 
 export function isFinalAssistantMessage(message: ChatMessageResponse): boolean {
-  return message.role === "ASSISTANT" && (message.kind === "CHAT" || message.kind === "ERROR")
+  const phase = readRecordString(readRecord(message.metadata), "acpMessagePhase")
+  return message.role === "ASSISTANT" &&
+    (message.kind === "CHAT" || message.kind === "ERROR") &&
+    (!phase || phase === "final_answer")
 }
 
 export function isDisplayAssistantMessage(message: ChatMessageResponse): boolean {
@@ -1120,148 +1221,6 @@ export function compactDurationLabel(durationMs: number): string {
   return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`
 }
 
-export function markdownBlockSignature(block: MarkdownBlock): string {
-  if (block.type === "code") {
-    return `code:${block.language}:${block.value}`
-  }
-  if (block.type === "heading") {
-    return `heading:${block.level}:${block.text}`
-  }
-  if (block.type === "list") {
-    return `list:${block.ordered}:${block.items.join("\n")}`
-  }
-  if (block.type === "blockquote") {
-    return `blockquote:${block.lines.join("\n")}`
-  }
-  if (block.type === "table") {
-    return `table:${block.headers.join("|")}:${block.rows.map((row) => row.join("|")).join("\n")}`
-  }
-  if (block.type === "hr") {
-    return "hr"
-  }
-  return `paragraph:${block.lines.join("\n")}`
-}
-
-export function hashString(value: string): string {
-  let hash = 0
-  for (let index = 0; index < value.length; index += 1) {
-    hash = Math.imul(31, hash) + value.charCodeAt(index) | 0
-  }
-  return (hash >>> 0).toString(36)
-}
-
-export function parseMarkdownBlocks(content: string): MarkdownBlock[] {
-  const lines = content.replace(/\r\n/g, "\n").split("\n")
-  const blocks: MarkdownBlock[] = []
-  let index = 0
-
-  while (index < lines.length) {
-    const line = lines[index] ?? ""
-    if (!line.trim()) {
-      index += 1
-      continue
-    }
-
-    const fence = line.match(/^\s*(```|~~~)\s*([\w.-]+)?\s*$/)
-    if (fence) {
-      const marker = fence[1]
-      const language = fence[2] ?? ""
-      const code: string[] = []
-      index += 1
-      while (index < lines.length && !(lines[index] ?? "").trim().startsWith(marker)) {
-        code.push(lines[index] ?? "")
-        index += 1
-      }
-      if (index < lines.length) {
-        index += 1
-      }
-      blocks.push({ type: "code", language, value: code.join("\n") })
-      continue
-    }
-
-    const heading = line.match(/^(#{1,6})\s+(.+)$/)
-    if (heading) {
-      blocks.push({ type: "heading", level: heading[1].length, text: heading[2].trim() })
-      index += 1
-      continue
-    }
-
-    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      blocks.push({ type: "hr" })
-      index += 1
-      continue
-    }
-
-    if (line.includes("|") && isMarkdownTableSeparator(lines[index + 1] ?? "")) {
-      const headers = splitMarkdownTableRow(line)
-      const rows: string[][] = []
-      index += 2
-      while (index < lines.length && lines[index]?.includes("|")) {
-        rows.push(splitMarkdownTableRow(lines[index] ?? ""))
-        index += 1
-      }
-      blocks.push({ type: "table", headers, rows })
-      continue
-    }
-
-    const list = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.+)$/)
-    if (list) {
-      const ordered = /\d/u.test(list[2][0] ?? "")
-      const items: string[] = []
-      while (index < lines.length) {
-        const item = (lines[index] ?? "").match(/^(\s*)([-*+]|\d+[.)])\s+(.+)$/)
-        if (!item || /\d/u.test(item[2][0] ?? "") !== ordered) {
-          break
-        }
-        items.push(item[3].trim())
-        index += 1
-      }
-      blocks.push({ type: "list", items, ordered })
-      continue
-    }
-
-    if (/^\s*>\s?/.test(line)) {
-      const quoteLines: string[] = []
-      while (index < lines.length && /^\s*>\s?/.test(lines[index] ?? "")) {
-        quoteLines.push((lines[index] ?? "").replace(/^\s*>\s?/u, ""))
-        index += 1
-      }
-      blocks.push({ type: "blockquote", lines: quoteLines })
-      continue
-    }
-
-    const paragraphLines: string[] = []
-    while (index < lines.length && lines[index]?.trim()) {
-      const next = lines[index] ?? ""
-      if (
-        next.match(/^\s*(```|~~~)/) ||
-        next.match(/^(#{1,6})\s+/) ||
-        next.match(/^(\s*)([-*+]|\d+[.)])\s+/) ||
-        next.match(/^\s*>\s?/)
-      ) {
-        break
-      }
-      paragraphLines.push(next)
-      index += 1
-    }
-    blocks.push({ type: "paragraph", lines: paragraphLines })
-  }
-
-  return blocks.length ? blocks : [{ type: "paragraph", lines: [content] }]
-}
-
-export function safeMarkdownHref(href: string): string {
-  return /^(https?:|mailto:)/iu.test(href) ? href : "#"
-}
-
-export function isMarkdownTableSeparator(line: string): boolean {
-  return /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/u.test(line)
-}
-
-export function splitMarkdownTableRow(line: string): string[] {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim())
-}
-
 export function flattenVisibleTree(
   nodes: FileNode[],
   expandedFolderIds: Set<string>,
@@ -1530,6 +1489,7 @@ export function readMessageKind(value: unknown): ChatMessageResponse["kind"] | n
     value === "WARNING" ||
     value === "COMPACTION" ||
     value === "SUBAGENT_ACTIVITY" ||
+    value === "SESSION_UPDATE" ||
     value === "ERROR"
   )
     ? value

@@ -2,6 +2,7 @@ import { Check, ChevronRight, Copy, GitBranch, GripVertical, LoaderCircle, Penci
 import type { DragEvent as ReactDragEvent } from "react"
 import { useContext, useMemo, useState } from "react"
 import { MarkdownContent } from "@/components/session/chat-markdown"
+import { MessageContentBlocks, StructuredToolCallContent } from "@/components/session/chat-content-blocks"
 import { apiClient, type ChatMessageResponse } from "@/lib/api-client"
 import {
   firstToolAction,
@@ -112,13 +113,17 @@ export function ChatMessageRow({
               : "w-full text-foreground",
         )}
       >
-        <MarkdownContent
-          animateChanges={!user}
-          compact={user}
-          content={content}
-          openFileLink={fileLinks?.openFileLink}
-          scopeKey={message.id}
-        />
+        {message.blocks?.length ? (
+          <MessageContentBlocks blocks={message.blocks} compact={user} openFileLink={fileLinks?.openFileLink} />
+        ) : (
+          <MarkdownContent
+            animateChanges={!user}
+            compact={user}
+            content={content}
+            openFileLink={fileLinks?.openFileLink}
+            scopeKey={message.id}
+          />
+        )}
       </div>
       {showMessageActions ? <ChatMessageActionRail message={message} /> : null}
       {queued && message.runId ? (
@@ -349,7 +354,7 @@ function PlanStepRow({ step }: { step: RenderPlanStep }) {
 
 function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; message: ChatMessageResponse }) {
   const [expanded, setExpanded] = useState(false)
-  const [responding, setResponding] = useState<"approve" | "deny" | null>(null)
+  const [responding, setResponding] = useState<string | null>(null)
   const fileLinks = useContext(ChatFileLinkContext)
   const Icon = toolCallIcon(message)
   const title = toolCallTitle(message)
@@ -368,18 +373,32 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
           return value ? `~~~${language}\n${value}\n~~~` : message.content.trim() || null
         })()
       : message.content.trim() || null
-  const hasDetail = message.kind === "FILE_CHANGE" || Boolean(detail)
+  const hasStructuredDetail = Boolean(message.toolCall && (
+    message.toolCall.content.length ||
+    message.toolCall.locations.length ||
+    message.toolCall.rawInput !== null ||
+    message.toolCall.rawOutput !== null
+  ))
+  const hasDetail = message.kind === "FILE_CHANGE" || Boolean(detail) || hasStructuredDetail
   const canRespond = message.status === "PENDING" && Boolean(message.requestId) &&
     message.kind === "APPROVAL"
   const canApproveForSession = canRespond && hasClaudePermissionSuggestions(message)
+  const permissionOptions = useMemo(() => readAcpPermissionOptions(message), [message])
+  const actionLabels = readRecord(readRecord(message.metadata).actionLabels)
 
-  const respond = async (approved: boolean, options: { allowForSession?: boolean } = {}) => {
+  const respond = async (approved: boolean, options: { allowForSession?: boolean; optionId?: string } = {}) => {
     if (!message.requestId) {
       return
     }
-    setResponding(approved ? "approve" : "deny")
+    setResponding(options.optionId ?? (approved ? "approve" : "deny"))
     try {
-      await apiClient.chats.respondToServerRequest(message.chatId, message.requestId, serverRequestResponseFor(message, approved, options))
+      await apiClient.chats.respondToServerRequest(
+        message.chatId,
+        message.requestId,
+        options.optionId
+          ? { kind: "approval", result: { optionId: options.optionId } }
+          : serverRequestResponseFor(message, approved, options),
+      )
     } finally {
       setResponding(null)
     }
@@ -408,7 +427,28 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
             <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
           ) : null}
         </button>
-        {canRespond ? (
+        {canRespond && permissionOptions.length ? (
+          <div className="flex max-w-[min(32rem,60vw)] shrink-0 flex-wrap justify-end gap-1">
+            {permissionOptions.map((option) => {
+              const allow = option.kind.startsWith("allow")
+              return (
+                <button
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-50",
+                    allow ? "text-success hover:bg-success/10" : "text-destructive hover:bg-destructive/10",
+                  )}
+                  disabled={Boolean(responding)}
+                  key={option.optionId}
+                  title={option.kind.replaceAll("_", " ")}
+                  type="button"
+                  onClick={() => void respond(allow, { optionId: option.optionId })}
+                >
+                  {responding === option.optionId ? "Sending" : option.name}
+                </button>
+              )
+            })}
+          </div>
+        ) : canRespond ? (
           <div className="flex shrink-0 items-center gap-1">
             <button
               className="rounded px-1.5 py-0.5 text-[11px] text-success hover:bg-success/10 disabled:cursor-not-allowed disabled:opacity-50"
@@ -416,7 +456,7 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
               type="button"
               onClick={() => void respond(true)}
             >
-              {responding === "approve" ? "Approving" : "Approve"}
+              {responding === "approve" ? "Approving" : readRecordString(actionLabels, "approve") || "Approve"}
             </button>
             {canApproveForSession ? (
               <button
@@ -434,14 +474,16 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
               type="button"
               onClick={() => void respond(false)}
             >
-              {responding === "deny" ? "Denying" : "Deny"}
+              {responding === "deny" ? "Denying" : readRecordString(actionLabels, "deny") || "Deny"}
             </button>
           </div>
         ) : null}
       </div>
       {expanded && hasDetail ? (
         <div className="ml-5 mt-1 min-w-0 border-l border-border pl-3 text-foreground">
-          {message.kind === "FILE_CHANGE" ? (
+          {message.toolCall && hasStructuredDetail ? (
+            <StructuredToolCallContent openFileLink={fileLinks?.openFileLink} toolCall={message.toolCall} />
+          ) : message.kind === "FILE_CHANGE" ? (
             <FileChangeStatsList changes={fileChanges} fallbackCount={1} />
           ) : (
             <MarkdownContent compact content={detail || title} openFileLink={fileLinks?.openFileLink} />
@@ -450,6 +492,25 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
       ) : null}
     </article>
   )
+}
+
+function readAcpPermissionOptions(message: ChatMessageResponse): Array<{
+  kind: string
+  name: string
+  optionId: string
+}> {
+  const metadata = readRecord(message.metadata)
+  const payloadOptions = readRecord(message.rawPayload).options
+  const rawOptions: unknown[] = Array.isArray(metadata.permissionOptions)
+    ? metadata.permissionOptions
+    : Array.isArray(payloadOptions) ? payloadOptions : []
+  return rawOptions.flatMap((value) => {
+    const option = readRecord(value)
+    const optionId = readRecordString(option, "optionId")
+    const name = readRecordString(option, "name")
+    const kind = readRecordString(option, "kind")
+    return optionId && name && kind ? [{ kind, name, optionId }] : []
+  })
 }
 
 function FileChangeStatsList({
