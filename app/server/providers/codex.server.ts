@@ -13,13 +13,13 @@ import type {
   MessageRole,
   ProviderLimitsResponse,
   ProviderModelListResponse,
-  ServerRequestResponseRequest,
 } from "../../types/providers"
 import type { JsonObject, JsonSerializable } from "../../types/json"
 import { ensureDatabase } from "../database.server"
 import { asJsonObject, normalizeJsonObject, readNumber, readString } from "../json.server"
 import { prisma } from "../prisma.server"
 import { resolveHomePath, resolveProviderDataHome } from "../runtime-paths.server"
+import { codexAcpRuntimeForAccount, codexAcpRuntimeService } from "./codex-acp.server"
 import { codexMcpConfigForInstallation } from "./mcp-config.server"
 import type {
   ProviderAdapter,
@@ -27,8 +27,6 @@ import type {
   ProviderChatListItem,
   ProviderChatMessageItem,
   ProviderDefinition,
-  ProviderRuntimeMessageInput,
-  ProviderRuntimeMessageResult,
 } from "./types.server"
 
 const require = createRequire(import.meta.url)
@@ -164,13 +162,13 @@ export const codexProviderAdapter: ProviderAdapter = {
     try {
       if (mode === "local") {
         await connectLocalCodexAccount()
-        runtimeService.stopRuntime(account.id)
+        stopCodexAccountRuntimes(account.id)
         return connectedAuthResponse(account.id, "Local Codex account is connected.", localCodexAuthState())
       }
 
       const runtime = runtimeForAccount(account)
       if (hasAccountAuthFile(account)) {
-        runtimeService.stopRuntime(account.id)
+        stopCodexAccountRuntimes(account.id)
         return connectedAuthResponse(account.id, "Codex account is connected.")
       }
 
@@ -213,7 +211,7 @@ export const codexProviderAdapter: ProviderAdapter = {
     }
   },
   async cancelAuthentication(account) {
-    runtimeService.stopRuntime(account.id)
+    stopCodexAccountRuntimes(account.id)
   },
   async completeAuthentication(account, redirectUrl) {
     const callbackUrl = parseLoopbackCallbackUrl(redirectUrl)
@@ -222,7 +220,7 @@ export const codexProviderAdapter: ProviderAdapter = {
       throw new Error(`Codex login callback returned HTTP ${response.status}.`)
     }
     if (hasAccountAuthFile(account)) {
-      runtimeService.stopRuntime(account.id)
+      stopCodexAccountRuntimes(account.id)
       return connectedAuthResponse(account.id, "Codex account is connected.")
     }
     return {
@@ -357,139 +355,29 @@ export const codexProviderAdapter: ProviderAdapter = {
     if (input.threadId) {
       await hydrateKnownCodexThreadToAccount(input.threadId, account)
     }
-    const runtime = runtimeForAccount(account, input.workingDirectory)
-    const threadId = await ensureCodexThread(runtime, input.threadId ?? null, input.workingDirectory)
-    await input.onThreadReady?.(threadId)
-    const settings = await resolveCollaborationSettings(
-      runtime,
-      input.model ?? null,
-      input.reasoningEffort ?? null,
-      input.serviceTier ?? null,
-    )
-    if (input.goalObjective?.trim()) {
-      await setCodexThreadGoal(runtime, threadId, input.goalObjective)
-    }
-    const accessMode = codexAccessMode(input.permissionMode)
-    let turnId: string | null = null
-    const livePlanContentByItemId = new Map<string, string>()
-    const completionAbort = new AbortController()
-    const unsubscribeLiveMessages = input.onMessage
-      ? runtime.onEvent((message) => {
-        const resolvedRequestMessage = readCodexServerRequestResolvedMessage(message, threadId)
-        if (resolvedRequestMessage) {
-          try {
-            input.onMessage?.(resolvedRequestMessage)
-          } catch {
-            // Live notifications are best-effort; final history sync remains authoritative.
-          }
-          return
-        }
-        const serverRequestMessage = readCodexServerRequestMessage(message, threadId, turnId)
-        if (serverRequestMessage) {
-          try {
-            input.onMessage?.(serverRequestMessage)
-          } catch {
-            // Live notifications are best-effort; final history sync remains authoritative.
-          }
-          return
-        }
-        const planUpdateMessage = readCodexPlanUpdateMessage(message, threadId, turnId)
-        if (planUpdateMessage) {
-          try {
-            input.onMessage?.(planUpdateMessage)
-          } catch {
-            // Live notifications are best-effort; final history sync remains authoritative.
-          }
-          return
-        }
-        const liveMessage = readCodexLiveThreadItemMessage(message, threadId, turnId)
-        if (liveMessage) {
-          try {
-            input.onMessage?.(accumulateLivePlanMessage(liveMessage, livePlanContentByItemId))
-          } catch {
-            // Live notifications are best-effort; final history sync remains authoritative.
-          }
-        }
-      })
-      : () => undefined
-    const completion = runtime.waitForEvent(
-      (message) => isCodexTurnCompletedEvent(message, threadId, turnId),
-      codexTurnCompletionTimeoutMs,
-      completionAbort.signal,
-    )
-    let response: CodexJsonRpcResponse | null = null
     try {
-      response = await runtime.request(
-        "turn/start",
-        {
-          threadId,
-          cwd: input.workingDirectory,
-          input: codexInputItems(input.content, input.attachments ?? []),
-          approvalPolicy: accessMode.approvalPolicy,
-          collaborationMode: collaborationModePayload(input.collaborationMode, settings),
-          sandboxPolicy: accessMode.sandboxPolicy,
-          ...(settings?.serviceTier ? { serviceTier: settings.serviceTier } : {}),
-        },
-        30_000,
-      )
-      const result = asJsonObject(response.result)
-      const turn = asJsonObject(result?.turn)
-      turnId = readString(turn?.id) ?? readString(result?.turnId) ?? readString(result?.turn_id) ?? null
-      if (turnId) {
-        await input.onTurnStarted?.(turnId)
-      }
-      await completion
+      return await acpRuntimeForAccount(account, input.workingDirectory).sendMessage(input)
     } catch (error) {
-      completionAbort.abort()
-      await completion.catch(() => undefined)
+      await maybeMarkInvalidated(account.id, error)
       throw error
-    } finally {
-      unsubscribeLiveMessages()
-    }
-    if (!response) {
-      throw new Error("Codex did not return a turn response.")
-    }
-    return {
-      threadId,
-      turnId,
-      raw: jsonFromUnknown(response),
     }
   },
   respondToServerRequest(account, requestId, response) {
-    return runtimeForAccount(account).respondToServerRequest(requestId, response.result ?? serverRequestResultFromResponse(response))
+    acpRuntimeForAccount(account).respondToServerRequest(requestId, response)
+    return Promise.resolve()
   },
   startMcpServerOauthLogin: startCodexMcpOauthLogin,
   syncMcpServers: syncCodexMcpServers,
   async interrupt(account, threadId, turnId) {
-    const runtime = runtimeForAccount(account)
-    const activeTurnId = turnId ?? await readCodexActiveTurnId(runtime, threadId).catch(() => null)
     try {
-      await runtime.request("turn/interrupt", {
-        threadId,
-        ...(activeTurnId ? { turnId: activeTurnId } : {}),
-      }, 30_000)
+      await acpRuntimeForAccount(account).interrupt(threadId)
     } catch (error) {
-      runtimeService.stopRuntime(account.id)
-      if (activeTurnId) {
-        throw error
-      }
+      stopCodexAccountRuntimes(account.id)
+      throw error
     }
   },
   async steerMessage(account, input) {
-    const response = await runtimeForAccount(account, input.workingDirectory).request(
-      "turn/steer",
-      {
-        threadId: input.threadId,
-        input: codexInputItems(input.content, input.attachments ?? []),
-        expectedTurnId: input.turnId,
-      },
-      30_000,
-    )
-    const result = asJsonObject(response.result)
-    return {
-      turnId: readString(result?.turnId) ?? readString(result?.turn_id) ?? input.turnId,
-      raw: jsonFromUnknown(response),
-    }
+    return acpRuntimeForAccount(account, input.workingDirectory).steer(input)
   },
   isAccountConnected(account) {
     return hasAccountAuthFile(account)
@@ -523,7 +411,7 @@ export const codexProviderAdapter: ProviderAdapter = {
     }
   },
   stopAccountRuntime(accountId) {
-    runtimeService.stopRuntime(accountId)
+    stopCodexAccountRuntimes(accountId)
   },
 }
 
@@ -549,6 +437,31 @@ function defaultCodexSettings(): JsonObject {
 
 function runtimeForAccount(account: ProviderAccount, workingDirectory?: string | null): CodexRuntime {
   return runtimeService.getRuntime(runtimeConfigForAccount(account, workingDirectory))
+}
+
+function acpRuntimeForAccount(account: ProviderAccount, workingDirectory?: string | null) {
+  const config = runtimeConfigForAccount(account, workingDirectory)
+  const settings = normalizeJsonObject(account.settings)
+  const environment = { ...config.environment }
+  const explicitCommand = readString(settings.command)
+  if (!environment.CODEX_PATH && explicitCommand && explicitCommand !== process.execPath) {
+    environment.CODEX_PATH = explicitCommand
+  }
+  if (!environment.CODEX_CONFIG) {
+    environment.CODEX_CONFIG = JSON.stringify({ personality: readCodexPersonality(settings.personality) })
+  }
+  return codexAcpRuntimeForAccount(account, {
+    codexHome: config.codexHome,
+    environment,
+    workingDirectory: config.workingDirectory,
+  }, () => {
+    invalidatedAccountIds.add(account.id)
+  })
+}
+
+function stopCodexAccountRuntimes(accountId: string): void {
+  runtimeService.stopRuntime(accountId)
+  codexAcpRuntimeService.stopRuntime(accountId)
 }
 
 function runtimeConfigForAccount(account: ProviderAccount, workingDirectory?: string | null): CodexRuntimeConfig {
@@ -939,35 +852,25 @@ async function listCodexChats(account: ProviderAccount): Promise<ProviderChatLis
   return chats
 }
 
-function accumulateLivePlanMessage(
-  message: ProviderChatMessageItem,
-  contentByItemId: Map<string, string>,
-): ProviderChatMessageItem {
-  if (message.kind !== "PLAN" || !message.itemId) {
-    return message
-  }
-  if (message.status === "STREAMING") {
-    const content = `${contentByItemId.get(message.itemId) ?? ""}${message.content}`
-    contentByItemId.set(message.itemId, content)
-    return { ...message, content }
-  }
-  contentByItemId.set(message.itemId, message.content)
-  return message
-}
-
 async function loadCodexChatMessages(
   account: ProviderAccount,
   externalThreadId: string,
 ): Promise<ProviderChatMessageItem[]> {
   const appServerResult = await loadCodexChatMessagesFromAppServer(account, externalThreadId, codexMessageReadTimeoutMs).catch(() => null)
   if (appServerResult) {
+    const acpMessages = appServerResult.workingDirectory
+      ? await acpRuntimeForAccount(account, appServerResult.workingDirectory)
+        .loadMessages(externalThreadId, appServerResult.workingDirectory)
+        .catch(() => null)
+      : null
+    const normalizedMessages = acpMessages?.length ? acpMessages : appServerResult.messages
     const storedStatus = appServerResult.status === "RUNNING"
       ? null
       : await readCodexStoredChatStatus(account, externalThreadId)
     if (appServerResult.status === "RUNNING" || storedStatus === "RUNNING") {
-      return mergeCodexMessages(appServerResult.messages, await loadCodexStoredChatMessages(account, externalThreadId))
+      return mergeCodexMessages(normalizedMessages, await loadCodexStoredChatMessages(account, externalThreadId))
     }
-    return appServerResult.messages
+    return normalizedMessages
   }
 
   return loadCodexStoredChatMessages(account, externalThreadId)
@@ -981,14 +884,6 @@ async function readCodexChatStatus(account: ProviderAccount, externalThreadId: s
   }
   const storedStatus = await readCodexStoredChatStatus(account, externalThreadId)
   return storedStatus === "RUNNING" ? "RUNNING" : appServerStatus ?? storedStatus
-}
-
-async function readCodexActiveTurnId(
-  runtime: Pick<CodexRuntime, "request">,
-  externalThreadId: string,
-): Promise<string | null> {
-  const thread = await readCodexAppServerThread(runtime, externalThreadId)
-  return readCodexAppServerOpenTurnId(thread)
 }
 
 async function loadCodexStoredChatMessages(
@@ -1118,7 +1013,11 @@ async function loadCodexChatMessagesFromAppServer(
   account: ProviderAccount,
   externalThreadId: string,
   timeoutMs = 30_000,
-): Promise<{ messages: ProviderChatMessageItem[]; status: "IDLE" | "RUNNING" | null } | null> {
+): Promise<{
+  messages: ProviderChatMessageItem[]
+  status: "IDLE" | "RUNNING" | null
+  workingDirectory: string | null
+} | null> {
   const thread = await readCodexAppServerThread(runtimeForAccount(account), externalThreadId, timeoutMs)
   if (!thread) {
     return null
@@ -1126,6 +1025,7 @@ async function loadCodexChatMessagesFromAppServer(
   return {
     messages: readCodexAppServerThreadMessages(thread),
     status: readCodexAppServerOpenTurnStatus(thread),
+    workingDirectory: readString(thread.cwd) ?? null,
   }
 }
 
@@ -1795,23 +1695,6 @@ function readCodexAppServerOpenTurnStatus(thread: JsonObject | null): "IDLE" | "
   return isFreshCodexThreadActivity(thread, lastTurn) ? "RUNNING" : "IDLE"
 }
 
-function readCodexAppServerOpenTurnId(thread: JsonObject | null): string | null {
-  if (!thread || readCodexAppServerOpenTurnStatus(thread) !== "RUNNING" || !Array.isArray(thread.turns)) {
-    return null
-  }
-  for (const turnValue of [...thread.turns].reverse()) {
-    const turn = asJsonObject(turnValue)
-    if (!turn || readCodexAppServerTimestamp(turn.completedAt)) {
-      continue
-    }
-    const turnId = readString(turn.id) ?? readString(turn.turnId) ?? readString(turn.turn_id)
-    if (turnId) {
-      return turnId
-    }
-  }
-  return null
-}
-
 function isFreshCodexThreadActivity(thread: JsonObject, turn: JsonObject): boolean {
   const updatedAt = newestCodexTimestamp(
     readCodexAppServerTimestamp(turn.updatedAt) ??
@@ -1823,120 +1706,6 @@ function isFreshCodexThreadActivity(thread: JsonObject, turn: JsonObject): boole
   )
   const updatedAtMs = updatedAt ? Date.parse(updatedAt) : Number.NaN
   return Number.isFinite(updatedAtMs) && Date.now() - updatedAtMs < codexTurnCompletionTimeoutMs
-}
-
-function isCodexTurnCompletedEvent(
-  message: CodexJsonRpcResponse,
-  threadId: string,
-  turnId: string | null,
-): boolean {
-  if (message.method !== "turn/completed") {
-    return false
-  }
-  const params = asJsonObject(message.params)
-  if ((readString(params?.threadId) ?? readString(params?.thread_id)) !== threadId) {
-    return false
-  }
-  const turn = asJsonObject(params?.turn)
-  const completedTurnId = readString(turn?.id)
-  return !turnId || !completedTurnId || completedTurnId === turnId
-}
-
-function readCodexLiveThreadItemMessage(
-  message: CodexJsonRpcResponse,
-  threadId: string,
-  turnId: string | null,
-): ProviderChatMessageItem | null {
-  const planDeltaMessage = readCodexPlanDeltaMessage(message, threadId, turnId)
-  if (planDeltaMessage) {
-    return planDeltaMessage
-  }
-
-  const started = message.method === "item/started"
-  const completed = message.method === "item/completed"
-  if (!started && !completed) {
-    return null
-  }
-
-  const params = asJsonObject(message.params)
-  if (!params || (readString(params.threadId) ?? readString(params.thread_id)) !== threadId) {
-    return null
-  }
-  const eventTurnId = readString(params.turnId) ?? readString(params.turn_id)
-  if (turnId && eventTurnId && eventTurnId !== turnId) {
-    return null
-  }
-
-  const item = asJsonObject(params.item)
-  if (!item) {
-    return null
-  }
-  const timestamp = readCodexAppServerMillisTimestamp(started ? params.startedAtMs : params.completedAtMs)
-    ?? new Date().toISOString()
-  const liveItem = started && item.status === undefined ? { ...item, status: "inProgress" } : item
-  const providerMessage = readCodexAppServerThreadItemMessage(liveItem, timestamp, completed ? timestamp : null)
-  if (!providerMessage || !isCodexLiveActionMessage(providerMessage)) {
-    return null
-  }
-  return providerMessage
-}
-
-function readCodexPlanUpdateMessage(
-  message: CodexJsonRpcResponse,
-  threadId: string,
-  turnId: string | null,
-): ProviderChatMessageItem | null {
-  if (message.method !== "turn/plan/updated") {
-    return null
-  }
-  const params = asJsonObject(message.params)
-  if (!params || (readString(params.threadId) ?? readString(params.thread_id)) !== threadId) {
-    return null
-  }
-  const eventTurnId = readString(params.turnId) ?? readString(params.turn_id)
-  if (turnId && eventTurnId && eventTurnId !== turnId) {
-    return null
-  }
-  return codexPlanUpdateMessage({
-    createdAt: new Date().toISOString(),
-    explanation: readString(params.explanation) ?? null,
-    itemId: eventTurnId ? `plan-update:${eventTurnId}` : `plan-update:${threadId}`,
-    status: "STREAMING",
-    steps: readCodexPlanSteps(params.plan),
-    turnId: eventTurnId ?? null,
-  })
-}
-
-function readCodexPlanDeltaMessage(
-  message: CodexJsonRpcResponse,
-  threadId: string,
-  turnId: string | null,
-): ProviderChatMessageItem | null {
-  if (message.method !== "item/plan/delta") {
-    return null
-  }
-  const params = asJsonObject(message.params)
-  if (!params || (readString(params.threadId) ?? readString(params.thread_id)) !== threadId) {
-    return null
-  }
-  const eventTurnId = readString(params.turnId) ?? readString(params.turn_id)
-  if (turnId && eventTurnId && eventTurnId !== turnId) {
-    return null
-  }
-  const itemId = readString(params.itemId) ?? readString(params.item_id)
-  const delta = readString(params.delta)
-  if (!itemId || !delta) {
-    return null
-  }
-  return {
-    role: "ASSISTANT",
-    kind: "PLAN",
-    status: "STREAMING",
-    content: delta,
-    itemId,
-    createdAt: new Date().toISOString(),
-    turnId: eventTurnId ?? null,
-  }
 }
 
 function codexPlanUpdateMessage({
@@ -1997,131 +1766,6 @@ function readCodexPlanStepStatus(value: unknown): CodexPlanStep["status"] {
     return "inProgress"
   }
   return "pending"
-}
-
-function readCodexServerRequestMessage(
-  message: CodexJsonRpcResponse,
-  threadId: string,
-  turnId: string | null,
-): ProviderChatMessageItem | null {
-  if (message.id === undefined || message.id === null || !message.method || !isCodexServerRequestMethod(message.method)) {
-    return null
-  }
-
-  const params = asJsonObject(message.params)
-  if (!params || (readString(params.threadId) ?? readString(params.thread_id)) !== threadId) {
-    return null
-  }
-  const eventTurnId = readString(params.turnId) ?? readString(params.turn_id)
-  if (turnId && eventTurnId && eventTurnId !== turnId) {
-    return null
-  }
-
-  const requestId = String(message.id)
-  const timestamp = readCodexAppServerMillisTimestamp(params.startedAtMs) ?? new Date().toISOString()
-  return {
-    content: codexServerRequestContent(message.method, params),
-    createdAt: timestamp,
-    itemId: `request:${requestId}`,
-    kind: isCodexRequestUserInputMethod(message.method) ? "USER_INPUT_PROMPT" : "APPROVAL",
-    metadata: { serverRequestMethod: message.method },
-    rawPayload: jsonFromUnknown(params),
-    requestId,
-    role: "TOOL",
-    status: "PENDING",
-    turnId: eventTurnId ?? null,
-  }
-}
-
-function readCodexServerRequestResolvedMessage(
-  message: CodexJsonRpcResponse,
-  threadId: string,
-): ProviderChatMessageItem | null {
-  if (message.method !== "serverRequest/resolved") {
-    return null
-  }
-  const params = asJsonObject(message.params)
-  if (!params || (readString(params.threadId) ?? readString(params.thread_id)) !== threadId) {
-    return null
-  }
-  const requestId = readString(params.requestId) ?? readString(params.request_id)
-  if (!requestId) {
-    return null
-  }
-  return {
-    content: "Request resolved",
-    createdAt: new Date().toISOString(),
-    itemId: `request:${requestId}`,
-    kind: "APPROVAL",
-    requestId,
-    role: "TOOL",
-    status: "COMPLETED",
-  }
-}
-
-function isCodexServerRequestMethod(method: string): boolean {
-  return (
-    method === "item/commandExecution/requestApproval" ||
-    method === "item/fileChange/requestApproval" ||
-    method === "item/permissions/requestApproval" ||
-    isCodexRequestUserInputMethod(method) ||
-    normalizedCodexName(method).endsWith("requestapproval")
-  )
-}
-
-function codexServerRequestContent(method: string, params: JsonObject): string {
-  const reason = readString(params.reason)
-  const normalized = normalizedCodexName(method)
-  if (normalized.includes("commandexecutionrequestapproval")) {
-    const command = readString(params.command)
-    const cwd = readString(params.cwd)
-    return [
-      "Command approval requested",
-      cwd ? `cwd: \`${cwd}\`` : "",
-      command ? `\n~~~sh\n${command}\n~~~` : "",
-      reason ? `\n${reason}` : "",
-    ].filter(Boolean).join("\n")
-  }
-  if (normalized.includes("filechangerequestapproval")) {
-    return ["File change approval requested", reason].filter(Boolean).join("\n\n")
-  }
-  if (normalized.includes("permissionsrequestapproval")) {
-    const cwd = readString(params.cwd)
-    return ["Permissions requested", cwd ? `cwd: \`${cwd}\`` : "", reason].filter(Boolean).join("\n")
-  }
-  return formatCodexUserInputPrompt(params)
-}
-
-function serverRequestResultFromResponse(response: ServerRequestResponseRequest): JsonObject {
-  if (response.kind === "permissions") {
-    return { permissions: {}, scope: "turn" }
-  }
-  if (response.kind === "userInput") {
-    return { answers: {} }
-  }
-  return { decision: response.decision ?? "decline" }
-}
-
-function isCodexLiveActionMessage(message: ProviderChatMessageItem): boolean {
-  return (
-    message.role === "TOOL" ||
-    message.kind === "THINKING" ||
-    message.kind === "PLAN" ||
-    message.kind === "APPROVAL" ||
-    message.kind === "USER_INPUT_PROMPT" ||
-    message.kind === "REVIEW" ||
-    message.kind === "WARNING" ||
-    message.kind === "COMPACTION" ||
-    message.kind === "SUBAGENT_ACTIVITY"
-  )
-}
-
-function readCodexAppServerMillisTimestamp(value: unknown): string | null {
-  const timestamp = readNumber(value)
-  if (timestamp !== undefined) {
-    return new Date(timestamp).toISOString()
-  }
-  return readIsoString(value)
 }
 
 async function listCodexSessionFiles(codexHome: string): Promise<string[]> {
@@ -3748,22 +3392,6 @@ async function prepareCodexThreadForLifecycleAction(
   }
 }
 
-async function setCodexThreadGoal(
-  runtime: Pick<CodexRuntime, "request">,
-  threadId: string,
-  objective: string,
-): Promise<void> {
-  await runtime.request(
-    "thread/goal/set",
-    {
-      threadId,
-      objective: objective.trim(),
-      status: "active",
-    },
-    30_000,
-  )
-}
-
 async function requestCodexRuntime(
   runtime: Pick<CodexRuntime, "request">,
   method: string,
@@ -3860,126 +3488,17 @@ function codexReviewTargetPayload(request: Parameters<NonNullable<ProviderAdapte
   return { type: "uncommittedChanges" }
 }
 
-function codexAccessMode(permissionMode: string): { approvalPolicy: string | null; sandboxPolicy: JsonObject | null } {
-  if (permissionMode === "fullAccess") {
-    return {
-      approvalPolicy: "never",
-      sandboxPolicy: { type: "dangerFullAccess" },
-    }
-  }
-  if (permissionMode === "askForApproval") {
-    return {
-      approvalPolicy: "on-request",
-      sandboxPolicy: null,
-    }
-  }
-  return {
-    approvalPolicy: null,
-    sandboxPolicy: null,
-  }
-}
-
-function codexInputItems(
-  content: string,
-  attachments: NonNullable<ProviderRuntimeMessageInput["attachments"]>,
-): JsonObject[] {
-  const attachmentText = codexAttachmentSummaryText(attachments)
-  const text = [content.trim(), attachmentText].filter(Boolean).join("\n\n") || "Attached context"
-  const items: JsonObject[] = [{ type: "text", text, text_elements: [] }]
-
-  for (const attachment of attachments) {
-    if (attachment.kind !== "image") {
-      continue
-    }
-    if (attachment.dataUrl) {
-      items.push({ type: "image", url: attachment.dataUrl })
-    } else if (attachment.path) {
-      items.push({ type: "localImage", path: attachment.path })
-    }
-  }
-
-  return items
-}
-
-function codexAttachmentSummaryText(
-  attachments: NonNullable<ProviderRuntimeMessageInput["attachments"]>,
-): string | null {
-  const lines = attachments
-    .filter((attachment) => attachment.kind !== "image" || !attachment.dataUrl)
-    .map((attachment) => {
-      const path = attachment.path && attachment.path !== attachment.name ? ` (${attachment.path})` : ""
-      return `- ${attachment.kind}: ${attachment.name}${path}`
-    })
-
-  return lines.length ? `Attached context:\n${lines.join("\n")}` : null
-}
-
-async function resolveCollaborationSettings(
-  runtime: Pick<CodexRuntime, "request">,
-  model: string | null,
-  reasoningEffort: string | null,
-  serviceTier: string | null,
-): Promise<{ model?: string | null; reasoningEffort?: string | null; serviceTier?: string | null } | null> {
-  const normalizedReasoningEffort = normalizeCodexReasoningEffort(reasoningEffort)
-  if (model) {
-    return { model, reasoningEffort: normalizedReasoningEffort, serviceTier }
-  }
-  try {
-    const response = await runtime.request("config/read", {}, 30_000)
-    const config = asJsonObject(asJsonObject(response.result)?.config)
-    const configuredModel = readString(config?.model)
-    if (configuredModel) {
-      return { model: configuredModel, reasoningEffort: normalizedReasoningEffort, serviceTier }
-    }
-  } catch {
-    return null
-  }
-  return null
-}
-
-function collaborationModePayload(
-  collaborationMode: string,
-  settings: { model?: string | null; reasoningEffort?: string | null; serviceTier?: string | null } | null,
-): JsonObject {
-  const model = settings?.model?.trim() || codexDefaultModel
-  const reasoningEffort = normalizeCodexReasoningEffort(settings?.reasoningEffort) ?? codexDefaultReasoningEffort
-  return {
-    mode: collaborationMode || "default",
-    settings: {
-      model,
-      reasoning_effort: reasoningEffort,
-      developer_instructions: null,
-    },
-  }
-}
-
-function normalizeCodexReasoningEffort(value: string | null | undefined): string | null {
-  const normalized = value?.trim()
-  if (!normalized) {
-    return null
-  }
-  if (normalized === "extraHigh" || normalized === "extra-high" || normalized === "extra_high") {
-    return "xhigh"
-  }
-  if (normalized === "fast") {
-    return "low"
-  }
-  if (normalized === "deep") {
-    return "high"
-  }
-  return normalized
-}
-
 async function maybeMarkInvalidated(accountId: string, error: unknown): Promise<void> {
   if (!isAuthInvalidatedError(error)) {
     return
   }
   invalidatedAccountIds.add(accountId)
-  runtimeService.stopRuntime(accountId)
+  stopCodexAccountRuntimes(accountId)
 }
 
 export function stopAllCodexRuntimes(): void {
   runtimeService.stopAllRuntimes()
+  codexAcpRuntimeService.stopAllRuntimes()
 }
 
 function isAuthInvalidatedError(error: unknown): boolean {
