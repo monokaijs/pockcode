@@ -6,7 +6,6 @@ import { MessageContentBlocks, StructuredToolCallContent } from "@/components/se
 import { apiClient, type ChatMessageResponse } from "@/lib/api-client"
 import {
   firstToolAction,
-  hasClaudePermissionSuggestions,
   isOptimisticMessage,
   isToolMessage,
   parseFileChangeMessage,
@@ -105,9 +104,9 @@ export function ChatMessageRow({
     >
       <div
         className={cn(
-          "min-w-0 max-w-full text-[13px] leading-6",
+          "min-w-0 max-w-full text-[14px] leading-6",
           user
-            ? "max-w-[min(680px,100%)] rounded-md bg-muted px-3 py-2 text-foreground"
+            ? "max-w-[min(680px,100%)] rounded-[18px] bg-muted px-4 py-2.5 text-foreground"
             : error
               ? "w-full text-destructive"
               : "w-full text-foreground",
@@ -382,11 +381,10 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
   const hasDetail = message.kind === "FILE_CHANGE" || Boolean(detail) || hasStructuredDetail
   const canRespond = message.status === "PENDING" && Boolean(message.requestId) &&
     message.kind === "APPROVAL"
-  const canApproveForSession = canRespond && hasClaudePermissionSuggestions(message)
   const permissionOptions = useMemo(() => readAcpPermissionOptions(message), [message])
   const actionLabels = readRecord(readRecord(message.metadata).actionLabels)
 
-  const respond = async (approved: boolean, options: { allowForSession?: boolean; optionId?: string } = {}) => {
+  const respond = async (approved: boolean, options: { optionId?: string } = {}) => {
     if (!message.requestId) {
       return
     }
@@ -397,7 +395,7 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
         message.requestId,
         options.optionId
           ? { kind: "approval", result: { optionId: options.optionId } }
-          : serverRequestResponseFor(message, approved, options),
+          : serverRequestResponseFor(message, approved),
       )
     } finally {
       setResponding(null)
@@ -458,16 +456,6 @@ function ToolCallMessageRow({ animateIn, message }: { animateIn?: boolean; messa
             >
               {responding === "approve" ? "Approving" : readRecordString(actionLabels, "approve") || "Approve"}
             </button>
-            {canApproveForSession ? (
-              <button
-                className="rounded px-1.5 py-0.5 text-[11px] text-success hover:bg-success/10 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={Boolean(responding)}
-                type="button"
-                onClick={() => void respond(true, { allowForSession: true })}
-              >
-                Session
-              </button>
-            ) : null}
             <button
               className="rounded px-1.5 py-0.5 text-[11px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={Boolean(responding)}

@@ -22,7 +22,7 @@ import {
   recurrenceFrequencyLabel,
   scheduleRunStatusClass,
 } from "@/components/session/schedule-utils"
-import { apiClient, type MessageScheduleRecurrence, type MessageScheduleResponse, type ProviderModelListResponse } from "@/lib/api-client"
+import { type MessageScheduleRecurrence, type MessageScheduleResponse } from "@/lib/api-client"
 import {
   accessModeLabel,
   composerReasoningEffortLabel,
@@ -31,13 +31,13 @@ import {
   composerServiceTierLabel,
   composerServiceTierOptions,
   composerServiceTierValue,
-  mergeProviderModelOptions,
   readComposerAccessMode,
   readComposerReasoningEffort,
   readComposerServiceTier,
   relativeTimeLabel,
 } from "@/lib/session"
 import { cn } from "@/lib/utils"
+import { useProviderModels } from "./use-provider-models"
 import type { SessionShellState } from "@/components/session/session-shell"
 import type {
   ChatComposerAccessMode,
@@ -85,7 +85,6 @@ export function ScheduleDetailPane({ shell }: { shell: ScheduleDetailShell }) {
   const runs = shell.activeScheduleRuns
   const fieldId = useId()
   const [draft, setDraft] = useState<ScheduleDraft | null>(() => schedule ? scheduleDraftFrom(schedule) : null)
-  const [modelOptions, setModelOptions] = useState<ProviderModelListResponse["data"]>([])
   const [saving, setSaving] = useState(false)
   const account = shell.chatAccounts.find((entry) => entry.id === draft?.accountId) ??
     shell.chatAccounts.find((entry) => entry.id === schedule?.accountId) ??
@@ -99,8 +98,8 @@ export function ScheduleDetailPane({ shell }: { shell: ScheduleDetailShell }) {
   const availableAccounts = schedule
     ? shell.chatAccounts.filter((entry) => entry.providerId === schedule.providerId)
     : shell.chatAccounts
-  const visibleModelOptions = mergeProviderModelOptions(account?.providerId, modelOptions)
-    .filter((option) => !option.hidden)
+  const { modelOptions, refreshModels } = useProviderModels(account, supportsModels)
+  const visibleModelOptions = modelOptions.filter((option) => !option.hidden)
   const selectedModelLabel =
     visibleModelOptions.find((option) => option.model === draft?.model || option.id === draft?.model)?.displayName ??
     draft?.model ??
@@ -109,28 +108,6 @@ export function ScheduleDetailPane({ shell }: { shell: ScheduleDetailShell }) {
   useEffect(() => {
     setDraft(schedule ? scheduleDraftFrom(schedule) : null)
   }, [schedule?.id])
-
-  useEffect(() => {
-    let cancelled = false
-    setModelOptions([])
-    if (!account || !supportsModels) {
-      return
-    }
-    apiClient.providerAccounts.models(account.id)
-      .then((response) => {
-        if (!cancelled) {
-          setModelOptions(response.data)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setModelOptions([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [account?.id, supportsModels])
 
   if (!schedule || !draft) {
     return (
@@ -348,9 +325,11 @@ export function ScheduleDetailPane({ shell }: { shell: ScheduleDetailShell }) {
                       id={`${fieldId}-model`}
                       label="Model"
                       selectedLabel={selectedModelLabel}
-                      value={draft.model || visibleModelOptions[0]?.model || ""}
+                      value={draft.model}
+                      onOpenChange={(open) => { if (open) refreshModels() }}
                       onValueChange={(model) => setDraft({ ...draft, model })}
                     >
+                      <SelectItem value="">Default</SelectItem>
                       {visibleModelOptions.map((option) => (
                         <SelectItem key={option.id} value={option.model}>
                           {option.displayName}
@@ -469,6 +448,7 @@ function ScheduleSelectField({
   children,
   id,
   label,
+  onOpenChange,
   onValueChange,
   selectedLabel,
   value,
@@ -476,6 +456,7 @@ function ScheduleSelectField({
   children: ReactNode
   id: string
   label: string
+  onOpenChange?: (open: boolean) => void
   onValueChange: (value: string) => void
   selectedLabel: string
   value: string
@@ -483,7 +464,7 @@ function ScheduleSelectField({
   return (
     <Field className="min-w-0">
       <FieldLabel className={scheduleFieldLabelClass} htmlFor={id}>{label}</FieldLabel>
-      <Select className="w-full min-w-0" value={value} onValueChange={onValueChange}>
+      <Select className="w-full min-w-0" value={value} onValueChange={onValueChange} onOpenChange={onOpenChange}>
         <SelectTrigger className={scheduleSelectTriggerClass} id={id}>
           <span className="min-w-0 truncate">{selectedLabel}</span>
         </SelectTrigger>

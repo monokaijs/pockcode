@@ -175,40 +175,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
-export function terminalThemeColors() {
-  const background = themeColor("--ide-terminal", "oklch(0.14 0.004 285)")
-  const foreground = themeColor("--foreground", "oklch(0.88 0.006 285)")
-  const muted = themeColor("--muted-foreground", "oklch(0.67 0.006 285)")
-  const info = themeColor("--info", "oklch(0.75 0.13 250)")
-  const success = themeColor("--success", "oklch(0.7 0.16 150)")
-  const warning = themeColor("--warning", "oklch(0.78 0.14 82)")
-  const destructive = themeColor("--destructive", "oklch(0.66 0.2 25)")
-  const primary = themeColor("--primary", "oklch(0.58 0.16 276)")
-
-  return {
-    background,
-    black: background,
-    blue: info,
-    brightBlack: muted,
-    brightBlue: info,
-    brightCyan: themeColor("--chart-2", "oklch(0.696 0.17 162.48)"),
-    brightGreen: success,
-    brightMagenta: themeColor("--chart-4", "oklch(0.627 0.265 303.9)"),
-    brightRed: destructive,
-    brightWhite: themeColor("--foreground", "oklch(0.985 0 0)"),
-    brightYellow: warning,
-    cursor: foreground,
-    cyan: themeColor("--chart-2", "oklch(0.696 0.17 162.48)"),
-    foreground,
-    green: success,
-    magenta: primary,
-    red: destructive,
-    selectionBackground: themeColor("--primary", "oklch(0.58 0.16 276)"),
-    white: foreground,
-    yellow: warning,
-  }
-}
-
 export function definePockcodeMonacoTheme(monaco: MonacoApi, resolvedTheme: ResolvedTheme) {
   const themeName = pockcodeMonacoThemeName(resolvedTheme)
   monaco.editor.defineTheme(themeName, {

@@ -1,4 +1,4 @@
-import { ChevronDown, ExternalLink, HardDrive, KeyRound, MonitorCog, X } from "lucide-react"
+import { ExternalLink, MonitorCog, X } from "lucide-react"
 import { ProviderGlyph, ProviderStatusBadge } from "@/components/session/provider-icons"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import type { ProviderAccountResponse, ProviderDefinitionResponse } from "@/lib/api-client"
@@ -84,11 +84,19 @@ function ProviderAccountDialogBody({
   return (
     <div className="min-h-0 overflow-auto p-3 ide-scrollbar">
       <ProviderAccountNotice notice={dialog.notice} />
+      {dialog.deviceLogin ? (
+        <div className="mb-3 grid gap-2 rounded-md border border-border bg-background p-3 text-[12px]">
+          <span>Enter this code to connect your Codex account:</span>
+          <code className="select-all font-mono text-lg font-semibold tracking-widest">{dialog.deviceLogin.userCode}</code>
+          <a className="flex items-center gap-1 text-info hover:underline" href={dialog.deviceLogin.verificationUrl} target="_blank" rel="noopener noreferrer">
+            Open device sign-in <ExternalLink className="size-3" />
+          </a>
+        </div>
+      ) : null}
       <div className="space-y-3">
-        <ProviderAccountNameAuth dialog={dialog} provider={provider} />
+        <ProviderAccountNameAuth dialog={dialog} />
         {provider.id === "codex" ? <ProviderPersonalityField dialog={dialog} /> : null}
         {dialog.hasCodexHomeField ? <ProviderCodexHomeField dialog={dialog} /> : null}
-        {dialog.hasClaudeConfigDirField ? <ProviderClaudeConfigDirField dialog={dialog} /> : null}
         {dialog.hasDefaultModelField || dialog.hasDefaultPermissionField || dialog.hasDefaultReasoningField || dialog.hasDefaultServiceTierField
           ? <ProviderRuntimeDefaultsField dialog={dialog} />
           : null}
@@ -124,7 +132,7 @@ function ProviderAccountNotice({ notice }: { notice: ProviderAccountDialogState[
   )
 }
 
-function ProviderAccountNameAuth({ dialog, provider }: { dialog: ProviderAccountDialogState; provider: ProviderDefinitionResponse }) {
+function ProviderAccountNameAuth({ dialog }: { dialog: ProviderAccountDialogState }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
       <label className="block">
@@ -135,62 +143,24 @@ function ProviderAccountNameAuth({ dialog, provider }: { dialog: ProviderAccount
           onChange={(event) => dialog.setDisplayName(event.target.value)}
         />
       </label>
-      <ProviderAccountAuthMenu dialog={dialog} provider={provider} />
+      <ProviderAccountAuthButton dialog={dialog} />
     </div>
   )
 }
 
-function ProviderAccountAuthMenu({ dialog, provider }: { dialog: ProviderAccountDialogState; provider: ProviderDefinitionResponse }) {
+function ProviderAccountAuthButton({ dialog }: { dialog: ProviderAccountDialogState }) {
   return (
-    <div className="relative">
-      <button
-        className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55"
-        disabled={dialog.authenticating}
-        type="button"
-        onClick={() => dialog.setAuthMenuOpen((open) => !open)}
-      >
-        <ExternalLink className="size-3.5" />
-        <span className="whitespace-nowrap">
-          {dialog.connected ? "Re-authenticate" : dialog.authenticating ? "Authenticating" : "Authenticate"}
-        </span>
-        <ChevronDown className="size-3.5 text-muted-foreground" />
-      </button>
-      {dialog.authMenuOpen ? <ProviderAccountAuthOptions dialog={dialog} provider={provider} /> : null}
-    </div>
-  )
-}
-
-function ProviderAccountAuthOptions({ dialog, provider }: { dialog: ProviderAccountDialogState; provider: ProviderDefinitionResponse }) {
-  const authModes = provider.authModes?.length
-    ? provider.authModes
-    : [
-        { mode: "browser" as const, label: "Browser" },
-        { mode: "local" as const, label: "Local account" },
-      ]
-  return (
-    <div className="absolute right-0 top-9 z-10 w-48 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-xl">
-      {authModes.map((authMode) => {
-        const Icon = authMode.mode === "local"
-          ? HardDrive
-          : authMode.mode === "environment"
-            ? KeyRound
-            : authMode.mode === "device"
-              ? MonitorCog
-              : ExternalLink
-        return (
-          <button
-            className="flex h-8 w-full items-center gap-2 px-2.5 text-left text-[12px] text-foreground hover:bg-accent"
-            key={authMode.mode}
-            title={authMode.description}
-            type="button"
-            onClick={() => void dialog.authenticate(authMode.mode)}
-          >
-            <Icon className="size-3.5 text-info" />
-            {authMode.label}
-          </button>
-        )
-      })}
-    </div>
+    <button
+      className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55"
+      disabled={dialog.authenticating}
+      type="button"
+      onClick={() => void dialog.authenticate()}
+    >
+      <MonitorCog className="size-3.5" />
+      <span className="whitespace-nowrap">
+        {dialog.authenticating ? "Authenticating" : dialog.connected ? "Re-authenticate" : "Sign in with device code"}
+      </span>
+    </button>
   )
 }
 
@@ -225,22 +195,8 @@ function ProviderCodexHomeField({ dialog }: { dialog: ProviderAccountDialogState
       <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Codex home</span>
       <input
         className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-primary disabled:opacity-65"
-        disabled={dialog.usingSharedCodexHome}
         value={dialog.codexHome}
         onChange={(event) => dialog.setCodexHome(event.target.value)}
-      />
-    </label>
-  )
-}
-
-function ProviderClaudeConfigDirField({ dialog }: { dialog: ProviderAccountDialogState }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">Claude config dir</span>
-      <input
-        className="h-8 w-full rounded-md border border-input bg-background px-2 font-mono text-[12px] text-foreground outline-none focus:border-primary"
-        value={dialog.claudeConfigDir}
-        onChange={(event) => dialog.setClaudeConfigDir(event.target.value)}
       />
     </label>
   )
@@ -266,15 +222,18 @@ function ProviderRuntimeDefaultsField({ dialog }: { dialog: ProviderAccountDialo
         {dialog.hasDefaultModelField ? (
           <label className="block min-w-0">
             <span className="mb-1 block text-[11px] text-muted-foreground">Model</span>
-            <Select className="w-full min-w-0" value={dialog.defaultModel || (dialog.selectedDefaultModelOption?.model ?? "")} onValueChange={dialog.setDefaultModel}>
+            <Select className="w-full min-w-0" value={dialog.defaultModel} onValueChange={dialog.setDefaultModel} onOpenChange={(open) => { if (open) dialog.refreshModels() }}>
               <SelectTrigger aria-label="Default model" className="h-8 w-full border-input bg-background px-2 text-[12px] text-foreground shadow-none hover:bg-secondary/60">
                 <span className="min-w-0 truncate">
-                  {hasExactDefaultModel || !dialog.defaultModel
+                  {!dialog.defaultModel
+                    ? `Automatic${dialog.selectedDefaultModelOption ? ` (${dialog.selectedDefaultModelOption.displayName})` : ""}`
+                    : hasExactDefaultModel
                     ? dialog.selectedDefaultModelOption?.displayName ?? dialog.defaultModel
                     : dialog.defaultModel}
                 </span>
               </SelectTrigger>
               <SelectContent align="start" className="max-h-72 border-border bg-popover text-foreground">
+                <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" value="">Automatic (Codex default)</SelectItem>
                 {modelOptions.map((option) => (
                   <SelectItem className="text-[12px] hover:bg-accent focus-visible:bg-accent" key={option.id} value={option.model}>
                     {option.displayName}

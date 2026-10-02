@@ -1,6 +1,5 @@
 import type { McpServer, McpServerInstallation, ProviderAccount } from "@prisma/client"
 import type {
-  AccountAuthMode,
   AuthenticateProviderAccountResponse,
   CompactChatRequest,
   ChatStatsResponse,
@@ -38,6 +37,7 @@ export type ProviderDefinition = {
 }
 
 export type ProviderRuntimeMessageInput = {
+  signal?: AbortSignal
   attachments?: ChatAttachmentRequest[]
   collaborationMode: string
   content: string
@@ -138,9 +138,7 @@ export type ProviderMcpOauthLoginResult = {
 
 export type ProviderAdapter = {
   definition: ProviderDefinition
-  authenticate(account: ProviderAccount, mode: AccountAuthMode): Promise<AuthenticateProviderAccountResponse>
-  cancelAuthentication(account: ProviderAccount): Promise<void>
-  completeAuthentication(account: ProviderAccount, redirectUrl: string): Promise<AuthenticateProviderAccountResponse>
+  authenticate(account: ProviderAccount): Promise<AuthenticateProviderAccountResponse>
   defaultAccountSettings(): JsonObject
   defaultRuntimeDefaults(): JsonObject
   defaultSettings(): JsonObject
@@ -153,6 +151,7 @@ export type ProviderAdapter = {
   isAccountConnected?(account: ProviderAccount): Promise<boolean> | boolean
   listChats(account: ProviderAccount): Promise<ProviderChatListItem[]>
   loadChatMessages(account: ProviderAccount, externalThreadId: string): Promise<ProviderChatMessageItem[]>
+  loadLocalChatMessages?(externalThreadId: string): Promise<ProviderChatMessageItem[]>
   listModels(account: ProviderAccount): Promise<ProviderModelListResponse>
   moveThreadToAccount?(context: ProviderAccountSwitchContext): Promise<boolean>
   prepareAccount(account: ProviderAccount): Promise<void>

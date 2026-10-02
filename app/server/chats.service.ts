@@ -29,6 +29,7 @@ import { HttpError } from "./http.server"
 import { prisma } from "./prisma.server"
 import { publishProviderEvent } from "./socket.server"
 import { requireConnectedAccount } from "./accounts.service"
+import { isQuotaExhausted, selectFailoverAccount } from "./account-failover.server"
 import { getProviderAdapter } from "./providers/registry.server"
 import type { ProviderChatListItem, ProviderChatMessageItem } from "./providers/types.server"
 
@@ -45,6 +46,32 @@ const messageSnapshotsByChatId = new Map<string, Map<string, string>>()
 const messageSnapshotSeparator = "\u0000"
 const localRunGraceMs = 120_000
 const recentInterruptSuppressMs = 30 * 60 * 1000
+const executingChatRuns = new Map<string, number>()
+const executingChats = new Map<string, number>()
+
+const chatRunLocks = new Map<string, Promise<unknown>>()
+const runAbortControllers = new Map<string, AbortController>()
+const pausedChatQueues = new Set<string>()
+
+// Serialize mutations for one chat without holding the lock during a provider prompt.
+async function withChatRunLock<T>(chatId: string, action: () => Promise<T>): Promise<T> {
+  const previous = chatRunLocks.get(chatId) ?? Promise.resolve()
+  const current = previous.catch(() => undefined).then(action)
+  chatRunLocks.set(chatId, current)
+  try {
+    return await current
+  } finally {
+    if (chatRunLocks.get(chatId) === current) chatRunLocks.delete(chatId)
+  }
+}
+
+export function isChatRunExecuting(runId: string): boolean {
+  return executingChatRuns.has(runId)
+}
+
+export function isChatExecuting(chatId: string): boolean {
+  return executingChats.has(chatId)
+}
 
 export async function createChat(dto: CreateChatRequest): Promise<ChatResponse> {
   await ensureDatabase()
@@ -76,6 +103,7 @@ export async function listChats(workingDirectory?: string | null): Promise<ChatR
   const chats = await prisma.chat.findMany({
     orderBy: [{ lastActivityAt: "desc" }, { updatedAt: "desc" }],
     where: {
+      providerId: "codex",
       status: { not: "ARCHIVED" },
       ...(workingDirectory?.trim() ? { workingDirectory: workingDirectory.trim() } : {}),
     },
@@ -102,7 +130,7 @@ export async function syncChats(workingDirectory?: string | null): Promise<ChatR
 export async function getChat(chatId: string): Promise<Chat> {
   await ensureDatabase()
   const chat = await prisma.chat.findUnique({ where: { id: chatId } })
-  if (!chat) {
+  if (!chat || chat.providerId !== "codex") {
     throw new HttpError(404, "Chat not found.")
   }
   return chat
@@ -178,6 +206,7 @@ export async function updateChat(chatId: string, dto: UpdateChatRequest): Promis
       where: {
         externalThreadId: updated.externalThreadId,
         id: { not: updated.id },
+        providerId: "codex",
         status: { not: "ARCHIVED" },
       },
       data: { status: "ARCHIVED" },
@@ -195,7 +224,6 @@ export async function updateChat(chatId: string, dto: UpdateChatRequest): Promis
 
 function hasBlockedRunningChatUpdate(dto: UpdateChatRequest): boolean {
   return dto.accountId !== undefined ||
-    dto.autoRotateAccount !== undefined ||
     dto.collaborationMode !== undefined ||
     dto.model !== undefined ||
     dto.reasoningEffort !== undefined ||
@@ -406,7 +434,7 @@ function nextMessageSequenceForChat(chat: Chat): number {
   return 1
 }
 
-async function overlayCachedChatStates(chats: Chat[]): Promise<Chat[]> {
+export async function overlayCachedChatStates(chats: Chat[]): Promise<Chat[]> {
   const groups = new Map<string, { accountId: string; chats: Chat[]; providerId: string }>()
   for (const chat of chats) {
     if (!chat.accountId || !chat.externalThreadId) {
@@ -475,6 +503,7 @@ export async function refreshChatStatusesForWorkspaces(workspacePaths: string[])
   const chats = await prisma.chat.findMany({
     orderBy: [{ lastActivityAt: "desc" }, { updatedAt: "desc" }],
     where: {
+      providerId: "codex",
       status: { not: "ARCHIVED" },
       workingDirectory: { in: paths },
       externalThreadId: { not: null },
@@ -502,6 +531,13 @@ export async function refreshChatStatusesForWorkspaces(workspacePaths: string[])
     if (status !== "RUNNING" && hasActiveRun) {
       status = "RUNNING"
     }
+    if (status === "IDLE" && !hasActiveRun && !isChatExecuting(chat.id)) {
+      const started = await withChatRunLock(chat.id, () => startNextQueuedRunUnlocked(chat.id))
+      if (started) {
+        updatedChats.push(serializeChat(await getChat(chat.id)))
+        continue
+      }
+    }
     if (!status || status === chat.status) {
       continue
     }
@@ -515,7 +551,7 @@ async function syncProviderChats(): Promise<Map<string, ChatStatsResponse>> {
   const stats = new Map<string, ChatStatsResponse>()
   const accounts = await prisma.providerAccount.findMany({
     orderBy: { createdAt: "asc" },
-    where: { status: "CONNECTED" },
+    where: { providerId: "codex", status: "CONNECTED" },
   })
   for (const account of accounts) {
     for (const [key, value] of await syncProviderAccountChats(account)) {
@@ -690,21 +726,22 @@ function preferProviderChatListItem(candidate: ProviderChatListItem, current: Pr
 }
 
 async function loadProviderMessages(chat: Chat): Promise<ProviderChatMessageItem[]> {
-  if (!chat.accountId || !chat.externalThreadId) {
+  if (!chat.externalThreadId) {
     return []
   }
-  const account = await requireConnectedAccount(chat.accountId).catch(() => null)
+  const adapter = getProviderAdapter(chat.providerId)
+  const account = chat.accountId ? await requireConnectedAccount(chat.accountId).catch(() => null) : null
   if (!account) {
-    return []
+    return adapter.loadLocalChatMessages?.(chat.externalThreadId) ?? []
   }
-  return getProviderAdapter(chat.providerId).loadChatMessages(account, chat.externalThreadId).catch(() => [])
+  return adapter.loadChatMessages(account, chat.externalThreadId).catch(() => [])
 }
 
 async function hasActiveProviderThreadRun(account: ProviderAccount, externalThreadId: string): Promise<boolean> {
   const run = await prisma.chatRun.findFirst({
     select: { id: true },
     where: {
-      status: { in: ["QUEUED", "RUNNING"] },
+      status: "RUNNING",
       chat: {
         accountId: account.id,
         externalThreadId,
@@ -730,14 +767,14 @@ async function hasRecentInterruptRequest(chatId: string): Promise<boolean> {
 async function hasActiveChatRun(chatId: string, providerStatus?: ChatStatus | null): Promise<boolean> {
   const runs = await prisma.chatRun.findMany({
     select: { createdAt: true, externalTurnId: true, id: true, startedAt: true },
-    where: { chatId, status: { in: ["QUEUED", "RUNNING"] } },
+    where: { chatId, status: "RUNNING" },
   })
   if (!runs.length) {
     return false
   }
   if (providerStatus && providerStatus !== "RUNNING") {
     const now = Date.now()
-    const freshLocalRuns = runs.filter((run) => !run.externalTurnId && now - (run.startedAt ?? run.createdAt).getTime() < localRunGraceMs)
+    const freshLocalRuns = runs.filter((run) => isChatRunExecuting(run.id) || (!run.externalTurnId && now - (run.startedAt ?? run.createdAt).getTime() < localRunGraceMs))
     const staleRunIds = runs
       .filter((run) => !freshLocalRuns.some((freshRun) => freshRun.id === run.id))
       .map((run) => run.id)
@@ -764,7 +801,11 @@ async function hasRunningChatRunExcept(chatId: string, excludedRunId: string): P
   return Boolean(run)
 }
 
-export async function executeMessage(chatId: string, dto: ExecuteChatRequest): Promise<ExecuteChatResponse> {
+export function executeMessage(chatId: string, dto: ExecuteChatRequest): Promise<ExecuteChatResponse> {
+  return withChatRunLock(chatId, () => executeMessageUnlocked(chatId, dto))
+}
+
+async function executeMessageUnlocked(chatId: string, dto: ExecuteChatRequest): Promise<ExecuteChatResponse> {
   const chat = await getChat(chatId)
   if (!dto.content.trim()) {
     throw new HttpError(400, "Message content is required.")
@@ -781,10 +822,21 @@ export async function executeMessage(chatId: string, dto: ExecuteChatRequest): P
     throw new HttpError(400, "Select a working directory before sending messages.")
   }
 
-  if (chat.status === "RUNNING") {
-    return dto.delivery === "steer"
-      ? steerActiveMessage(chat, account, dto)
-      : queueMessage(chat, account, dto)
+  if (chat.accountId && account.id !== chat.accountId) {
+    throw new HttpError(400, "Switch the chat account before sending messages with another account.")
+  }
+  if (chat.status === "RUNNING" || isChatExecuting(chatId) || await hasRunningChatRunExcept(chatId, "")) {
+    if (dto.delivery === "steer") return steerActiveMessage(chat, account, dto)
+    const result = await queueMessage(chat, account, dto)
+    pausedChatQueues.delete(chatId)
+    return result
+  }
+
+  if ((await prisma.chatRun.findMany({ where: { chatId, status: "QUEUED" }, orderBy: { createdAt: "asc" } })).length) {
+    const result = await queueMessage(chat, account, dto)
+    pausedChatQueues.delete(chatId)
+    await startNextQueuedRunUnlocked(chatId)
+    return result
   }
 
   const now = new Date()
@@ -793,10 +845,12 @@ export async function executeMessage(chatId: string, dto: ExecuteChatRequest): P
       chatId: chat.id,
       providerId: chat.providerId,
       accountId: account.id,
-      status: "QUEUED",
+      status: "RUNNING",
+      startedAt: now,
       request: runRequestFromDto(dto),
     },
   })
+  pausedChatQueues.delete(chatId)
   const previewSequence = await nextMessageSequenceForChat(chat)
   const userMessage = serializeRunMessage(chat.id, run, "USER", dto.content, "COMPLETED", previewSequence)
   const assistantMessage = serializeRunMessage(chat.id, run, "ASSISTANT", "Running", "STREAMING", previewSequence + 1)
@@ -813,7 +867,7 @@ export async function executeMessage(chatId: string, dto: ExecuteChatRequest): P
   publishMessageCreated(chat.id, userMessage)
   publishMessageCreated(chat.id, assistantMessage)
   publishProviderEvent({ threadId: chat.id, type: "chat.updated", payload: serializeChat(runningChat) })
-  publishProviderEvent({ threadId: chat.id, type: "run.status", payload: { runId: run.id, status: "QUEUED" } })
+  publishProviderEvent({ threadId: chat.id, type: "run.status", payload: { runId: run.id, status: "RUNNING" } })
 
   void runProviderTurn({
     accountId: account.id,
@@ -835,7 +889,7 @@ export async function executeMessage(chatId: string, dto: ExecuteChatRequest): P
     message: userMessage,
     assistantMessage,
     runId: run.id,
-    status: "QUEUED",
+    status: "RUNNING",
   }
 }
 
@@ -881,10 +935,7 @@ async function queueMessage(chat: Chat, account: ProviderAccount, dto: ExecuteCh
   const updatedChat = await prisma.chat.update({
     where: { id: chat.id },
     data: {
-      accountId: account.id,
-      collaborationMode: nullableString(dto.collaborationMode) ?? chat.collaborationMode,
       lastActivityAt: new Date(),
-      permissionMode: nullableString(dto.permissionMode) ?? chat.permissionMode,
       status: "RUNNING",
     },
   })
@@ -921,58 +972,57 @@ async function steerActiveMessage(
   return { message: result.message, assistantMessage: null, runId: run.id, status: "RUNNING" }
 }
 
-export async function interruptChatRun(chatId: string): Promise<InterruptChatRunResponse> {
+export function interruptChatRun(chatId: string): Promise<InterruptChatRunResponse> {
+  return withChatRunLock(chatId, () => interruptChatRunUnlocked(chatId))
+}
+
+async function interruptChatRunUnlocked(chatId: string): Promise<InterruptChatRunResponse> {
   const chat = await getChat(chatId)
   const run = await prisma.chatRun.findFirst({
     orderBy: { createdAt: "desc" },
     where: { chatId, status: "RUNNING" },
   })
+  const controller = run ? runAbortControllers.get(run.id) : undefined
   const accountId = run?.accountId ?? chat.accountId
-  const account = accountId ? await requireConnectedAccount(accountId).catch(() => null) : null
   const adapter = getProviderAdapter(chat.providerId)
-  const providerStatus = account && chat.externalThreadId && adapter.readChatStatus
-    ? await adapter.readChatStatus(account, chat.externalThreadId).catch(() => null)
-    : null
-  const providerRunning = providerStatus === "RUNNING"
-
+  const account = accountId ? await requireConnectedAccount(accountId).catch(() => null) : null
+  const providerRunning = !run && account && chat.externalThreadId && adapter.readChatStatus
+    ? await adapter.readChatStatus(account, chat.externalThreadId) === "RUNNING"
+    : false
   if (chat.status !== "RUNNING" && !run && !providerRunning) {
     throw new HttpError(409, "There is no running task to stop.")
   }
-
-  if (!run) {
-    if (account && chat.externalThreadId && providerRunning) {
-      await adapter.interrupt(account, chat.externalThreadId, null).catch(() => undefined)
-      const interruptedAt = new Date()
-      await prisma.chatRun.create({
-        data: {
-          accountId: account.id,
-          chatId,
-          endedAt: interruptedAt,
-          interruptRequestedAt: interruptedAt,
-          providerId: chat.providerId,
-          request: {},
-          startedAt: interruptedAt,
-          status: "CANCELLED",
-        },
-      })
-    }
-    const updated = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE" } })
-    publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updated) })
-    await publishMessageDeltas(chatId)
-    return { chatId, runId: null, status: "CANCELLED", message: providerRunning ? "Provider task cancelled." : "Marked stale run as cancelled." }
+  // A local AbortSignal also stops session setup before the provider has a thread/turn ID.
+  // For external tasks, require a successful interrupt instead of reporting a false stop.
+  if (!controller && (run || providerRunning)) {
+    if (!account || !chat.externalThreadId) throw new HttpError(409, "Unable to reach the running provider task.")
+    await adapter.interrupt(account, chat.externalThreadId, run?.externalTurnId ?? null)
   }
-  if (account && chat.externalThreadId) {
-    await getProviderAdapter(chat.providerId).interrupt(account, chat.externalThreadId, run.externalTurnId).catch(() => undefined)
+  pausedChatQueues.add(chatId)
+  const interruptedAt = new Date()
+  if (run) {
+    await prisma.chatRun.update({ where: { id: run.id }, data: {
+      status: "CANCELLED", endedAt: interruptedAt, interruptRequestedAt: interruptedAt,
+    } })
+    controller?.abort()
+    publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId: run.id, status: "CANCELLED" } })
+  } else if (providerRunning && account) {
+    await prisma.chatRun.create({ data: {
+      accountId: account.id, chatId, providerId: chat.providerId, request: {},
+      status: "CANCELLED", startedAt: interruptedAt, endedAt: interruptedAt, interruptRequestedAt: interruptedAt,
+    } })
   }
-  await prisma.chatRun.update({ where: { id: run.id }, data: { status: "CANCELLED", endedAt: new Date(), interruptRequestedAt: new Date() } })
   const updated = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE" } })
   publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updated) })
   await publishMessageDeltas(chatId)
-  publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId: run.id, status: "CANCELLED" } })
-  return { chatId, runId: run.id, status: "CANCELLED", message: "Task cancelled." }
+  return { chatId, runId: run?.id ?? null, status: "CANCELLED", message: "Task stopped. Queued messages are preserved; send a message to resume." }
 }
 
-export async function updateQueuedChatRun(
+export function updateQueuedChatRun(chatId: string, runId: string, dto: UpdateQueuedChatRunRequest): Promise<QueuedChatRunResponse> {
+  return withChatRunLock(chatId, () => updateQueuedChatRunUnlocked(chatId, runId, dto))
+}
+
+async function updateQueuedChatRunUnlocked(
   chatId: string,
   runId: string,
   dto: UpdateQueuedChatRunRequest,
@@ -1000,7 +1050,11 @@ export async function updateQueuedChatRun(
   return { chatId, runId, status: "QUEUED", message }
 }
 
-export async function reorderQueuedChatRuns(
+export function reorderQueuedChatRuns(chatId: string, dto: ReorderQueuedChatRunsRequest): Promise<ReorderQueuedChatRunsResponse> {
+  return withChatRunLock(chatId, () => reorderQueuedChatRunsUnlocked(chatId, dto))
+}
+
+async function reorderQueuedChatRunsUnlocked(
   chatId: string,
   dto: ReorderQueuedChatRunsRequest,
 ): Promise<ReorderQueuedChatRunsResponse> {
@@ -1044,7 +1098,11 @@ export async function reorderQueuedChatRuns(
   return { chatId, runIds: orderedIds }
 }
 
-export async function deleteQueuedChatRun(chatId: string, runId: string): Promise<QueuedChatRunResponse> {
+export function deleteQueuedChatRun(chatId: string, runId: string): Promise<QueuedChatRunResponse> {
+  return withChatRunLock(chatId, () => deleteQueuedChatRunUnlocked(chatId, runId))
+}
+
+async function deleteQueuedChatRunUnlocked(chatId: string, runId: string): Promise<QueuedChatRunResponse> {
   const run = await requireQueuedRun(chatId, runId)
   await prisma.chatRun.update({ where: { id: run.id }, data: { status: "CANCELLED", endedAt: new Date() } })
   await publishMessageDeltas(chatId)
@@ -1052,7 +1110,11 @@ export async function deleteQueuedChatRun(chatId: string, runId: string): Promis
   return { chatId, runId, status: "CANCELLED", message: null }
 }
 
-export async function steerQueuedChatRun(chatId: string, runId: string): Promise<QueuedChatRunResponse> {
+export function steerQueuedChatRun(chatId: string, runId: string): Promise<QueuedChatRunResponse> {
+  return withChatRunLock(chatId, () => steerQueuedChatRunUnlocked(chatId, runId))
+}
+
+async function steerQueuedChatRunUnlocked(chatId: string, runId: string): Promise<QueuedChatRunResponse> {
   const chat = await getChat(chatId)
   const run = await requireQueuedRun(chatId, runId)
   return steerQueuedRun(chat, run)
@@ -1134,24 +1196,31 @@ async function steerQueuedRun(chat: Chat, queuedRun: ChatRun): Promise<QueuedCha
   const sequence = knownMessageSequence(chat.id, messageId) ?? await nextMessageSequenceForChat(chat)
   const message = serializeRunMessage(chat.id, updatedRun, "USER", content, "COMPLETED", sequence)
   publishMessageCreated(chat.id, message)
-  await publishMessageDeltas(chat.id)
+  await publishMessageDeltas(chat.id).catch((error) => console.error("Steering history update failed.", error))
   publishProviderEvent({ threadId: chat.id, type: "run.status", payload: { runId: queuedRun.id, status: "COMPLETED" } })
   return { chatId: chat.id, runId: queuedRun.id, status: "COMPLETED", message }
 }
 
-async function runProviderTurn({
-  accountId,
-  attachments,
-  chatId,
-  content,
-  goalObjective,
-  model,
-  permissionMode,
-  reasoningEffort,
-  requestedCollaborationMode,
-  runId,
-  serviceTier,
-}: {
+async function runProviderTurn(input: Parameters<typeof executeProviderTurn>[0]): Promise<void> {
+  const controller = runAbortControllers.get(input.runId) ?? new AbortController()
+  runAbortControllers.set(input.runId, controller)
+  executingChatRuns.set(input.runId, (executingChatRuns.get(input.runId) ?? 0) + 1)
+  executingChats.set(input.chatId, (executingChats.get(input.chatId) ?? 0) + 1)
+  try { await executeProviderTurn({ ...input, signal: controller.signal }) } finally {
+    const remaining = (executingChatRuns.get(input.runId) ?? 1) - 1
+    if (remaining) executingChatRuns.set(input.runId, remaining)
+    else executingChatRuns.delete(input.runId)
+    const remainingChats = (executingChats.get(input.chatId) ?? 1) - 1
+    if (remainingChats) executingChats.set(input.chatId, remainingChats)
+    else executingChats.delete(input.chatId)
+    if (!remaining) runAbortControllers.delete(input.runId)
+    if (!remainingChats) {
+      await withChatRunLock(input.chatId, () => startNextQueuedRunUnlocked(input.chatId))
+    }
+  }
+}
+
+async function executeProviderTurn(input: {
   accountId: string
   attachments: ChatAttachmentRequest[]
   chatId: string
@@ -1163,129 +1232,139 @@ async function runProviderTurn({
   requestedCollaborationMode: string | null
   runId: string
   serviceTier: string | null
+  attemptedAccountIds?: Set<string>
+  signal?: AbortSignal
 }): Promise<void> {
-  const [chat, account] = await Promise.all([getChat(chatId), requireConnectedAccount(accountId)])
-  const adapter = getProviderAdapter(chat.providerId)
-  const startedAt = new Date()
-  await prisma.chatRun.update({ where: { id: runId }, data: { status: "RUNNING", startedAt } })
-  publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "RUNNING" } })
-  await publishMessageDeltas(chatId).catch((error) => {
-    console.error("Run preview update failed.", error)
-  })
+  const { accountId, chatId, runId, signal } = input
+  const attemptedAccountIds = input.attemptedAccountIds ?? new Set<string>()
+  attemptedAccountIds.add(accountId)
   try {
+    signal?.throwIfAborted()
+    const [chat, account] = await Promise.all([getChat(chatId), requireConnectedAccount(accountId)])
+    signal?.throwIfAborted()
+    const adapter = getProviderAdapter(chat.providerId)
+    publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "RUNNING" } })
+    await publishMessageDeltas(chatId).catch((error) => console.error("Run preview update failed.", error))
     const liveMessageSequences = new Map<string, number>()
     let nextLiveMessageSequence = nextKnownMessageSequence(chatId)
     const result = await adapter.sendMessage(account, {
-      attachments,
-      collaborationMode: requestedCollaborationMode ?? chat.collaborationMode,
-      content,
-      goalObjective,
-      model: model ?? chat.model,
+      signal,
+      attachments: input.attachments,
+      collaborationMode: input.requestedCollaborationMode ?? chat.collaborationMode,
+      content: input.content,
+      goalObjective: input.goalObjective,
+      model: input.model ?? chat.model,
       onMessage: (message) => {
+        if (signal?.aborted && message.status === "STREAMING") return
         const key = message.itemId ?? `${message.role}:${message.kind ?? "CHAT"}:${message.content}`
         let sequence = liveMessageSequences.get(key)
         if (!sequence) {
-          sequence = nextLiveMessageSequence
-          nextLiveMessageSequence += 1
+          sequence = nextLiveMessageSequence++
           liveMessageSequences.set(key, sequence)
         }
-        const payload = serializeProviderMessage(chatId, { ...message, runId }, sequence)
-        publishMessageCreated(chatId, payload)
+        publishMessageCreated(chatId, serializeProviderMessage(chatId, { ...message, runId }, sequence))
       },
-      onThreadReady: async (threadId) => {
+      onThreadReady: (threadId) => withChatRunLock(chatId, async () => {
         const updatedChat = await prisma.chat.update({
           where: { id: chatId },
-          data: { externalThreadId: threadId, status: "RUNNING" },
+          data: { externalThreadId: threadId, ...(signal?.aborted ? {} : { status: "RUNNING" as const }) },
         })
         publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
-      },
-      onTurnStarted: async (turnId) => {
+      }),
+      onTurnStarted: (turnId) => withChatRunLock(chatId, async () => {
         await prisma.chatRun.update({ where: { id: runId }, data: { externalTurnId: turnId } })
-        publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "RUNNING", turnId } })
-      },
-      permissionMode: permissionMode ?? chat.permissionMode,
-      reasoningEffort: reasoningEffort ?? chat.reasoningEffort,
-      serviceTier: serviceTier ?? chat.serviceTier,
+        if (!signal?.aborted) publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "RUNNING", turnId } })
+      }),
+      permissionMode: input.permissionMode ?? chat.permissionMode,
+      reasoningEffort: input.reasoningEffort ?? chat.reasoningEffort,
+      serviceTier: input.serviceTier ?? chat.serviceTier,
       threadId: chat.externalThreadId,
       workingDirectory: chat.workingDirectory!,
     })
-    const completedAt = new Date()
-    const currentRun = await prisma.chatRun.findUnique({ where: { id: runId }, select: { status: true } })
-    if (!currentRun || currentRun.status !== "RUNNING") {
-      const hasOtherRunningRun = await hasRunningChatRunExcept(chatId, runId)
-      const updatedChat = await prisma.chat.update({
-        where: { id: chatId },
-        data: {
-          externalThreadId: result.threadId,
-          lastActivityAt: completedAt,
-          status: hasOtherRunningRun ? "RUNNING" : "IDLE",
-        },
-      })
-      await adapter.syncThreadFromAccount(result.threadId, account)
+    await withChatRunLock(chatId, async () => {
+      const currentRun = await prisma.chatRun.findUnique({ where: { id: runId }, select: { status: true } })
+      const completedAt = new Date()
+      if (currentRun?.status === "RUNNING") {
+        await prisma.chatRun.update({ where: { id: runId }, data: {
+          endedAt: completedAt, externalTurnId: result.turnId, status: "COMPLETED",
+        } })
+        publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "COMPLETED" } })
+      }
+      const updatedChat = await prisma.chat.update({ where: { id: chatId }, data: {
+        externalThreadId: result.threadId, lastActivityAt: completedAt,
+        status: await hasRunningChatRunExcept(chatId, runId) ? "RUNNING" : "IDLE",
+      } })
       publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
-      await publishMessageDeltas(chatId)
-      if (!hasOtherRunningRun) {
-        await startNextQueuedRun(chatId)
-      }
-      return
-    }
-    const updatedChat = await prisma.chat.update({
-      where: { id: chatId },
-      data: {
-        externalThreadId: result.threadId,
-        lastActivityAt: completedAt,
-        status: "IDLE",
-      },
     })
-    await prisma.chatRun.update({
-      where: { id: runId },
-      data: {
-        endedAt: completedAt,
-        externalTurnId: result.turnId,
-        status: "COMPLETED",
-      },
-    })
-    await adapter.syncThreadFromAccount(result.threadId, account)
-    publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
-    await publishMessageDeltas(chatId)
-    publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "COMPLETED" } })
-    await startNextQueuedRun(chatId)
+    // History sync failures must not turn a successful prompt into a failed/replayed task.
+    await adapter.syncThreadFromAccount(result.threadId, account).catch((error) => console.error("Thread history sync failed.", error))
+    await publishMessageDeltas(chatId).catch((error) => console.error("Run history update failed.", error))
   } catch (error) {
-    const currentRun = await prisma.chatRun.findUnique({ where: { id: runId }, select: { status: true } })
-    if (!currentRun || currentRun.status !== "RUNNING") {
-      const hasOtherRunningRun = await hasRunningChatRunExcept(chatId, runId)
-      if (!hasOtherRunningRun) {
-        const settledAt = new Date()
-        const updatedChat = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE", lastActivityAt: settledAt } })
-        publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
+    const retry = await withChatRunLock(chatId, async () => {
+      const currentRun = await prisma.chatRun.findUnique({ where: { id: runId }, select: { status: true } })
+      if (!currentRun || currentRun.status !== "RUNNING") return null
+      const chat = await getChat(chatId)
+      let message = readErrorMessage(error)
+      if (chat.autoRotateAccount && isQuotaExhausted(error) && !signal?.aborted) {
+        try {
+          const nextAccountId = await selectFailoverAccount(chat.providerId, attemptedAccountIds)
+          if (nextAccountId) {
+            // Allow the same history-preserving migration as a manual account switch.
+            await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE" } })
+            await updateChat(chatId, { accountId: nextAccountId })
+            await prisma.chatRun.updateMany({ where: { chatId, status: "QUEUED", accountId }, data: { accountId: nextAccountId } })
+            await prisma.chatRun.update({ where: { id: runId }, data: {
+              accountId: nextAccountId, status: "RUNNING", error: null, endedAt: null, externalTurnId: null,
+            } })
+            const running = await prisma.chat.update({ where: { id: chatId }, data: { status: "RUNNING" } })
+            publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(running) })
+            publishProviderEvent({ threadId: chatId, type: "run.accountFailover", payload: { runId, fromAccountId: accountId, toAccountId: nextAccountId } })
+            return {
+              ...input, accountId: nextAccountId, attemptedAccountIds,
+              content: chat.externalThreadId
+                ? `The previous account exhausted its usage quota. Continue the interrupted task using the existing conversation and workspace state. Check what already completed before taking further actions. Original request:\n\n${input.content}`
+                : input.content,
+            }
+          }
+          message += " No other connected account has verified available quota."
+        } catch (rotationError) {
+          message += ` Account failover failed: ${readErrorMessage(rotationError)}`
+        }
       }
-      await publishMessageDeltas(chatId)
-      if (!hasOtherRunningRun) {
-        await startNextQueuedRun(chatId)
-      }
-      return
-    }
-    const message = error instanceof Error ? error.message : "Provider run failed."
-    const failedAt = new Date()
-    const updatedChat = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE", lastActivityAt: failedAt } })
-    await prisma.chatRun.update({ where: { id: runId }, data: { endedAt: failedAt, error: message, status: "FAILED" } })
-    publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
-    await publishMessageDeltas(chatId)
-    publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "FAILED", error: message } })
-    await startNextQueuedRun(chatId)
+      const failedAt = new Date()
+      await prisma.chatRun.update({ where: { id: runId }, data: { endedAt: failedAt, error: message, status: "FAILED" } })
+      const updatedChat = await prisma.chat.update({ where: { id: chatId }, data: { status: "IDLE", lastActivityAt: failedAt } })
+      publishProviderEvent({ threadId: chatId, type: "chat.updated", payload: serializeChat(updatedChat) })
+      publishProviderEvent({ threadId: chatId, type: "run.status", payload: { runId, status: "FAILED", error: message } })
+      return null
+    })
+    await publishMessageDeltas(chatId).catch((historyError) => console.error("Run history update failed.", historyError))
+    if (retry) await runProviderTurn(retry)
   }
 }
 
-async function startNextQueuedRun(chatId: string): Promise<boolean> {
-  if (await hasRunningChatRunExcept(chatId, "")) {
+async function startNextQueuedRunUnlocked(chatId: string): Promise<boolean> {
+  if (pausedChatQueues.has(chatId) || isChatExecuting(chatId) || await hasRunningChatRunExcept(chatId, "")) {
     return false
   }
-  const queuedRun = sortQueuedRuns(await prisma.chatRun.findMany({
+  const queuedRuns = sortQueuedRuns(await prisma.chatRun.findMany({
     orderBy: { createdAt: "asc" },
     where: { chatId, status: "QUEUED" },
-  }))[0]
+  }))
+  const queuedRun = queuedRuns[0]
   if (!queuedRun) {
     return false
+  }
+  // A stop must also keep the saved queue paused across server restarts.
+  const lastInterrupt = await prisma.chatRun.findFirst({
+    where: { chatId, status: "CANCELLED", interruptRequestedAt: { not: null } },
+    orderBy: { interruptRequestedAt: "desc" },
+  })
+  if (lastInterrupt?.interruptRequestedAt && !queuedRuns.some((run) => run.createdAt >= lastInterrupt.interruptRequestedAt!)) {
+    const resumedRun = await prisma.chatRun.findFirst({
+      where: { chatId, status: { in: ["RUNNING", "COMPLETED", "FAILED"] }, startedAt: { gte: lastInterrupt.interruptRequestedAt } },
+    })
+    if (!resumedRun) return false
   }
   const chat = await getChat(chatId)
   const accountId = queuedRun.accountId ?? chat.accountId
@@ -1295,8 +1374,9 @@ async function startNextQueuedRun(chatId: string): Promise<boolean> {
       data: { endedAt: new Date(), error: "Queued message has no provider account.", status: "FAILED" },
     })
     await publishMessageDeltas(chatId)
-    return startNextQueuedRun(chatId)
+    return startNextQueuedRunUnlocked(chatId)
   }
+  await prisma.chatRun.update({ where: { id: queuedRun.id }, data: { status: "RUNNING", startedAt: new Date() } })
   const request = readRunRequest(queuedRun)
   const updatedChat = await prisma.chat.update({
     where: { id: chatId },
@@ -1343,7 +1423,7 @@ async function readRunPreviewMessages(
     }
     const runUserIndex = findLastIndex(
       providerMessages,
-      (message) => message.role === "USER" && message.content.trim() === content.trim(),
+      (message) => run.status !== "QUEUED" && message.role === "USER" && message.content.trim() === content.trim(),
     )
     const assistantAfterRunUser = runUserIndex >= 0
       ? providerMessages.slice(runUserIndex + 1).some((message) => message.role === "ASSISTANT")

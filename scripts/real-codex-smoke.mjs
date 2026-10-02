@@ -11,7 +11,6 @@ if (process.env.POCKCODE_REAL_CODEX !== "1") {
 const root = mkdtempSync(join(tmpdir(), "pockcode-real-codex-"))
 const workspace = join(root, "workspace")
 const codexHome = join(root, "codex-home")
-const smokeModel = process.env.CODEX_SMOKE_MODEL ?? "gpt-5.5"
 let child
 let nextId = 1
 const pending = new Map()
@@ -63,6 +62,14 @@ try {
     capabilities: { experimentalApi: true },
   })
   notify("initialized")
+
+  const catalog = await request("model/list", { includeHidden: false, limit: 100 })
+  const smokeModel = process.env.CODEX_SMOKE_MODEL ??
+    catalog.result?.data?.find((model) => model.isDefault)?.model ??
+    catalog.result?.data?.[0]?.model
+  if (!smokeModel) {
+    throw new Error("Codex did not return an available smoke test model.")
+  }
 
   const started = await request("thread/start", {
     cwd: workspace,

@@ -1,8 +1,9 @@
+import type { AssistantMessageRequest, AssistantState, AssistantSummary, CreateAssistantRequest } from "../../app/types/assistant"
 import type {
-  AccountAuthMode,
   AuthenticateProviderAccountResponse,
   CompactChatRequest,
   ChatResponse,
+  ChatPageResponse,
   CreateChatRequest,
   CreateMessageScheduleRequest,
   CreateProviderAccountRequest,
@@ -45,11 +46,6 @@ import type {
   PluginResponse,
   PluginSettingsUpdateRequest,
 } from "../../app/types/plugins"
-import type {
-  CreateWorkspaceRunActionRequest,
-  UpdateWorkspaceRunActionRequest,
-  WorkspaceRunActionResponse,
-} from "../../app/types/run-actions"
 import type {
   PushPublicKeyResponse,
   PushSubscriptionRequest,
@@ -108,15 +104,6 @@ export type {
   PluginSettingsUpdateRequest,
   PluginStatus,
 } from "../../app/types/plugins"
-export type {
-  CreateWorkspaceRunActionRequest,
-  UpdateWorkspaceRunActionRequest,
-  WorkspaceChatRunConfig,
-  WorkspaceRunActionConfig,
-  WorkspaceRunActionKind,
-  WorkspaceRunActionResponse,
-  WorkspaceTerminalRunConfig,
-} from "../../app/types/run-actions"
 export type {
   PushPublicKeyResponse,
   PushSubscriptionRequest,
@@ -201,8 +188,52 @@ export type GitStatusResponse = {
   upstream?: string
 }
 
+const modelRequests = new Map<string, Promise<ProviderModelListResponse>>()
+
 export const apiClient = {
+  assistant: {
+    list() {
+      return requestJson<AssistantSummary[]>("/api/assistants", { fallbackMessage: "Unable to load agents.", cache: "no-store" })
+    },
+    create(body: CreateAssistantRequest) {
+      return requestJson<AssistantState>("/api/assistants", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        fallbackMessage: "Unable to create agent.",
+      })
+    },
+    read(agentId: string) {
+      return requestJson<AssistantState>(`/api/assistants/${encodeURIComponent(agentId)}`, { fallbackMessage: "Unable to load agent.", cache: "no-store" })
+    },
+    updateAvatar(agentId: string, avatar: string) {
+      return requestJson<AssistantState>(`/api/assistants/${encodeURIComponent(agentId)}/avatar`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ avatar }),
+        fallbackMessage: "Unable to update agent avatar.",
+      })
+    },
+    send(agentId: string, body: AssistantMessageRequest) {
+      return requestJson<AssistantState>(`/api/assistants/${encodeURIComponent(agentId)}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        fallbackMessage: "Unable to send assistant message.",
+      })
+    },
+    stop(agentId: string) {
+      return requestJson<AssistantState>(`/api/assistants/${encodeURIComponent(agentId)}/stop`, { method: "POST", fallbackMessage: "Unable to stop agent." })
+    },
+    cancelFollowUp(agentId: string, followUpId: string) {
+      return requestJson<AssistantState>(`/api/assistants/${encodeURIComponent(agentId)}/cancel-follow-up`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ followUpId }),
+        fallbackMessage: "Unable to cancel follow-up.",
+      })
+    },
+  },
   chats: {
+    page({ workingDirectory, cursor, limit = 4, query }: { workingDirectory?: string; cursor?: string | null; limit?: number; query?: string } = {}) {
+      const params = new URLSearchParams({ limit: String(limit) })
+      if (workingDirectory) params.set("workingDirectory", workingDirectory)
+      if (cursor) params.set("cursor", cursor)
+      if (query) params.set("query", query)
+      return requestJson<ChatPageResponse>(`/api/chats/page?${params}`, { cache: "no-store", fallbackMessage: "Unable to load chats." })
+    },
     create(body: CreateChatRequest) {
       return requestJson<ChatResponse>("/api/chats", {
         body: JSON.stringify(body),
@@ -362,9 +393,9 @@ export const apiClient = {
     },
   },
   providerAccounts: {
-    authenticate(accountId: string, mode: AccountAuthMode = "browser") {
+    authenticate(accountId: string) {
       return requestJson<AuthenticateProviderAccountResponse>(`/api/provider-accounts/${accountId}/authenticate`, {
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode: "device" }),
         fallbackMessage: "Unable to authenticate provider account.",
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -384,6 +415,12 @@ export const apiClient = {
         method: "DELETE",
       })
     },
+    get(accountId: string) {
+      return requestJson<ProviderAccountResponse>(`/api/provider-accounts/${accountId}`, {
+        cache: "no-store",
+        fallbackMessage: "Unable to load Codex account.",
+      })
+    },
     list() {
       return requestJson<ProviderAccountResponse[]>("/api/provider-accounts", {
         fallbackMessage: "Unable to load provider accounts.",
@@ -395,9 +432,14 @@ export const apiClient = {
       })
     },
     models(accountId: string) {
-      return requestJson<ProviderModelListResponse>(`/api/provider-accounts/${accountId}/models`, {
+      const existing = modelRequests.get(accountId)
+      if (existing) return existing
+      const request = requestJson<ProviderModelListResponse>(`/api/provider-accounts/${accountId}/models`, {
+        cache: "no-store",
         fallbackMessage: "Unable to load provider models.",
-      })
+      }).finally(() => modelRequests.delete(accountId))
+      modelRequests.set(accountId, request)
+      return request
     },
     update(accountId: string, body: UpdateProviderAccountRequest) {
       return requestJson<ProviderAccountResponse>(`/api/provider-accounts/${accountId}`, {
@@ -637,35 +679,7 @@ export const apiClient = {
       })
     },
   },
-  workspaceRunActions: {
-    create(body: CreateWorkspaceRunActionRequest) {
-      return requestJson<WorkspaceRunActionResponse>("/api/workspace-run-actions", {
-        body: JSON.stringify(body),
-        fallbackMessage: "Unable to create run action.",
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      })
-    },
-    delete(actionId: string) {
-      return requestJson<{ id: string }>(`/api/workspace-run-actions/${encodeURIComponent(actionId)}`, {
-        fallbackMessage: "Unable to delete run action.",
-        method: "DELETE",
-      })
-    },
-    list(workspacePath: string) {
-      return requestJson<WorkspaceRunActionResponse[]>(`/api/workspace-run-actions?workspacePath=${encodeURIComponent(workspacePath)}`, {
-        fallbackMessage: "Unable to load run actions.",
-      })
-    },
-    update(actionId: string, body: UpdateWorkspaceRunActionRequest) {
-      return requestJson<WorkspaceRunActionResponse>(`/api/workspace-run-actions/${encodeURIComponent(actionId)}`, {
-        body: JSON.stringify(body),
-        fallbackMessage: "Unable to update run action.",
-        headers: { "Content-Type": "application/json" },
-        method: "PATCH",
-      })
-    },
-  },
+
 }
 
 function postGitAction(path: string, body: Record<string, unknown>, fallbackMessage: string) {

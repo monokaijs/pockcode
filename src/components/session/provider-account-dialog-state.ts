@@ -1,27 +1,21 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   apiClient,
-  type AccountAuthMode,
   type AuthenticateProviderAccountResponse,
   type ProviderAccountResponse,
   type ProviderDefinitionResponse,
-  type ProviderModelListResponse,
 } from "@/lib/api-client"
 import {
   composerAccessModeValue,
   composerReasoningEffortValue,
   composerServiceTierValue,
-  defaultModelOptionsForProvider,
   defaultRuntimeDefaultValue,
-  delay,
   formatJson,
-  mergeProviderModelOptions,
+  defaultProviderModelOption,
   parseJsonRecord,
-  readClaudeConfigDirValue,
   readCodexHomeValue,
   readCodexPersonalityValue,
   readComposerAccessMode,
-  readDefaultClaudeConfigDirValue,
   readComposerReasoningEffort,
   readComposerServiceTier,
   readDefaultCodexHomeValue,
@@ -31,6 +25,7 @@ import {
   readSharedCodexHomeValue,
   withoutRecordKeys,
 } from "@/lib/session"
+import { useProviderModels } from "./use-provider-models"
 import type { ChatComposerAccessMode, ChatComposerReasoningEffort, ChatComposerServiceTier } from "@/types/session"
 
 type ProviderAccountNotice = { details?: Record<string, unknown> | null; kind: "error" | "info"; text: string }
@@ -42,9 +37,12 @@ export function useProviderAccountDialogState(
   onAccountDelete: (accountId: string) => void,
   onReload: () => Promise<void>,
 ) {
+  const authAttemptRef = useRef(0)
+  useEffect(() => {
+    setAuthenticating(false)
+    return () => { authAttemptRef.current += 1 }
+  }, [account?.id])
   const [authenticating, setAuthenticating] = useState(false)
-  const [authMenuOpen, setAuthMenuOpen] = useState(false)
-  const [claudeConfigDir, setClaudeConfigDir] = useState("")
   const [codexHome, setCodexHome] = useState("")
   const [defaultModel, setDefaultModel] = useState("")
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatComposerAccessMode>("askForApproval")
@@ -52,7 +50,6 @@ export function useProviderAccountDialogState(
   const [defaultServiceTier, setDefaultServiceTier] = useState<ChatComposerServiceTier>("standard")
   const [deleting, setDeleting] = useState(false)
   const [displayName, setDisplayName] = useState("")
-  const [modelOptions, setModelOptions] = useState<ProviderModelListResponse["data"]>([])
   const [notice, setNotice] = useState<ProviderAccountNotice | null>(null)
   const [personality, setPersonality] = useState<"friendly" | "pragmatic">("pragmatic")
   const [runtimeDefaultsJson, setRuntimeDefaultsJson] = useState("{}")
@@ -76,44 +73,20 @@ export function useProviderAccountDialogState(
     if (!account || !provider) {
       return
     }
-    setAuthMenuOpen(false)
-    setClaudeConfigDir(readClaudeConfigDirValue(account, provider))
     setCodexHome(readCodexHomeValue(account, provider))
-    setDefaultModel(readRecordString(account.runtimeDefaults, "model") || defaultRuntimeDefaultValue(provider.id, "model") || (defaultModelOptionsForProvider(provider.id)[0]?.model ?? ""))
+    setDefaultModel(readRecordString(account.runtimeDefaults, "model") || defaultRuntimeDefaultValue(provider.id, "model"))
     setDefaultPermissionMode(readComposerAccessMode(readRecordString(account.runtimeDefaults, "permissionMode") || defaultRuntimeDefaultValue(provider.id, "permissionMode")))
     setDefaultReasoningEffort(readComposerReasoningEffort(readRecordString(account.runtimeDefaults, "reasoningEffort") || defaultRuntimeDefaultValue(provider.id, "reasoningEffort")))
     setDefaultServiceTier(readComposerServiceTier(readRecordString(account.runtimeDefaults, "serviceTier") || defaultRuntimeDefaultValue(provider.id, "serviceTier")))
     setDisplayName(account.displayName)
     setPersonality(readCodexPersonalityValue(account.settings))
     setRuntimeDefaultsJson(formatJson(withoutRecordKeys(account.runtimeDefaults, runtimeDefaultStructuredKeys)))
-    setSettingsJson(formatJson(withoutRecordKeys(account.settings, ["claudeConfigDir", "codexHome", "personality"])))
+    setSettingsJson(formatJson(withoutRecordKeys(account.settings, ["codexHome", "personality"])))
     setNotice(readAccountErrorNotice(account))
   }, [account, provider, runtimeDefaultStructuredKeys])
 
-  useEffect(() => {
-    let cancelled = false
-    setModelOptions(defaultModelOptionsForProvider(provider?.id))
-    if (!account || !hasDefaultModelField || account.status !== "CONNECTED") {
-      return
-    }
-    apiClient.providerAccounts.models(account.id)
-      .then((response) => {
-        if (!cancelled) {
-          setModelOptions(response.data)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setModelOptions(defaultModelOptionsForProvider(provider?.id))
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [account?.id, account?.status, hasDefaultModelField, provider?.id])
+  const { modelOptions, refreshModels } = useProviderModels(account, hasDefaultModelField)
 
-  const usingSharedCodexHome = account ? readRecordString(account.authState, "codexHomeMode") === "shared" : false
-  const defaultClaudeConfigDir = account && provider ? readDefaultClaudeConfigDirValue(account, provider) : ""
   const defaultCodexHome = account && provider ? readDefaultCodexHomeValue(account, provider) : ""
   const sharedCodexHome = provider ? readSharedCodexHomeValue(provider) : ""
 
@@ -123,9 +96,9 @@ export function useProviderAccountDialogState(
     }
     const settings = parseJsonRecord(settingsJson, "Settings") as ProviderAccountResponse["settings"]
     const runtimeDefaults = parseJsonRecord(runtimeDefaultsJson, "Runtime defaults") as ProviderAccountResponse["runtimeDefaults"]
-    const codexHomePath = usingSharedCodexHome ? "" : codexHome.trim()
+    const codexHomePath = codexHome.trim()
     if (codexHomePath === "~/.codex" || codexHomePath === sharedCodexHome) {
-      throw new Error(`Use Local account to use ${sharedCodexHome}.`)
+      throw new Error(`Choose a separate Codex home for this account.`)
     }
     if (codexHomePath && codexHomePath !== defaultCodexHome) {
       settings.codexHome = codexHomePath
@@ -135,20 +108,9 @@ export function useProviderAccountDialogState(
     if (provider.id === "codex") {
       settings.personality = personality
     }
-    if (provider.id === "claude") {
-      const configDirPath = claudeConfigDir.trim()
-      if (configDirPath && configDirPath !== defaultClaudeConfigDir) {
-        settings.claudeConfigDir = configDirPath
-      } else {
-        delete settings.claudeConfigDir
-      }
-    }
     if (hasDefaultModelField) {
-      const nextDefaultModel = defaultModel || selectedDefaultModelOption?.model || defaultRuntimeDefaultValue(provider.id, "model")
-      if (!nextDefaultModel) {
-        throw new Error("Choose a default model.")
-      }
-      runtimeDefaults.model = nextDefaultModel
+      if (defaultModel) runtimeDefaults.model = defaultModel
+      else delete runtimeDefaults.model
     }
     if (hasDefaultPermissionField) {
       runtimeDefaults.permissionMode = composerAccessModeValue(defaultPermissionMode)
@@ -171,67 +133,60 @@ export function useProviderAccountDialogState(
     return updated
   }
 
-  async function authenticate(mode: AccountAuthMode = provider?.authModes?.[0]?.mode ?? "browser") {
+  async function authenticate() {
+    const attempt = ++authAttemptRef.current
     setAuthenticating(true)
-    setAuthMenuOpen(false)
     setNotice(null)
     try {
       const updated = await saveDraftConfig()
-      const response = await apiClient.providerAccounts.authenticate(updated.id, mode)
+      const response = await apiClient.providerAccounts.authenticate(updated.id)
+      if (authAttemptRef.current !== attempt) return
+      onAccountChange(accountFromAuthResponse(updated, response))
       if (response.authUrl) {
         window.open(response.authUrl, "_blank", "noopener,noreferrer")
       }
       if (response.status === "ERROR") {
         const failedAccount = accountFromAuthResponse(updated, response)
-        onAccountChange(failedAccount)
         setNotice(readAccountErrorNotice(failedAccount, response.message ?? "Authentication failed."))
         return
       }
-      const refreshed = await refreshAccount()
-      if (response.status === "CONNECTED" || refreshed?.status === "CONNECTED") {
-        setNotice({ kind: "info", text: response.message ?? "Connected" })
-        await onReload()
-        return
-      }
       setNotice({ kind: "info", text: response.message ?? "Authentication started." })
-      await pollConnectedAccount()
     } catch (error) {
-      setNotice({ kind: "error", text: readError(error) })
+      if (authAttemptRef.current === attempt) setNotice({ kind: "error", text: readError(error) })
     } finally {
-      setAuthenticating(false)
+      if (authAttemptRef.current === attempt) setAuthenticating(false)
     }
   }
 
-  async function refreshAccount() {
-    if (!account) {
-      await onReload()
-      return null
-    }
-    const accounts = await apiClient.providerAccounts.list()
-    const refreshed = accounts.find((entry) => entry.id === account.id) ?? null
-    if (refreshed) {
-      onAccountChange(refreshed)
-    } else {
-      await onReload()
-    }
-    return refreshed
-  }
-
-  async function pollConnectedAccount() {
-    for (let index = 0; index < 60; index += 1) {
-      await delay(1000)
-      const refreshed = await refreshAccount()
-      if (refreshed?.status === "CONNECTED") {
-        setNotice({ kind: "info", text: "Connected" })
-        await onReload()
-        return
-      }
-      if (refreshed?.status === "ERROR") {
-        setNotice(readAccountErrorNotice(refreshed, "Authentication failed."))
-        return
+  useEffect(() => {
+    if (!account || account.status !== "AUTHENTICATING") return
+    let cancelled = false
+    let loading = false
+    const poll = async () => {
+      if (cancelled || loading || document.visibilityState !== "visible") return
+      loading = true
+      try {
+        const refreshed = await apiClient.providerAccounts.get(account.id)
+        if (cancelled || refreshed.status === "AUTHENTICATING") return
+        onAccountChange(refreshed)
+        if (refreshed.status === "CONNECTED") {
+          setNotice({ kind: "info", text: "Connected" })
+          await onReload()
+        } else if (refreshed.status === "ERROR") {
+          setNotice(readAccountErrorNotice(refreshed, "Authentication failed."))
+        }
+      } catch (error) {
+        if (!cancelled) setNotice({ kind: "error", text: readError(error) })
+      } finally {
+        loading = false
       }
     }
-  }
+    const interval = window.setInterval(() => { void poll() }, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [account?.id, account?.status])
 
   async function saveConfig() {
     if (!account) {
@@ -272,16 +227,17 @@ export function useProviderAccountDialogState(
   }
 
   const connected = account?.status === "CONNECTED"
-  const hasClaudeConfigDirField = Boolean(provider?.accountFields.some((field) => field.key === "claudeConfigDir"))
   const hasCodexHomeField = Boolean(provider?.accountFields.some((field) => field.key === "codexHome"))
-  const visibleModelOptions = mergeProviderModelOptions(provider?.id, modelOptions).filter((option) => !option.hidden)
-  const selectedDefaultModelOption = visibleModelOptions.find((option) => option.model === defaultModel || option.id === defaultModel) ?? visibleModelOptions[0] ?? null
+  const visibleModelOptions = modelOptions.filter((option) => !option.hidden)
+  const selectedDefaultModelOption = visibleModelOptions.find((option) => option.model === defaultModel || option.id === defaultModel) ?? defaultProviderModelOption(visibleModelOptions)
 
   return {
+    deviceLogin: account?.status === "AUTHENTICATING" && account.lastAuthMode === "device" && account.lastAuthUrl && account.lastAuthUserCode
+      ? { verificationUrl: account.lastAuthUrl, userCode: account.lastAuthUserCode }
+      : null,
+    refreshModels,
     authenticating,
-    authMenuOpen,
     authenticate,
-    claudeConfigDir,
     codexHome,
     connected,
     defaultModel,
@@ -291,7 +247,6 @@ export function useProviderAccountDialogState(
     deleteProviderAccount,
     deleting,
     displayName,
-    hasClaudeConfigDirField,
     hasCodexHomeField,
     hasDefaultModelField,
     hasDefaultPermissionField,
@@ -303,8 +258,6 @@ export function useProviderAccountDialogState(
     runtimeDefaultsJson,
     saveConfig,
     saving,
-    setAuthMenuOpen,
-    setClaudeConfigDir,
     setCodexHome,
     setDefaultModel,
     setDefaultPermissionMode,
@@ -316,7 +269,6 @@ export function useProviderAccountDialogState(
     setSettingsJson,
     selectedDefaultModelOption,
     settingsJson,
-    usingSharedCodexHome,
   }
 }
 

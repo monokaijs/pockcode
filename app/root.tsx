@@ -34,7 +34,7 @@ const pwaRegistrationScript = `
 export function meta() {
   return [
     { title: "PockCode" },
-    { name: "description", content: "A local Codex coding workspace for chat, files, terminals, and providers." },
+    { name: "description", content: "A local Codex coding workspace for chat, providers, and schedules." },
   ]
 }
 

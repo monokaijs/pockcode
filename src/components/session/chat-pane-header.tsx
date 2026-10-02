@@ -1,4 +1,6 @@
-import { Archive, LoaderCircle, Pencil, Send } from "lucide-react"
+import { Archive, Ellipsis, LoaderCircle, Pencil, Send } from "lucide-react"
+import { createPortal } from "react-dom"
+import { useSessionTitlebarActions } from "@/components/session/session-chrome-context"
 import { ModeToggleButton } from "@/components/session/mode-toggle-button"
 import { ProviderMark } from "@/components/session/provider-icons"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -10,12 +12,11 @@ import { useChatPane } from "@/components/session/chat-pane-context"
 
 export function ChatPaneHeader() {
   const pane = useChatPane()
+  const titlebarActions = useSessionTitlebarActions()
+  if (!titlebarActions) return null
 
-  return (
-    <header className="flex h-10 min-w-0 items-center gap-2 border-b border-border px-3">
-      <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-        {pane.chat?.title ?? pane.workspace.name}
-      </div>
+  return createPortal(
+    <div aria-label="Chat controls" className="flex h-full min-w-0 items-center gap-2">
       {pane.accountSwitchPhase ? (
         <span className="hidden shrink-0 items-center gap-1 rounded-md border border-info/30 bg-info/10 px-1.5 py-0.5 text-[11px] font-medium text-info sm:flex">
           {{
@@ -42,8 +43,9 @@ export function ChatPaneHeader() {
           <Send className="size-3.5" />
         </a>
       ) : null}
-      <ModeToggleButton mode="chat" onClick={pane.onToggleMode} />
-    </header>
+      {pane.onToggleMode ? <ModeToggleButton mode="chat" onClick={pane.onToggleMode} /> : null}
+    </div>,
+    titlebarActions,
   )
 }
 
@@ -65,7 +67,7 @@ function ChatHeaderActionsMenu() {
           />
         }
       >
-        {loading ? <LoaderCircle className="size-3.5 animate-spin" /> : <Pencil className="size-3.5" />}
+        {loading ? <LoaderCircle className="size-3.5 animate-spin" /> : <Ellipsis className="size-3.5" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
         <DropdownMenuItem className="text-[12px]" disabled={actionsDisabled} onClick={() => void pane.renameChat()}>
@@ -117,7 +119,7 @@ function ChatAccountSelect() {
             ) : (
               <ProviderMark icon={pane.providerDefinition?.icon} className="size-3.5 shrink-0 text-muted-foreground" />
             )}
-            <span className="min-w-0 truncate">{pane.account?.displayName ?? "Provider"}</span>
+            <span className="hidden min-w-0 truncate sm:inline">{pane.account?.displayName ?? "Provider"}</span>
           </span>
         </SelectTrigger>
         <SelectContent align="end" className="border-border bg-popover text-foreground">
@@ -177,7 +179,7 @@ function ProviderQuotaProgress({ limits }: { limits: ProviderLimitsResponse | un
         render={
           <span
             aria-label={title}
-            className="relative inline-flex size-5 shrink-0 items-center justify-center text-info outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="relative hidden size-5 shrink-0 items-center justify-center text-info outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:inline-flex"
             role="img"
             tabIndex={0}
           />

@@ -1,34 +1,64 @@
 import { LoaderCircle } from "lucide-react"
+import { useMemo, useRef } from "react"
 import { ChatMessageRow } from "@/components/session/chat-message-row"
 import { ChatWorkBlock } from "@/components/session/chat-work-block"
 import { ChatFileChangeBlock } from "@/components/session/chat-file-change-block"
 import { chatRenderEntryId } from "@/lib/session"
 import { useChatPane } from "@/components/session/chat-pane-context"
 import type { ChatPaneState } from "@/components/session/chat-pane-state"
+import { ChatMessageNavigation } from "@/components/session/chat-message-navigation"
+import { chatNavigationItems } from "@/lib/chat-navigation"
 
 export function ChatMessageList() {
   const pane = useChatPane()
+  const contentRef = useRef<HTMLDivElement>(null)
+  const previousScrollTopRef = useRef(0)
+  const navigationItems = useMemo(() => chatNavigationItems(pane.messages), [pane.messages])
 
   return (
-    <div className="min-h-0 overflow-auto px-4 py-4 ide-scrollbar" ref={pane.scrollRef}>
-      {(pane.isLoading || pane.isMessagesLoading) && !pane.messages.length ? (
-        <ChatMessageLoadingIndicator />
-      ) : pane.renderEntries.length ? (
-        <div className="mx-auto grid w-full max-w-3xl gap-3">
-          {pane.renderEntries.map((entry) => <ChatRenderEntryView entry={entry} key={chatRenderEntryId(entry)} />)}
+    <div className="relative min-h-0 min-w-0">
+      <div
+        className="session-chat-scroll h-full min-h-0 overflow-auto px-6 py-6 ide-scrollbar"
+        ref={pane.scrollRef}
+        onScroll={(event) => {
+          const viewport = event.currentTarget
+          pane.followLatestRef.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 48 &&
+            (pane.followLatestRef.current || viewport.scrollTop >= previousScrollTopRef.current)
+          previousScrollTopRef.current = viewport.scrollTop
+        }}
+      >
+        <div className="flex min-h-full flex-col" ref={contentRef}>
+          {(pane.isLoading || pane.isMessagesLoading) && !pane.messages.length ? (
+            <ChatMessageLoadingIndicator />
+          ) : pane.renderEntries.length ? (
+            <div className="session-conversation-column mx-auto grid w-full gap-5">
+              {pane.renderEntries.map((entry) => (
+                <div className="min-w-0" data-chat-message-id={entry.type === "message" ? entry.message.id : undefined} key={chatRenderEntryId(entry)}>
+                  <ChatRenderEntryView entry={entry} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid flex-1 place-items-center text-[13px] text-muted-foreground">
+              {pane.accounts.length ? "New chat" : "Connect a provider"}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
-          {pane.accounts.length ? "New chat" : "Connect a provider"}
-        </div>
-      )}
+      </div>
+      <ChatMessageNavigation
+        contentRef={contentRef}
+        items={navigationItems}
+        key={pane.chat?.id ?? "new"}
+        onNavigate={() => { pane.followLatestRef.current = false }}
+        scrollRef={pane.scrollRef}
+      />
     </div>
   )
 }
 
 function ChatMessageLoadingIndicator() {
   return (
-    <div className="grid h-full place-items-center text-[13px] text-muted-foreground">
+    <div className="grid flex-1 place-items-center text-[13px] text-muted-foreground">
       <span className="flex items-center gap-2">
         <LoaderCircle className="size-4 animate-spin text-info" />
         Loading

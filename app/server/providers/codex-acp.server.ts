@@ -64,10 +64,16 @@ type SessionState = {
 
 type LiveHandler = (message: ProviderChatMessageItem) => void
 
+type ActivePrompt = {
+  steeringCompletions: Promise<void>[]
+  waitForSteeringTurn: () => Promise<void>
+}
+
 export class CodexAcpRuntime {
   private child?: ChildProcessWithoutNullStreams
   private connection?: ClientSideConnection
   private initializePromise?: Promise<void>
+  private readonly activePrompts = new Map<string, ActivePrompt>()
   private readonly liveHandlers = new Map<string, LiveHandler>()
   private readonly pendingInteractions = new Map<string, PendingInteraction>()
   private readonly sessions = new Map<string, SessionState>()
@@ -78,27 +84,44 @@ export class CodexAcpRuntime {
     private readonly onAuthInvalidated?: (message: string) => void,
   ) {}
 
-  async sendMessage(input: ProviderRuntimeMessageInput): Promise<ProviderRuntimeMessageResult> {
+  async sendMessage(input: ProviderRuntimeMessageInput & {
+    waitForSteeringTurn?: () => Promise<void>
+  }): Promise<ProviderRuntimeMessageResult> {
+    input.signal?.throwIfAborted()
     await this.ensureStarted()
     const sessionId = await this.ensureSession(input.threadId ?? null, input.workingDirectory)
     await input.onThreadReady?.(sessionId)
-    const configOptions = await this.configureSession(sessionId, input)
-    const state = this.sessions.get(sessionId)
-    if (state && configOptions.length) {
-      applyAcpUpdate(state, { configOptions, sessionUpdate: "config_option_update" })
+    input.signal?.throwIfAborted()
+    const cancel = () => {
+      void this.interrupt(sessionId).catch(() => this.shutdown())
     }
-    if (input.goalObjective?.trim()) {
-      await this.connection?.extMethod("_session/goal", {
-        action: "set",
-        objective: input.goalObjective.trim(),
-        sessionId,
-      })
-    }
-
-    if (input.onMessage) {
-      this.liveHandlers.set(sessionId, input.onMessage)
+    input.signal?.addEventListener("abort", cancel, { once: true })
+    let cancelTimer: ReturnType<typeof setTimeout> | undefined
+    const stopHungPrompt = () => { cancelTimer = setTimeout(() => this.shutdown(), 10_000) }
+    input.signal?.addEventListener("abort", stopHungPrompt, { once: true })
+    const activePrompt: ActivePrompt = {
+      steeringCompletions: [],
+      waitForSteeringTurn: input.waitForSteeringTurn ?? (() => Promise.reject(new Error("Cannot track a new steering turn."))),
     }
     try {
+      const configOptions = await this.configureSession(sessionId, input)
+      const state = this.sessions.get(sessionId)
+      if (state && configOptions.length) {
+        applyAcpUpdate(state, { configOptions, sessionUpdate: "config_option_update" })
+      }
+      if (input.goalObjective?.trim()) {
+        await this.connection?.extMethod("_session/goal", {
+          action: "set",
+          objective: input.goalObjective.trim(),
+          sessionId,
+        })
+      }
+
+      if (input.onMessage) {
+        this.liveHandlers.set(sessionId, input.onMessage)
+      }
+      input.signal?.throwIfAborted()
+      this.activePrompts.set(sessionId, activePrompt)
       const response = await withTimeout(
         this.requiredConnection().prompt({
           sessionId,
@@ -107,6 +130,9 @@ export class CodexAcpRuntime {
         acpPromptTimeoutMs,
         "Codex ACP prompt timed out.",
       )
+      // ACP steering can start another turn after this prompt ends. Keep its
+      // output handler and the caller's run alive until that turn has settled.
+      for (const completion of activePrompt.steeringCompletions) await completion
       this.finalizeStreamingMessages(sessionId)
       const failure = readSessionFailure(record(response)._meta)
       if (failure?.phase === "active") {
@@ -123,7 +149,15 @@ export class CodexAcpRuntime {
         turnId: null,
         raw: toJson({ protocol: "acp", response }),
       }
+    } catch (error) {
+      if (this.activePrompts.has(sessionId)) await this.interrupt(sessionId).catch(() => this.shutdown())
+      throw error
     } finally {
+      this.finalizeStreamingMessages(sessionId)
+      if (cancelTimer) clearTimeout(cancelTimer)
+      input.signal?.removeEventListener("abort", cancel)
+      input.signal?.removeEventListener("abort", stopHungPrompt)
+      this.activePrompts.delete(sessionId)
       this.liveHandlers.delete(sessionId)
     }
   }
@@ -135,21 +169,37 @@ export class CodexAcpRuntime {
   }
 
   async interrupt(sessionId: string): Promise<void> {
-    await this.ensureStarted()
+    if (!this.connection || !this.sessions.get(sessionId)?.loaded) {
+      throw new Error("The running Codex session is not connected to this runtime.")
+    }
+    for (const [requestId, pending] of this.pendingInteractions) {
+      if (pending.sessionId === sessionId) {
+        this.pendingInteractions.delete(requestId)
+        pending.decline()
+      }
+    }
     await this.requiredConnection().cancel({ sessionId })
   }
 
   async steer(input: ProviderRuntimeSteerInput): Promise<ProviderRuntimeSteerResult> {
-    await this.ensureStarted()
-    await this.ensureSession(input.threadId, input.workingDirectory)
-    const result = await this.requiredConnection().extMethod("_session/steering", {
+    const activePrompt = this.activePrompts.get(input.threadId)
+    if (!activePrompt) throw new Error("There is no live Codex prompt to steer.")
+    const resultPromise = this.requiredConnection().extMethod("_session/steering", {
       sessionId: input.threadId,
       prompt: codexAcpPrompt(input.content, input.attachments ?? []),
     })
-    return {
-      turnId: input.turnId,
-      raw: toJson(result),
+    const completion = resultPromise.then(async (result) => {
+      if (record(result).outcome === "startedNewTurn") await activePrompt.waitForSteeringTurn()
+    }, () => undefined)
+    // Register before yielding: prompt completion must wait for an in-flight steer.
+    activePrompt.steeringCompletions.push(completion)
+    void completion.catch(() => undefined)
+    const result = await resultPromise
+    const outcome = record(result).outcome
+    if (outcome !== "injected" && outcome !== "startedNewTurn") {
+      throw new Error("Codex could not apply the steering message.")
     }
+    return { turnId: input.turnId, raw: toJson(result) }
   }
 
   respondToServerRequest(requestId: string, response: ServerRequestResponseRequest): void {
@@ -166,6 +216,8 @@ export class CodexAcpRuntime {
       pending.decline()
     }
     this.pendingInteractions.clear()
+    this.activePrompts.clear()
+    this.liveHandlers.clear()
     this.connection = undefined
     this.child?.kill("SIGTERM")
     this.child = undefined
@@ -198,6 +250,7 @@ export class CodexAcpRuntime {
       },
       stdio: ["pipe", "pipe", "pipe"],
     })
+    const child = this.child
     this.child.stderr.on("data", (chunk: Buffer) => {
       const message = chunk.toString("utf8")
       this.stderrTail = `${this.stderrTail}${message}`.slice(-8_192)
@@ -209,6 +262,10 @@ export class CodexAcpRuntime {
       this.stderrTail = `${this.stderrTail}\n${error.message}`.slice(-8_192)
     })
     this.child.on("close", () => {
+      if (this.child !== child) return
+      for (const pending of this.pendingInteractions.values()) pending.decline()
+      this.pendingInteractions.clear()
+      this.sessions.clear()
       this.connection = undefined
       this.child = undefined
       this.initializePromise = undefined

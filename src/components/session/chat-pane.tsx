@@ -11,11 +11,13 @@ export function ChatPane(props: ChatPaneProps) {
   return (
     <ChatPaneStateContext.Provider value={pane}>
       <ChatFileLinkContext.Provider value={pane.fileLinkContext}>
-        <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-xl border border-border bg-card">
-          <ChatPaneHeader />
-          <ChatMessageList />
-          <ChatComposer />
-        </section>
+        <div className="h-full min-h-0 min-w-0 overflow-hidden">
+          <section aria-label="Chat" className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-background">
+            <ChatPaneHeader />
+            <ChatMessageList />
+            <ChatComposer />
+          </section>
+        </div>
       </ChatFileLinkContext.Provider>
     </ChatPaneStateContext.Provider>
   )

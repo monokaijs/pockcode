@@ -1,20 +1,14 @@
 import type { ProviderAdapter } from "./types.server"
-import { claudeProviderAdapter } from "./claude.server"
 import { codexProviderAdapter } from "./codex.server"
-
-const adapters = new Map<string, ProviderAdapter>([
-  [codexProviderAdapter.definition.id, codexProviderAdapter],
-  [claudeProviderAdapter.definition.id, claudeProviderAdapter],
-])
+import { HttpError } from "../http.server"
 
 export function listProviderAdapters(): ProviderAdapter[] {
-  return [...adapters.values()]
+  return [codexProviderAdapter]
 }
 
 export function getProviderAdapter(providerId: string): ProviderAdapter {
-  const adapter = adapters.get(providerId)
-  if (!adapter) {
-    throw new Error(`Unknown provider: ${providerId}`)
+  if (providerId !== codexProviderAdapter.definition.id) {
+    throw new HttpError(400, "Only OpenAI Codex is supported.")
   }
-  return adapter
+  return codexProviderAdapter
 }

@@ -1,7 +1,7 @@
 import { Dock, PictureInPicture2, X } from "lucide-react"
-import Editor, { type OnMount } from "@monaco-editor/react"
+import type { OnMount } from "@monaco-editor/react"
 import type { ReactNode } from "react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { FileGlyph } from "@/components/session/file-glyph"
 import { ModeToggleButton } from "@/components/session/mode-toggle-button"
 import { useTheme } from "@/components/theme-provider"
@@ -10,6 +10,8 @@ import { definePockcodeMonacoTheme, pockcodeMonacoThemeName } from "@/lib/theme-
 import { fileLanguage, findFilePath, monacoLanguageFor } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import type { FileNode, FileRevealTarget, FileSelectOptions, Workspace } from "@/types/session"
+
+const Editor = lazy(() => import("@monaco-editor/react"))
 
 export function FileEditorPane({
   content,
@@ -213,44 +215,46 @@ function FileViewer({
   return (
     <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] bg-card">
       <div className="min-h-0 overflow-hidden">
-        <Editor
-          height="100%"
-          language={monacoLanguage}
-          path={editorPath}
-          theme={monacoThemeName}
-          value={content}
-          beforeMount={(monaco) => {
-            configureMonacoLanguageDefaults(monaco)
-            definePockcodeMonacoTheme(monaco, resolvedTheme)
-          }}
-          onChange={(value) => onContentChange(file.id, value ?? "")}
-          onMount={(editor, monaco) => {
-            editorRef.current = editor
-            setMonacoApi(monaco)
-            if (revealTarget) {
-              window.requestAnimationFrame(() => revealLine(revealTarget))
-            }
-          }}
-          options={{
-            automaticLayout: true,
-            bracketPairColorization: { enabled: true },
-            contextmenu: true,
-            cursorBlinking: "smooth",
-            fixedOverflowWidgets: true,
-            fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-            fontSize: 12,
-            guides: { bracketPairs: true, indentation: true },
-            lineHeight: 20,
-            minimap: { enabled: false },
-            overviewRulerBorder: false,
-            padding: { bottom: 12, top: 12 },
-            renderLineHighlight: "all",
-            scrollBeyondLastLine: false,
-            smoothScrolling: true,
-            tabSize: 2,
-            wordWrap: "off",
-          }}
-        />
+        <Suspense fallback={<div className="grid h-full place-items-center text-[12px] text-muted-foreground">Loading editor</div>}>
+          <Editor
+            height="100%"
+            language={monacoLanguage}
+            path={editorPath}
+            theme={monacoThemeName}
+            value={content}
+            beforeMount={(monaco) => {
+              configureMonacoLanguageDefaults(monaco)
+              definePockcodeMonacoTheme(monaco, resolvedTheme)
+            }}
+            onChange={(value) => onContentChange(file.id, value ?? "")}
+            onMount={(editor, monaco) => {
+              editorRef.current = editor
+              setMonacoApi(monaco)
+              if (revealTarget) {
+                window.requestAnimationFrame(() => revealLine(revealTarget))
+              }
+            }}
+            options={{
+              automaticLayout: true,
+              bracketPairColorization: { enabled: true },
+              contextmenu: true,
+              cursorBlinking: "smooth",
+              fixedOverflowWidgets: true,
+              fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+              fontSize: 12,
+              guides: { bracketPairs: true, indentation: true },
+              lineHeight: 20,
+              minimap: { enabled: false },
+              overviewRulerBorder: false,
+              padding: { bottom: 12, top: 12 },
+              renderLineHighlight: "all",
+              scrollBeyondLastLine: false,
+              smoothScrolling: true,
+              tabSize: 2,
+              wordWrap: "off",
+            }}
+          />
+        </Suspense>
       </div>
       <div className="flex h-8 items-center gap-2 border-t border-border px-3 text-[11px] font-medium text-muted-foreground">
         <span>{language}</span>

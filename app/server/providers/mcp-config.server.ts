@@ -101,34 +101,6 @@ export function codexMcpConfigForInstallation(installation: McpInstallationWithS
   return entry
 }
 
-export function claudeMcpConfigForInstallations(installations: McpInstallationWithServer[]): Record<string, JsonObject> {
-  const servers: Record<string, JsonObject> = {}
-  for (const installation of installations) {
-    if (!installation.enabled || !installation.server.enabled) {
-      continue
-    }
-    const transport = readMcpTransport(installation.server)
-    const timeout = timeoutMs(installation.server.toolTimeoutSec)
-    if (transport.type === "stdio") {
-      servers[installation.server.name] = {
-        type: "stdio",
-        command: transport.command,
-        ...(transport.args.length ? { args: transport.args } : {}),
-        ...(Object.keys(transport.env).length ? { env: transport.env } : {}),
-        ...(timeout ? { timeout } : {}),
-      }
-      continue
-    }
-    servers[installation.server.name] = {
-      type: "http",
-      url: transport.url,
-      ...(Object.keys(transport.httpHeaders).length ? { headers: transport.httpHeaders } : {}),
-      ...(timeout ? { timeout } : {}),
-    }
-  }
-  return servers
-}
-
 export function readMcpTransport(server: McpServer): NormalizedMcpTransport {
   const config = asJsonObject(server.config) ?? {}
   if (server.transport === "stdio") {
@@ -180,10 +152,6 @@ function readToolOverrides(value: unknown): NormalizedMcpToolPolicy["tools"] {
 
 function readApprovalMode(value: unknown): "auto" | "prompt" | "approve" | null {
   return value === "auto" || value === "prompt" || value === "approve" ? value : null
-}
-
-function timeoutMs(value: number | null): number | null {
-  return value && Number.isFinite(value) ? Math.max(1000, Math.round(value * 1000)) : null
 }
 
 function readStringArray(value: unknown): string[] {

@@ -37,6 +37,7 @@ async function main() {
     socket,
     chatMonitor,
     scheduleMonitor,
+    assistantMonitor,
     pluginManager,
     webPush,
     cloudflared,
@@ -47,6 +48,7 @@ async function main() {
     import("../app/server/socket.server"),
     import("../app/server/chat-status-monitor.server"),
     import("../app/server/message-schedule-monitor.server"),
+    import("../app/server/assistant-follow-up-monitor.server"),
     import("../app/server/plugins/manager.server"),
     import("../app/server/web-push.service"),
     import("../app/server/cloudflared.service"),
@@ -87,6 +89,7 @@ async function main() {
   })
   chatMonitor.startChatStatusMonitor()
   scheduleMonitor.startMessageScheduleMonitor()
+  assistantMonitor.startAssistantFollowUpMonitor()
   pluginManager.startPluginRuntimeManager()
   webPush.startWebPushEventBridge()
 
@@ -108,6 +111,7 @@ async function main() {
       connections,
       pluginManager,
       scheduleMonitor,
+      assistantMonitor,
       server,
       signal,
       socket,
@@ -127,6 +131,7 @@ async function shutdownServer({
   connections,
   pluginManager,
   scheduleMonitor,
+  assistantMonitor,
   server,
   signal,
   socket,
@@ -138,6 +143,7 @@ async function shutdownServer({
   connections: Set<Socket>
   pluginManager: typeof import("../app/server/plugins/manager.server")
   scheduleMonitor: typeof import("../app/server/message-schedule-monitor.server")
+  assistantMonitor: typeof import("../app/server/assistant-follow-up-monitor.server")
   server: ReturnType<typeof createServer>
   signal: NodeJS.Signals
   socket: typeof import("../app/server/socket.server")
@@ -155,6 +161,7 @@ async function shutdownServer({
 
   try {
     scheduleMonitor.stopMessageScheduleMonitor()
+    assistantMonitor.stopAssistantFollowUpMonitor()
     chatMonitor.stopChatStatusMonitor()
     webPush.stopWebPushEventBridge()
     cloudflared.stopAllTemporaryCloudflaredTunnels()

@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
-  defaultModelOptionsForProvider,
+  readAgentRouteTarget,
+  writeAgentRouteTarget,
+  writeSessionRouteTarget,
+  defaultProviderModelOption,
+  providerReasoningEffortOptions,
+  readComposerReasoningEffort,
+  composerReasoningEffortValue,
   defaultRuntimeDefaultValue,
-  hasClaudePermissionSuggestions,
   isToolMessage,
   isQueuedUserMessage,
   groupChatRenderEntries,
@@ -13,7 +18,6 @@ import {
   readAcpSessionConfig,
   readUserInputQuestions,
   renderAssistantSegment,
-  serverRequestResponseFor,
   workDurationLabel,
 } from "@/lib/session"
 import type { ChatMessageResponse } from "@/lib/api-client"
@@ -70,11 +74,18 @@ describe("chat slash commands", () => {
 })
 
 describe("provider fallbacks", () => {
-  it("provides Claude defaults before the server model catalog loads", () => {
-    expect(defaultRuntimeDefaultValue("claude", "model")).toBe("sonnet")
-    expect(defaultRuntimeDefaultValue("claude", "permissionMode")).toBe("askForApproval")
-    expect(defaultRuntimeDefaultValue("claude", "reasoningEffort")).toBe("medium")
-    expect(defaultModelOptionsForProvider("claude").map((option) => option.model)).toEqual(["sonnet", "opus", "haiku"])
+  it("uses only fetched Codex models without a pinned default", () => {
+    expect(defaultRuntimeDefaultValue("codex", "model")).toBe("")
+  })
+
+  it("selects the catalog default even when it is not the first model", () => {
+    const first = { id: "first", model: "first", displayName: "First" }
+    const hidden = { id: "hidden", model: "hidden", displayName: "Hidden", isDefault: true, hidden: true }
+    const recommended = { id: "recommended", model: "recommended", displayName: "Recommended", isDefault: true }
+    expect(defaultProviderModelOption([first, hidden, recommended])).toEqual(recommended)
+    expect(defaultProviderModelOption([hidden, first])).toEqual(first)
+    expect(defaultProviderModelOption([hidden])).toBeNull()
+    expect(defaultProviderModelOption([])).toBeNull()
   })
 })
 
@@ -385,40 +396,6 @@ describe("user input prompts", () => {
   })
 })
 
-describe("Claude permission responses", () => {
-  it("sends one-time approval by default", () => {
-    const message = chatMessage({
-      kind: "APPROVAL",
-      metadata: { serverRequestMethod: "claude/canUseTool" },
-      rawPayload: { suggestions: [{ type: "setMode", mode: "default", destination: "session" }] },
-      requestId: "request-1",
-      status: "PENDING",
-    })
-
-    expect(hasClaudePermissionSuggestions(message)).toBe(true)
-    expect(serverRequestResponseFor(message, true)).toEqual({
-      kind: "approval",
-      result: { decision: "accept" },
-    })
-  })
-
-  it("can send Claude session permission updates explicitly", () => {
-    const suggestions = [{ type: "setMode", mode: "default", destination: "session" }]
-    const message = chatMessage({
-      kind: "APPROVAL",
-      metadata: { serverRequestMethod: "claude/canUseTool" },
-      rawPayload: { suggestions },
-      requestId: "request-1",
-      status: "PENDING",
-    })
-
-    expect(serverRequestResponseFor(message, true, { allowForSession: true })).toEqual({
-      kind: "approval",
-      result: { decision: "accept", updatedPermissions: suggestions },
-    })
-  })
-})
-
 function chatMessage(overrides: Partial<ChatMessageResponse>): ChatMessageResponse {
   const createdAt = overrides.createdAt ?? new Date(0).toISOString()
   const status = overrides.status ?? "COMPLETED"
@@ -440,3 +417,58 @@ function chatMessage(overrides: Partial<ChatMessageResponse>): ChatMessageRespon
     turnId: overrides.turnId ?? null,
   }
 }
+
+
+describe("agent navigation", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  function browserAt(path: string) {
+    const location = new URL(`http://localhost${path}`)
+    const replaceState = vi.fn((_state: unknown, _unused: string, target: string) => {
+      location.href = new URL(target, location).href
+    })
+    vi.stubGlobal("window", { location, history: { replaceState } })
+    return location
+  }
+
+  it("opens the selected agent without carrying a project or chat", () => {
+    const location = browserAt("/?workspace=project&chat=coding#tasks")
+    writeAgentRouteTarget("nova")
+    expect(location.search).toBe("?agent=nova")
+    expect(location.hash).toBe("")
+    expect(readAgentRouteTarget()).toBe("nova")
+  })
+
+  it("removes agent selection when returning to a coding chat", () => {
+    const location = browserAt("/?agent=nova")
+    writeSessionRouteTarget("project", "coding")
+    expect(location.searchParams.has("agent")).toBe(false)
+    expect(location.searchParams.get("workspace")).toBe("project")
+    expect(location.searchParams.get("chat")).toBe("coding")
+    expect(readAgentRouteTarget()).toBeNull()
+  })
+
+  it("keeps other navigation when clearing agent selection", () => {
+    const location = browserAt("/?agent=nova#scheduled")
+    writeAgentRouteTarget(null)
+    expect(location.search).toBe("")
+    expect(location.hash).toBe("#scheduled")
+  })
+
+  it("opens Pock from the old assistant link", () => {
+    browserAt("/#assistant")
+    expect(readAgentRouteTarget()).toBe("pock")
+  })
+})
+
+describe("live model effort capabilities", () => {
+  it("preserves new effort levels and their provider order without a client allowlist", () => {
+    const model = { id: "future-model", model: "future-model", displayName: "Future", supportedReasoningEfforts: [
+      { reasoningEffort: "low" }, { reasoningEffort: "xhigh" }, { reasoningEffort: "max" }, { reasoningEffort: "ultra" }, { reasoningEffort: "future-effort" },
+    ] }
+    const options = providerReasoningEffortOptions(model)
+    expect(options.map((option) => option.value)).toEqual(["low", "extraHigh", "max", "ultra", "future-effort"])
+    expect(options.map((option) => composerReasoningEffortValue(option.value))).toEqual(model.supportedReasoningEfforts.map((effort) => effort.reasoningEffort))
+    expect(readComposerReasoningEffort("future-effort")).toBe("future-effort")
+  })
+})

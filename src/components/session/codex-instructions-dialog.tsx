@@ -1,28 +1,23 @@
 import { FileText, RefreshCw, X } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { apiClient, type ProviderDefinitionResponse } from "@/lib/api-client"
+import { apiClient } from "@/lib/api-client"
 import { readError } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 export function CodexInstructionsDialog({
   open,
-  providers,
   onClose,
 }: {
   open: boolean
-  providers: ProviderDefinitionResponse[]
   onClose: () => void
 }) {
   const [draft, setDraft] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [notice, setNotice] = useState<{ kind: "error" | "info"; text: string } | null>(null)
   const [paths, setPaths] = useState<string[]>([])
-  const [selectedProviderId, setSelectedProviderId] = useState("codex")
   const [saving, setSaving] = useState(false)
   const loadRequestIdRef = useRef(0)
-  const instructionProviders = providers.filter((provider) => provider.id === "codex" || provider.id === "claude")
-  const selectedProvider = instructionProviders.find((provider) => provider.id === selectedProviderId) ?? instructionProviders[0] ?? null
-  const providerId = selectedProvider?.id ?? selectedProviderId
+  const providerId = "codex"
 
   const loadInstructions = async () => {
     if (!providerId) {
@@ -57,12 +52,6 @@ export function CodexInstructionsDialog({
     }
   }, [open, providerId])
 
-  useEffect(() => {
-    if (!instructionProviders.some((provider) => provider.id === selectedProviderId)) {
-      setSelectedProviderId(instructionProviders[0]?.id ?? "codex")
-    }
-  }, [instructionProviders, selectedProviderId])
-
   const saveInstructions = async () => {
     if (!providerId) {
       return
@@ -73,7 +62,7 @@ export function CodexInstructionsDialog({
       const response = await apiClient.providers.updateInstructions(providerId, { instructions: draft })
       setDraft(response.instructions)
       setPaths(response.paths)
-      setNotice({ kind: "info", text: `Saved to ${response.paths.length} ${selectedProvider?.label ?? "provider"} homes` })
+      setNotice({ kind: "info", text: `Saved to ${response.paths.length} Codex homes` })
     } catch (error) {
       setNotice({ kind: "error", text: readError(error) })
     } finally {
@@ -92,17 +81,6 @@ export function CodexInstructionsDialog({
         <header className="flex h-11 min-w-0 items-center gap-2 border-b border-border px-3">
           <FileText className="size-4 shrink-0 text-info" />
           <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">Instructions</h1>
-          {instructionProviders.length > 1 ? (
-            <select
-              className="h-7 rounded-md border border-border bg-background px-2 text-[12px] text-foreground outline-none focus:border-primary"
-              value={providerId}
-              onChange={(event) => setSelectedProviderId(event.currentTarget.value)}
-            >
-              {instructionProviders.map((provider) => (
-                <option key={provider.id} value={provider.id}>{provider.label}</option>
-              ))}
-            </select>
-          ) : null}
           <button
             aria-label="Reload instructions"
             className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -137,7 +115,7 @@ export function CodexInstructionsDialog({
           ) : null}
           <label className="block">
             <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
-              {providerId === "claude" ? "CLAUDE.md" : "AGENTS.md"}
+              AGENTS.md
             </span>
             <textarea
               className="h-[min(52vh,28rem)] w-full resize-none rounded-md border border-input bg-background px-3 py-2 font-mono text-[12px] leading-5 text-foreground outline-none focus:border-primary disabled:opacity-65"

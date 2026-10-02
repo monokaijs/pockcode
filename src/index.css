@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@fontsource-variable/geist";
-@import "@xterm/xterm/css/xterm.css";
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant data-open {
@@ -73,7 +72,6 @@
   --color-ide-accent: var(--ide-accent);
   --color-ide-accent-foreground: var(--ide-accent-foreground);
   --color-ide-editor: var(--ide-editor);
-  --color-ide-terminal: var(--ide-terminal);
   --color-ide-scrollbar: var(--ide-scrollbar);
   --color-ide-folder: var(--ide-folder);
   --color-ide-file-blue: var(--ide-file-blue);
@@ -144,7 +142,6 @@
   --ide-accent: oklch(0.93 0 0);
   --ide-accent-foreground: oklch(0.16 0 0);
   --ide-editor: oklch(0.99 0 0);
-  --ide-terminal: oklch(0.98 0 0);
   --ide-scrollbar: oklch(0.72 0 0);
   --ide-folder: oklch(0.66 0.12 72);
   --ide-file-blue: oklch(0.58 0.15 245);
@@ -214,7 +211,6 @@
   --ide-accent: oklch(0.27 0.006 285);
   --ide-accent-foreground: oklch(0.91 0.006 285);
   --ide-editor: oklch(0.19 0.004 285);
-  --ide-terminal: oklch(0.14 0.004 285);
   --ide-scrollbar: oklch(0.42 0.006 285);
   --ide-folder: oklch(0.76 0.11 72);
   --ide-file-blue: oklch(0.76 0.13 245);
@@ -285,12 +281,157 @@
   padding-right: var(--safe-area-inset-right);
 }
 
-.session-shell-grid {
-  grid-template-rows: calc(40px + var(--safe-area-inset-top)) minmax(0, 1fr);
+.session-shell {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: calc(44px + var(--safe-area-inset-top)) minmax(0, 1fr);
+  overflow: hidden;
+  background-color: var(--sidebar);
 }
 
-.session-shell-top-bar {
+.session-titlebar {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 44px minmax(0, 1fr);
   padding-top: var(--safe-area-inset-top);
+  background-color: var(--session-chrome, var(--sidebar));
+}
+
+.session-app-layout {
+  grid-template-columns: 49px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  background-color: var(--sidebar);
+}
+
+@media (min-width: 48rem) {
+  .session-titlebar {
+    grid-template-columns: calc(49px + var(--session-sidebar-width, 324px)) minmax(0, 1fr);
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+
+  .session-titlebar-content {
+    position: relative;
+  }
+
+  .session-titlebar-content::before {
+    position: absolute;
+    top: 11px;
+    bottom: 11px;
+    left: 0;
+    width: 1px;
+    background-color: var(--sidebar-border);
+    content: "";
+  }
+
+  .session-app-layout {
+    grid-template-columns: 49px var(--session-sidebar-width, 324px) 1px minmax(0, 1fr);
+  }
+
+  .session-sidebar-resizer {
+    background-color: var(--sidebar-border);
+  }
+
+  .session-sidebar-resizer > button {
+    position: absolute;
+    left: -4px;
+    width: 9px;
+  }
+
+  .session-shell[data-sidebar-collapsed="true"] .session-app-layout {
+    grid-template-columns: 49px minmax(0, 1fr);
+  }
+
+  .session-shell[data-sidebar-collapsed="true"] .session-titlebar {
+    grid-template-columns: 49px minmax(0, 1fr);
+  }
+
+  .session-shell[data-sidebar-collapsed="true"] .session-sidebar-column,
+  .session-shell[data-sidebar-collapsed="true"] .session-sidebar-resizer {
+    display: none;
+  }
+}
+
+.session-navigation {
+  padding-top: 8px;
+  padding-bottom: calc(0.75rem + var(--safe-area-inset-bottom));
+  background-color: var(--session-chrome, var(--sidebar));
+}
+
+@layer components {
+  .session-icon-button {
+    @apply grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring;
+  }
+}
+
+.session-shell-grid {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.session-conversation-column {
+  width: 100%;
+  max-width: 736px;
+}
+
+.session-composer {
+  min-width: 0;
+  padding: 8px 24px max(16px, var(--safe-area-inset-bottom));
+}
+
+.session-composer-input:focus-within {
+  border-color: var(--ring);
+}
+
+.agent-avatar {
+  box-shadow: 0 2px 12px rgb(0 0 0 / 12%);
+}
+
+.assistant-identity-backdrop {
+  background: linear-gradient(var(--background) 0%, color-mix(in srgb, var(--background) 85%, transparent) 65%, transparent);
+}
+
+.assistant-profile-panel {
+  top: calc(56px + var(--safe-area-inset-top));
+  right: calc(12px + var(--safe-area-inset-right));
+  max-height: calc(100dvh - 72px - var(--safe-area-inset-top) - var(--safe-area-inset-bottom));
+}
+
+.dark .assistant-profile-panel {
+  --popover: #2c2c2c;
+  --popover-foreground: #eeeeee;
+}
+
+.assistant-message-reply {
+  background-color: var(--assistant-message-background, var(--card));
+}
+
+.dark .assistant-conversation { --assistant-message-background: #262626; }
+
+.assistant-message-user,
+.assistant-message-send {
+  background-color: #7193bc;
+}
+
+.assistant-message-bubble .chat-markdown {
+  font-size: 14px;
+}
+
+.assistant-message-bubble .chat-markdown p {
+  line-height: 1.5;
+}
+
+.assistant-message-bubble .chat-markdown a {
+  color: inherit;
+  text-decoration-color: currentColor;
+}
+
+.assistant-message-composer:focus-within {
+  border-color: var(--ring);
+}
+
+@media (max-width: 47.999rem) {
+  .session-chat-scroll { padding-right: 16px; }
+  .session-composer { padding-right: 12px; padding-left: 12px; }
 }
 
 .workspace-tabs-scroll {
@@ -401,6 +542,15 @@
   width: 0;
 }
 
+.chat-message-navigation {
+  scrollbar-width: none;
+  overscroll-behavior-y: contain;
+}
+
+.chat-message-navigation::-webkit-scrollbar {
+  display: none;
+}
+
 .chat-list-overlay-scrollbar {
   opacity: 0;
   pointer-events: none;
@@ -480,3 +630,58 @@
 .ide-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Neutral surfaces for the app shell. */
+.dark .session-app {
+  --session-chrome: #262626;
+  --background: #181818;
+  --foreground: #eeeeee;
+  --card: #222222;
+  --card-foreground: #eeeeee;
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --secondary: #333333;
+  --secondary-foreground: #eeeeee;
+  --muted: #2e2e2e;
+  --muted-foreground: #8f8f8f;
+  --accent: #303030;
+  --accent-foreground: #eeeeee;
+  --border: #333333;
+  --input: #3b3b3b;
+  --sidebar: #1e1e1e;
+  --sidebar-foreground: #d6d6d6;
+  --sidebar-accent: #303030;
+  --sidebar-accent-foreground: #eeeeee;
+  --sidebar-border: #383838;
+}
+
+.dark .session-sidebar {
+  --muted-foreground: #858585;
+}
+
+.model-effort-slider {
+  appearance: none;
+  height: 32px;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+.model-effort-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: transparent;
+}
+.model-effort-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.model-effort-slider:focus-visible { outline: none; }
+.model-effort-slider:focus-visible + div > span:last-child {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 3px var(--foreground);
+}
+.model-effort-slider:disabled { cursor: default; }

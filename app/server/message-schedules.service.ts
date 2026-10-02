@@ -61,12 +61,12 @@ export async function listMessageSchedules(workingDirectory?: string | null): Pr
   const path = workingDirectory?.trim()
   const rows = path
     ? await prisma.$queryRawUnsafe<MessageScheduleRow[]>(
-      `SELECT * FROM "MessageSchedule" WHERE "status" <> 'ARCHIVED' AND "workingDirectory" = ? ORDER BY "nextRunAt" IS NULL, "nextRunAt" ASC, "updatedAt" DESC LIMIT ?`,
+      `SELECT * FROM "MessageSchedule" WHERE "providerId" = 'codex' AND "status" <> 'ARCHIVED' AND "workingDirectory" = ? ORDER BY "nextRunAt" IS NULL, "nextRunAt" ASC, "updatedAt" DESC LIMIT ?`,
       path,
       schedulePageLimit,
     )
     : await prisma.$queryRawUnsafe<MessageScheduleRow[]>(
-      `SELECT * FROM "MessageSchedule" WHERE "status" <> 'ARCHIVED' ORDER BY "nextRunAt" IS NULL, "nextRunAt" ASC, "updatedAt" DESC LIMIT ?`,
+      `SELECT * FROM "MessageSchedule" WHERE "providerId" = 'codex' AND "status" <> 'ARCHIVED' ORDER BY "nextRunAt" IS NULL, "nextRunAt" ASC, "updatedAt" DESC LIMIT ?`,
       schedulePageLimit,
     )
   return rows.map(serializeSchedule)
@@ -216,7 +216,7 @@ export async function processDueMessageSchedules(now = new Date()): Promise<void
   await syncMessageScheduleRunStatuses()
   const rows = await prisma.$queryRawUnsafe<MessageScheduleRow[]>(
     `SELECT * FROM "MessageSchedule"
-      WHERE "status" = 'ACTIVE' AND "nextRunAt" IS NOT NULL AND datetime("nextRunAt") <= datetime(?)
+      WHERE "providerId" = 'codex' AND "status" = 'ACTIVE' AND "nextRunAt" IS NOT NULL AND datetime("nextRunAt") <= datetime(?)
       ORDER BY "nextRunAt" ASC LIMIT ?`,
     now.toISOString(),
     dueScheduleLimit,
@@ -406,7 +406,7 @@ async function refreshScheduleLastRunStatus(scheduleId: string, run: MessageSche
 async function readScheduleRow(scheduleId: string): Promise<MessageScheduleRow> {
   await ensureDatabase()
   const rows = await prisma.$queryRawUnsafe<MessageScheduleRow[]>(
-    `SELECT * FROM "MessageSchedule" WHERE "id" = ? LIMIT 1`,
+    `SELECT * FROM "MessageSchedule" WHERE "providerId" = 'codex' AND "id" = ? LIMIT 1`,
     scheduleId,
   )
   const row = rows[0]

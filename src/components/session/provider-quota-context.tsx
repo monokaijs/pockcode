@@ -3,6 +3,8 @@ import { apiClient, type ProviderLimitsResponse } from "@/lib/api-client"
 
 type ProviderQuotaContextValue = {
   accountLimits: Record<string, ProviderLimitsResponse>
+  accountErrors: Record<string, string>
+  error: string | null
   isLoading: boolean
   refreshQuotas: () => Promise<void>
 }
@@ -12,6 +14,8 @@ const quotaReloadIntervalMs = 60_000
 
 export function ProviderQuotaProvider({ children }: { children: ReactNode }) {
   const [accountLimits, setAccountLimits] = useState<Record<string, ProviderLimitsResponse>>({})
+  const [accountErrors, setAccountErrors] = useState<Record<string, string>>({})
+  const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const loadingRef = useRef(false)
 
@@ -24,8 +28,10 @@ export function ProviderQuotaProvider({ children }: { children: ReactNode }) {
     try {
       const response = await apiClient.providerAccounts.limits()
       setAccountLimits(response.data)
-    } catch {
-      setAccountLimits({})
+      setAccountErrors(response.errors ?? {})
+      setError(null)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to load usage.")
     } finally {
       loadingRef.current = false
       setIsLoading(false)
@@ -53,8 +59,8 @@ export function ProviderQuotaProvider({ children }: { children: ReactNode }) {
   }, [refreshQuotas])
 
   const value = useMemo<ProviderQuotaContextValue>(
-    () => ({ accountLimits, isLoading, refreshQuotas }),
-    [accountLimits, isLoading, refreshQuotas],
+    () => ({ accountLimits, accountErrors, error, isLoading, refreshQuotas }),
+    [accountLimits, accountErrors, error, isLoading, refreshQuotas],
   )
 
   return <ProviderQuotaContext.Provider value={value}>{children}</ProviderQuotaContext.Provider>

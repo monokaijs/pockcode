@@ -6,34 +6,25 @@ import {
 import { io } from "socket.io-client"
 import { ChatPane } from "@/components/session/chat-pane"
 import { ChatListProvider } from "@/components/session/chat-list-context"
-import { RightPanel } from "@/components/session/right-panel"
 import { FileDialog, FileEditorPane } from "@/components/session/file-editor-pane"
-import { McpServersManagementDialog } from "@/components/session/mcp-servers-management-dialog"
-import { ProvidersManagementDialog } from "@/components/session/providers-management-dialog"
-import { CodexInstructionsDialog } from "@/components/session/codex-instructions-dialog"
-import { WorkspaceFolderBrowserDialog } from "@/components/session/workspace-folder-browser-dialog"
 import { SessionSidebar } from "@/components/session/session-sidebar"
-import { ScheduleDetailPane } from "@/components/session/schedule-detail-pane"
+import { SessionNavigation } from "@/components/session/session-navigation"
+import { ProjectsPage, ScheduledEmptyPage, SettingsPage, TasksBoardPage, UsagePage } from "@/components/session/session-pages"
 import {
   readMessageScheduleResponse,
   readMessageScheduleRunResponse,
   upsertSchedule,
   upsertScheduleRun,
 } from "@/components/session/schedule-utils"
-import { MobilePanelDrawer, TopBar } from "@/components/session/session-chrome"
+import { MobilePanelDrawer, SessionTitleBar } from "@/components/session/session-chrome"
+import { SessionTitlebarActionsContext } from "@/components/session/session-chrome-context"
 import { ProviderQuotaProvider } from "@/components/session/provider-quota-context"
-import { SessionTerminalPanel } from "@/components/session/terminal-panel"
-import {
-  DEFAULT_TERMINAL_HEIGHT,
-  MAX_TERMINAL_HEIGHT,
-  MIN_TERMINAL_HEIGHT,
-  useWorkspaceTerminals,
-} from "@/components/session/workspace-terminals"
 import type {
   CSSProperties,
   PointerEvent as ReactPointerEvent,
 } from "react"
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import type { AssistantSummary, CreateAssistantRequest } from "../../../app/types/assistant"
 import {
   apiClient,
   type BrowserEntry,
@@ -45,9 +36,6 @@ import {
   type ProviderAccountResponse,
   type ProviderDefinitionResponse,
   type WorkspaceHistoryResponse,
-  type WorkspaceChatRunConfig,
-  type WorkspaceRunActionResponse,
-  type WorkspaceTerminalRunConfig,
 } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 import type {
@@ -59,28 +47,22 @@ import type {
   MainMode,
   ManagementView,
   MobileDrawer,
-  PanelTab,
-  SidebarTab,
+  NavigationView,
   Workspace,
 } from "@/types/session"
 import {
   browserEntryToFileNode,
   clearSessionRouteTarget,
-  collectInitialFolderIds,
   createOptimisticChatMessage,
   createWorkspaceFromBrowserEntry,
-  defaultRuntimeDefaultValue,
   fileContentFor,
   findFile,
-  findFileByWorkspacePath,
-  findNode,
   initialOpenFileIds,
   omitRecordKey,
   parseChatFileLink,
   readChatAccountSwitchEvent,
   readChatMessageResponse,
   readChatResponse,
-  readComposerAccessMode,
   readDetachedEditorPreference,
   readError,
   readProviderSocketEvent,
@@ -88,26 +70,31 @@ import {
   readRecordString,
   readRunStatus,
   readSessionRouteTarget,
+  readAgentRouteTarget,
   samePath,
   selectChatAccount,
-  shouldShowFilesPanelByDefault,
   slugifyWorkspaceId,
   titleFromPrompt,
-  updateFileNodeChildren,
   upsertChat,
   upsertMessage,
   removeOptimisticMessages,
   workspaceFromHistory,
   writeDetachedEditorPreference,
   writeSessionRouteTarget,
+  writeAgentRouteTarget,
 } from "@/lib/session"
-import { startHorizontalResize, startVerticalResize } from "@/lib/resize"
+import { startHorizontalResize } from "@/lib/resize"
 
 export type SessionShellState = ReturnType<typeof useSessionShellController>
-type BooleanStateUpdate = boolean | ((current: boolean) => boolean)
+
+const McpServersManagementDialog = lazy(() => import("@/components/session/mcp-servers-management-dialog").then((module) => ({ default: module.McpServersManagementDialog })))
+const ProvidersManagementDialog = lazy(() => import("@/components/session/providers-management-dialog").then((module) => ({ default: module.ProvidersManagementDialog })))
+const CodexInstructionsDialog = lazy(() => import("@/components/session/codex-instructions-dialog").then((module) => ({ default: module.CodexInstructionsDialog })))
+const WorkspaceFolderBrowserDialog = lazy(() => import("@/components/session/workspace-folder-browser-dialog").then((module) => ({ default: module.WorkspaceFolderBrowserDialog })))
+const ScheduleDetailPane = lazy(() => import("@/components/session/schedule-detail-pane").then((module) => ({ default: module.ScheduleDetailPane })))
+const AssistantPage = lazy(() => import("@/components/session/assistant-page").then((module) => ({ default: module.AssistantPage })))
 
 const SessionShellContext = createContext<SessionShellState | null>(null)
-const PANEL_RESIZE_HANDLE_SIZE = 8
 
 function useSessionShellState(): SessionShellState {
   const value = useContext(SessionShellContext)
@@ -134,11 +121,22 @@ export function SessionShell() {
 function useSessionShellController() {
   const [routeTarget] = useState(() => readSessionRouteTarget())
   const [routeTargetPending, setRouteTargetPending] = useState(() => Boolean(routeTarget.workspaceId))
-  const [activePanelTab, setActivePanelTab] = useState<PanelTab>("files")
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(readAgentRouteTarget)
+  const [agents, setAgents] = useState<AssistantSummary[]>([])
+  const [agentError, setAgentError] = useState<string | null>(null)
+  const [isAgentsLoading, setIsAgentsLoading] = useState(true)
+  const updateAgent = useCallback(({ id, profile, status, accountId, createdAt, updatedAt }: AssistantSummary) => {
+    const summary = { id, profile, status, accountId, createdAt, updatedAt }
+    setAgents((current) => current.some((agent) => agent.id === id) ? current.map((agent) => agent.id === id ? summary : agent) : [...current, summary])
+  }, [])
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [chatError, setChatError] = useState<string | null>(null)
   const [chats, setChats] = useState<ChatResponse[]>([])
+  const [sidebarChatRevision, setSidebarChatRevision] = useState(0)
+  const [archivedChatIds, setArchivedChatIds] = useState<Record<string, true>>({})
+  const archivingChatIds = useRef(new Set<string>())
+  const [sidebarChatError, setSidebarChatError] = useState<string | null>(null)
   const [chatAccounts, setChatAccounts] = useState<ProviderAccountResponse[]>([])
   const [providerDefinitions, setProviderDefinitions] = useState<ProviderDefinitionResponse[]>([])
   const [preferredAccountId, setPreferredAccountId] = useState<string | null>(null)
@@ -150,28 +148,18 @@ function useSessionShellController() {
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [scheduleRunsByScheduleId, setScheduleRunsByScheduleId] = useState<Record<string, MessageScheduleRunResponse[]>>({})
   const [schedules, setSchedules] = useState<MessageScheduleResponse[]>([])
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("chats")
+  const [navigationView, setNavigationView] = useState<NavigationView>(readNavigationView)
+  const [userName, setUserName] = useState(() => typeof window === "undefined" ? "Local user" : window.localStorage.getItem("pockcode-user-name") || "Local user")
   const [isWorkspaceHistoryLoading, setIsWorkspaceHistoryLoading] = useState(true)
   const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceHistoryResponse[]>([])
-  const [runActionErrorByWorkspacePath, setRunActionErrorByWorkspacePath] = useState<Record<string, string>>({})
-  const [runActionsByWorkspacePath, setRunActionsByWorkspacePath] = useState<Record<string, WorkspaceRunActionResponse[]>>({})
-  const [runActionsLoadingByWorkspacePath, setRunActionsLoadingByWorkspacePath] = useState<Record<string, boolean>>({})
-  const [runningRunActionId, setRunningRunActionId] = useState<string | null>(null)
-  const [selectedRunActionIdByWorkspacePath, setSelectedRunActionIdByWorkspacePath] = useState<Record<string, string>>({})
   const [editorRevealTarget, setEditorRevealTarget] = useState<FileRevealTarget | null>(null)
-  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set())
-  const [loadingFolderIds, setLoadingFolderIds] = useState<Set<string>>(new Set())
   const [fileContentById, setFileContentById] = useState<Record<string, string>>({})
-  const [filesWidth, setFilesWidth] = useState(380)
-  const [isFilesPanelOpen, setIsFilesPanelOpen] = useState(() => shouldShowFilesPanelByDefault())
   const [mainMode, setMainMode] = useState<MainMode>("chat")
   const [messagesByChatId, setMessagesByChatId] = useState<Record<string, ChatMessageResponse[]>>({})
   const [mobileDrawer, setMobileDrawer] = useState<MobileDrawer>(null)
   const [openFileIdsByWorkspace, setOpenFileIdsByWorkspace] = useState<Record<string, string[]>>({})
-  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [sidebarWidth, setSidebarWidth] = useState(324)
   const [selectedFileByWorkspace, setSelectedFileByWorkspace] = useState<Record<string, string>>({})
-  const [terminalPanelOpenByWorkspace, setTerminalPanelOpenByWorkspace] = useState<Record<string, boolean>>({})
-  const [terminalHeight, setTerminalHeight] = useState(DEFAULT_TERMINAL_HEIGHT)
   const [providersDialogOpen, setProvidersDialogOpen] = useState(false)
   const [instructionsDialogOpen, setInstructionsDialogOpen] = useState(false)
   const [mcpServersDialogOpen, setMcpServersDialogOpen] = useState(false)
@@ -182,21 +170,20 @@ function useSessionShellController() {
   const activeChatIdRef = useRef<string | null>(null)
   const activeScheduleIdRef = useRef<string | null>(null)
   const activeWorkspaceRef = useRef<Workspace | null>(null)
+  const workspaceChatRequestRef = useRef(0)
   const connectionRecoveryPendingRef = useRef(false)
   const connectionRecoveryPromiseRef = useRef<Promise<void> | null>(null)
-  const loadingFolderIdsRef = useRef<Set<string>>(new Set())
   const providerSocketRef = useRef<ReturnType<typeof io> | null>(null)
   const requestConnectionRecoveryRef = useRef<(() => void) | null>(null)
-  const terminalAutoCreateWorkspaceRef = useRef<string | null>(null)
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0] ?? null,
     [activeWorkspaceId, workspaces],
   )
-  const isTerminalPanelOpen = activeWorkspace ? terminalPanelOpenByWorkspace[activeWorkspace.id] ?? false : false
+  const visibleChats = useMemo(() => chats.filter((chat) => !archivedChatIds[chat.id]), [chats, archivedChatIds])
   const activeChat = useMemo(
-    () => chats.find((chat) => chat.id === activeChatId) ?? null,
-    [activeChatId, chats],
+    () => visibleChats.find((chat) => chat.id === activeChatId) ?? null,
+    [activeChatId, visibleChats],
   )
   const activeSchedule = useMemo(
     () => schedules.find((schedule) => schedule.id === activeScheduleId) ?? null,
@@ -221,31 +208,6 @@ function useSessionShellController() {
     : ""
   const activeMessages = activeChat ? messagesByChatId[activeChat.id] ?? [] : []
   const activeMessagesLoaded = activeChat ? Object.prototype.hasOwnProperty.call(messagesByChatId, activeChat.id) : true
-  const desktopGridColumns = isFilesPanelOpen
-    ? `${sidebarWidth}px ${PANEL_RESIZE_HANDLE_SIZE}px minmax(420px, 1fr) ${PANEL_RESIZE_HANDLE_SIZE}px ${filesWidth}px`
-    : `${sidebarWidth}px ${PANEL_RESIZE_HANDLE_SIZE}px minmax(420px, 1fr)`
-  const terminalHost = useWorkspaceTerminals(activeWorkspace)
-  const activeWorkspaceRunActions = activeWorkspace ? runActionsByWorkspacePath[activeWorkspace.path] ?? [] : []
-  const selectedRunActionId = activeWorkspace
-    ? selectedRunActionIdByWorkspacePath[activeWorkspace.path] ?? activeWorkspaceRunActions[0]?.id ?? null
-    : null
-  const activeRunActionError = activeWorkspace ? runActionErrorByWorkspacePath[activeWorkspace.path] ?? null : null
-  const activeRunActionsLoading = activeWorkspace ? runActionsLoadingByWorkspacePath[activeWorkspace.path] ?? false : false
-
-  const setIsTerminalPanelOpen = (value: BooleanStateUpdate) => {
-    const workspaceId = activeWorkspaceRef.current?.id ?? activeWorkspace?.id
-    if (!workspaceId) {
-      return
-    }
-    setTerminalPanelOpenByWorkspace((current) => {
-      const previous = current[workspaceId] ?? false
-      const next = typeof value === "function" ? value(previous) : value
-      return next
-        ? { ...current, [workspaceId]: true }
-        : omitRecordKey(current, workspaceId)
-    })
-  }
-
   const updateProviderData = (nextProviders: ProviderDefinitionResponse[], nextAccounts: ProviderAccountResponse[]) => {
     setProviderDefinitions(nextProviders)
     setChatAccounts(nextAccounts.filter((account) => account.status === "CONNECTED"))
@@ -275,7 +237,6 @@ function useSessionShellController() {
           .catch(() => undefined)
       }
       setWorkspaces(nextWorkspaces)
-      setExpandedFolderIds(new Set(nextWorkspaces.flatMap((workspace) => collectInitialFolderIds(workspace))))
       setOpenFileIdsByWorkspace(Object.fromEntries(nextWorkspaces.map((workspace) => [workspace.id, initialOpenFileIds(workspace)])))
       setSelectedFileByWorkspace(Object.fromEntries(nextWorkspaces.map((workspace) => [workspace.id, workspace.selectedFileId])))
       setActiveWorkspaceId((current) =>
@@ -298,6 +259,7 @@ function useSessionShellController() {
     workspaceId?: string,
     options?: { silent?: boolean },
   ) => {
+    const requestId = ++workspaceChatRequestRef.current
     if (!options?.silent) {
       setIsChatsLoading(true)
       setIsSchedulesLoading(true)
@@ -311,23 +273,17 @@ function useSessionShellController() {
         apiClient.providers.list(),
         apiClient.schedules.list(workspacePath),
       ])
+      if (requestId !== workspaceChatRequestRef.current || !activeWorkspaceRef.current || !samePath(activeWorkspaceRef.current.path, workspacePath)) return
       setChats(nextChats)
       setSchedules(nextSchedules)
       updateProviderData(nextProviders, nextAccounts)
-      const routeChatId = workspaceId && routeTarget.workspaceId === workspaceId ? routeTarget.chatId : null
-      const nextActiveChatId =
-        nextChats.find((chat) => chat.id === activeChatId)?.id ??
-        nextChats.find((chat) => chat.id === routeChatId)?.id ??
-        nextChats[0]?.id ??
-        null
-      setActiveChatId(nextActiveChatId)
-      if (nextActiveChatId && !options?.silent) {
-        void loadMessagesForChat(nextActiveChatId)
-      }
+      const routeChatId = routeTargetPending && workspaceId && routeTarget.workspaceId === workspaceId ? routeTarget.chatId : null
+      setActiveChatId((current) => nextChats.find((chat) => chat.id === current)?.id ?? nextChats.find((chat) => chat.id === routeChatId)?.id ?? null)
       if (workspaceId && routeTarget.workspaceId === workspaceId) {
         setRouteTargetPending(false)
       }
     } catch (error) {
+      if (requestId !== workspaceChatRequestRef.current || !activeWorkspaceRef.current || !samePath(activeWorkspaceRef.current.path, workspacePath)) return
       setChatError(readError(error))
       if (!options?.silent) {
         setChats([])
@@ -335,7 +291,7 @@ function useSessionShellController() {
         setActiveChatId(null)
       }
     } finally {
-      if (!options?.silent) {
+      if (requestId === workspaceChatRequestRef.current && !options?.silent) {
         setIsChatsLoading(false)
         setIsSchedulesLoading(false)
       }
@@ -349,28 +305,6 @@ function useSessionShellController() {
     } catch (error) {
       setChatError(readError(error))
       setMessagesByChatId((current) => Object.prototype.hasOwnProperty.call(current, chatId) ? current : { ...current, [chatId]: [] })
-    }
-  }
-
-  const loadRunActionsForWorkspace = async (workspacePath: string) => {
-    setRunActionsLoadingByWorkspacePath((current) => ({ ...current, [workspacePath]: true }))
-    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
-    try {
-      const actions = await apiClient.workspaceRunActions.list(workspacePath)
-      setRunActionsByWorkspacePath((current) => ({ ...current, [workspacePath]: actions }))
-      setSelectedRunActionIdByWorkspacePath((current) => {
-        const selectedId = current[workspacePath]
-        const nextSelectedId = selectedId && actions.some((action) => action.id === selectedId)
-          ? selectedId
-          : actions[0]?.id ?? null
-        return nextSelectedId
-          ? { ...current, [workspacePath]: nextSelectedId }
-          : omitRecordKey(current, workspacePath)
-      })
-    } catch (error) {
-      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
-    } finally {
-      setRunActionsLoadingByWorkspacePath((current) => ({ ...current, [workspacePath]: false }))
     }
   }
 
@@ -422,7 +356,7 @@ function useSessionShellController() {
       ? nextChats.find((chat) => chat.id === currentChatId)?.id ?? nextChats[0]?.id ?? null
       : null
     if (nextActiveChatId !== currentChatId) {
-      setActiveChatId(nextActiveChatId)
+      setActiveChatId((current) => current === currentChatId ? nextActiveChatId : current)
     }
 
     const currentScheduleId = activeScheduleIdRef.current
@@ -488,21 +422,41 @@ function useSessionShellController() {
   }
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(min-width: 1024px)")
-    const hideFilesPanelOnTablet = (event: MediaQueryListEvent | MediaQueryList) => {
-      if (!event.matches) {
-        setIsFilesPanelOpen(false)
+    void loadSavedWorkspaces()
+    void Promise.all([apiClient.providers.list(), apiClient.providerAccounts.list()])
+      .then(([providers, accounts]) => updateProviderData(providers, accounts))
+      .catch(() => undefined)
+  }, [])
+
+
+  useEffect(() => {
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout>
+    const load = async () => {
+      try {
+        const items = await apiClient.assistant.list()
+        if (!disposed) { setAgents(items); setAgentError(null) }
+      } catch (error) {
+        if (!disposed) setAgentError(readError(error))
+      } finally {
+        if (!disposed) { setIsAgentsLoading(false); timer = setTimeout(() => void load(), 5000) }
       }
     }
-
-    hideFilesPanelOnTablet(mediaQuery)
-    mediaQuery.addEventListener("change", hideFilesPanelOnTablet)
-    return () => mediaQuery.removeEventListener("change", hideFilesPanelOnTablet)
+    void load()
+    return () => { disposed = true; clearTimeout(timer) }
   }, [])
 
   useEffect(() => {
-    void loadSavedWorkspaces()
+    const onHashChange = () => setNavigationView(readNavigationView())
+    window.addEventListener("hashchange", onHashChange)
+    return () => window.removeEventListener("hashchange", onHashChange)
   }, [])
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    url.hash = navigationView === "home" ? "" : navigationView
+    window.history.replaceState(null, "", url)
+  }, [navigationView])
 
   useEffect(() => {
     if (!activeWorkspace) {
@@ -513,13 +467,6 @@ function useSessionShellController() {
       return
     }
     void loadChatsForWorkspace(activeWorkspace.path, activeWorkspace.id)
-  }, [activeWorkspace?.path])
-
-  useEffect(() => {
-    if (!activeWorkspace) {
-      return
-    }
-    void loadRunActionsForWorkspace(activeWorkspace.path)
   }, [activeWorkspace?.path])
 
   useEffect(() => {
@@ -537,12 +484,17 @@ function useSessionShellController() {
   }, [activeChatId])
 
   useEffect(() => {
+    if (activeAgentId) {
+      if (navigationView === "home") writeAgentRouteTarget(activeAgentId)
+      return
+    }
+    writeAgentRouteTarget(null)
     if (!activeWorkspace) {
       return
     }
     const pendingChatId = routeTargetPending && routeTarget.workspaceId === activeWorkspace.id ? routeTarget.chatId : null
     writeSessionRouteTarget(activeWorkspace.id, activeChatId ?? pendingChatId)
-  }, [activeChatId, activeWorkspace?.id, routeTarget.chatId, routeTarget.workspaceId, routeTargetPending])
+  }, [activeAgentId, navigationView, activeChatId, activeWorkspace?.id, routeTarget.chatId, routeTarget.workspaceId, routeTargetPending])
 
   useEffect(() => {
     activeChatIdRef.current = activeChatId
@@ -588,21 +540,6 @@ function useSessionShellController() {
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
   }, [])
-
-  useEffect(() => {
-    if (!isTerminalPanelOpen || !activeWorkspace || !terminalHost.isWorkspaceLoaded) {
-      return
-    }
-    if (terminalHost.terminals.length > 0) {
-      terminalAutoCreateWorkspaceRef.current = activeWorkspace.id
-      return
-    }
-    if (terminalAutoCreateWorkspaceRef.current === activeWorkspace.id) {
-      return
-    }
-    terminalAutoCreateWorkspaceRef.current = activeWorkspace.id
-    terminalHost.createTerminal()
-  }, [activeWorkspace?.id, isTerminalPanelOpen, terminalHost.createTerminal, terminalHost.isWorkspaceLoaded, terminalHost.terminals.length])
 
   useEffect(() => {
     if (!activeWorkspace) {
@@ -752,6 +689,7 @@ function useSessionShellController() {
   }, [activeChatId, activeWorkspace?.path])
 
   const openWorkspaceFromFolder = async (directory: BrowserEntry) => {
+    setActiveAgentId(null)
     if (directory.type !== "directory" || directory.error) {
       return
     }
@@ -784,14 +722,6 @@ function useSessionShellController() {
       [workspace.id]: initialOpenFileIds(workspace),
     }))
     setSelectedFileByWorkspace((current) => ({ ...current, [workspace.id]: workspace.selectedFileId }))
-    setExpandedFolderIds((current) => {
-      const next = new Set(current)
-      for (const id of collectInitialFolderIds(workspace)) {
-        next.add(id)
-      }
-      return next
-    })
-    setActivePanelTab("files")
     setActiveWorkspaceId(workspace.id)
     setProvidersDialogOpen(false)
     setMcpServersDialogOpen(false)
@@ -799,10 +729,12 @@ function useSessionShellController() {
     setMobileDrawer(null)
     setWorkspaceBrowserOpen(false)
     setWorkspaceStartOpen(false)
+    setNavigationView("home")
     setRouteTargetPending(false)
   }
 
   const openRecentWorkspace = async (recent: WorkspaceHistoryResponse) => {
+    setActiveAgentId(null)
     const existingWorkspace = workspaces.find((workspace) => workspace.id === recent.id || samePath(workspace.path, recent.path))
     if (existingWorkspace) {
       setActiveWorkspaceId(existingWorkspace.id)
@@ -812,44 +744,61 @@ function useSessionShellController() {
       }
       setWorkspaceBrowserOpen(false)
       setWorkspaceStartOpen(false)
+      setNavigationView("home")
+      setActiveChatId(null)
+      setMainMode("chat")
       setMobileDrawer(null)
       setRouteTargetPending(false)
-      return
+      return existingWorkspace
     }
     setWorkspaceLoadError(null)
     try {
       const workspace = await workspaceFromHistory(recent, workspaces)
       if (!workspace) {
         setWorkspaceLoadError("Unable to open workspace.")
-        return
+        return null
       }
       setWorkspaces((current) => [...current, workspace])
       setOpenFileIdsByWorkspace((current) => ({ ...current, [workspace.id]: initialOpenFileIds(workspace) }))
       setSelectedFileByWorkspace((current) => ({ ...current, [workspace.id]: workspace.selectedFileId }))
-      setExpandedFolderIds((current) => {
-        const next = new Set(current)
-        for (const id of collectInitialFolderIds(workspace)) {
-          next.add(id)
-        }
-        return next
-      })
       setActiveWorkspaceId(workspace.id)
       setProvidersDialogOpen(false)
       setMcpServersDialogOpen(false)
       setMainMode("chat")
       setMobileDrawer(null)
       setWorkspaceStartOpen(false)
+      setNavigationView("home")
       setRouteTargetPending(false)
       const saved = await apiClient.workspaces.saveHistory(workspace.path).catch(() => null)
       if (saved) {
         setRecentWorkspaces((current) => upsertRecentWorkspace(current, saved))
       }
+      return workspace
     } catch (error) {
       setWorkspaceLoadError(readError(error))
+      return null
     }
   }
 
+  const openSidebarChat = async (chat: ChatResponse) => {
+    const path = chat.workingDirectory
+    if (!path) { setWorkspaceLoadError("This chat has no project folder."); return }
+    try {
+      const workspace = workspaces.find((item) => samePath(item.path, path))
+      if (workspace) {
+        selectWorkspace(workspace.id)
+      } else {
+        const recent = recentWorkspaces.find((item) => samePath(item.path, path)) ?? await apiClient.workspaces.saveHistory(path)
+        if (!await openRecentWorkspace(recent)) return
+      }
+      setChats((current) => upsertChat(current.filter((item) => item.workingDirectory && samePath(item.workingDirectory, path)), chat))
+      setActiveChatId(chat.id)
+      switchToChat()
+    } catch (error) { setWorkspaceLoadError(readError(error)) }
+  }
+
   const selectWorkspace = (workspaceId: string) => {
+    setActiveAgentId(null)
     const workspace = workspaces.find((item) => item.id === workspaceId)
     setActiveWorkspaceId(workspaceId)
     setWorkspaceStartOpen(false)
@@ -883,7 +832,6 @@ function useSessionShellController() {
     })
     setOpenFileIdsByWorkspace((current) => omitRecordKey(current, workspaceId))
     setSelectedFileByWorkspace((current) => omitRecordKey(current, workspaceId))
-    setTerminalPanelOpenByWorkspace((current) => omitRecordKey(current, workspaceId))
     setRecentWorkspaces((current) => updateRecentWorkspaceOpenState(current, closingWorkspace.path, false))
     void apiClient.workspaces.closeHistory(closingWorkspace.path).catch(() => undefined)
   }
@@ -898,50 +846,6 @@ function useSessionShellController() {
       setFileContentById((current) => current[file.id] !== undefined ? current : { ...current, [file.id]: resource.content })
     } catch (error) {
       setFileContentById((current) => current[file.id] !== undefined ? current : { ...current, [file.id]: readError(error) })
-    }
-  }
-
-  const setFolderLoading = (folderId: string, loading: boolean) => {
-    const next = new Set(loadingFolderIdsRef.current)
-    if (loading) {
-      next.add(folderId)
-    } else {
-      next.delete(folderId)
-    }
-    loadingFolderIdsRef.current = next
-    setLoadingFolderIds(next)
-  }
-
-  const loadFolderChildren = async (folder: FileNode) => {
-    if (!activeWorkspace || folder.type !== "folder" || folder.children || !folder.path || loadingFolderIdsRef.current.has(folder.id)) {
-      return
-    }
-
-    const folderId = folder.id
-    const workspaceId = activeWorkspace.id
-    setFolderLoading(folderId, true)
-    try {
-      const entry = await apiClient.workspaces.readTree(folder.path)
-      const children = (entry.children ?? []).map((child, index) =>
-        browserEntryToFileNode(child, `${folderId}/${index}-${slugifyWorkspaceId(child.name)}`),
-      )
-      setWorkspaces((current) =>
-        current.map((workspace) =>
-          workspace.id === workspaceId
-            ? { ...workspace, fileTree: updateFileNodeChildren(workspace.fileTree, folderId, children) }
-            : workspace,
-        ),
-      )
-    } catch {
-      setWorkspaces((current) =>
-        current.map((workspace) =>
-          workspace.id === workspaceId
-            ? { ...workspace, fileTree: updateFileNodeChildren(workspace.fileTree, folderId, []) }
-            : workspace,
-        ),
-      )
-    } finally {
-      setFolderLoading(folderId, false)
     }
   }
 
@@ -982,11 +886,10 @@ function useSessionShellController() {
     if (!target) {
       return false
     }
-    const file = findFileByWorkspacePath(activeWorkspace.fileTree, target.path)
-    if (!file) {
-      return false
-    }
-    selectFile(file.id, { lineNumber: target.lineNumber, column: target.column })
+    void openWorkspaceFilePath(`${activeWorkspace.path}/${target.path}`, target.lineNumber ?? 1, target.column ?? 1)
+      .then((opened) => {
+        if (!opened) setChatError("Unable to open the linked file.")
+      })
     return true
   }
 
@@ -1029,13 +932,6 @@ function useSessionShellController() {
           workspace.id === activeWorkspace.id ? { ...workspace, fileTree: loaded.fileTree } : workspace,
         ),
       )
-      setExpandedFolderIds((current) => {
-        const next = new Set(current)
-        for (const id of loaded.expandedFolderIds) {
-          next.add(id)
-        }
-        return next
-      })
     }
 
     void loadFileContent(target)
@@ -1044,25 +940,9 @@ function useSessionShellController() {
       return openIds.includes(target.id) ? current : { ...current, [activeWorkspace.id]: [...openIds, target.id] }
     })
     setSelectedFileByWorkspace((current) => ({ ...current, [activeWorkspace.id]: target.id }))
-    setMainMode("editor")
+    setMainMode(readDetachedEditorPreference() ? "dialog" : "editor")
     setEditorRevealTarget({ column, fileId: target.id, lineNumber, nonce: Date.now() })
     return true
-  }
-
-  const toggleFolder = (id: string) => {
-    const folder = activeWorkspace ? findNode(activeWorkspace.fileTree, id) : null
-    if (folder?.type === "folder" && !folder.children) {
-      void loadFolderChildren(folder)
-    }
-    setExpandedFolderIds((current) => {
-      const next = new Set(current)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
   }
 
   const updateFileContent = (id: string, value: string) => {
@@ -1084,7 +964,7 @@ function useSessionShellController() {
   ) => {
     const message = input.content.trim()
     if (!message || !activeWorkspace) {
-      return
+      throw new Error("Select a workspace and enter a message before sending.")
     }
     setChatError(null)
     let optimisticChatId: string | null = null
@@ -1092,9 +972,8 @@ function useSessionShellController() {
       const targetChat = options.forceNewChat ? null : activeChat
       const targetAccount = selectChatAccount(targetChat, chatAccounts, preferredAccountId)
       if (!targetAccount) {
-        setChatError("Connect a provider account before sending a message.")
         setProvidersDialogOpen(true)
-        return
+        throw new Error("Connect a provider account before sending a message.")
       }
       const chat = targetChat ?? await apiClient.chats.create({
         accountId: targetAccount.id,
@@ -1146,152 +1025,12 @@ function useSessionShellController() {
           [chatId]: removeOptimisticMessages(current[chatId] ?? [], { content: message, role: "USER" }),
         }))
       }
+      throw error
     }
   }
 
   const sendChatMessage = async (input: ChatComposerSubmit) => {
     await sendChatMessageToTarget(input)
-  }
-
-  const createRunAction = async (
-    body: Omit<Parameters<typeof apiClient.workspaceRunActions.create>[0], "workspacePath">,
-  ) => {
-    if (!activeWorkspace) {
-      return
-    }
-    const workspacePath = activeWorkspace.path
-    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
-    try {
-      const action = await apiClient.workspaceRunActions.create({ ...body, workspacePath })
-      setRunActionsByWorkspacePath((current) => ({
-        ...current,
-        [workspacePath]: upsertWorkspaceRunAction(current[workspacePath] ?? [], action),
-      }))
-      setSelectedRunActionIdByWorkspacePath((current) => ({ ...current, [workspacePath]: action.id }))
-    } catch (error) {
-      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
-      throw error
-    }
-  }
-
-  const updateRunAction = async (
-    actionId: string,
-    body: Parameters<typeof apiClient.workspaceRunActions.update>[1],
-  ) => {
-    const workspacePath = activeWorkspace?.path
-    if (!workspacePath) {
-      return
-    }
-    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
-    try {
-      const action = await apiClient.workspaceRunActions.update(actionId, body)
-      setRunActionsByWorkspacePath((current) => ({
-        ...current,
-        [action.workspacePath]: upsertWorkspaceRunAction(current[action.workspacePath] ?? [], action),
-      }))
-      setSelectedRunActionIdByWorkspacePath((current) => ({ ...current, [action.workspacePath]: action.id }))
-    } catch (error) {
-      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
-      throw error
-    }
-  }
-
-  const deleteRunAction = async (actionId: string) => {
-    const workspacePath = activeWorkspace?.path
-    if (!workspacePath) {
-      return
-    }
-    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
-    try {
-      await apiClient.workspaceRunActions.delete(actionId)
-      setRunActionsByWorkspacePath((current) => {
-        const previousActions = current[workspacePath] ?? []
-        const deletedIndex = previousActions.findIndex((action) => action.id === actionId)
-        const nextActions = previousActions.filter((action) => action.id !== actionId)
-        setSelectedRunActionIdByWorkspacePath((selected) => {
-          if (selected[workspacePath] !== actionId) {
-            return selected
-          }
-          const nextAction = nextActions[Math.max(0, deletedIndex - 1)] ?? nextActions[0] ?? null
-          return nextAction ? { ...selected, [workspacePath]: nextAction.id } : omitRecordKey(selected, workspacePath)
-        })
-        return { ...current, [workspacePath]: nextActions }
-      })
-    } catch (error) {
-      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
-      throw error
-    }
-  }
-
-  const selectRunAction = (actionId: string) => {
-    if (!activeWorkspace) {
-      return
-    }
-    setSelectedRunActionIdByWorkspacePath((current) => ({ ...current, [activeWorkspace.path]: actionId }))
-  }
-
-  const refreshRunActions = async () => {
-    if (!activeWorkspace) {
-      return
-    }
-    await loadRunActionsForWorkspace(activeWorkspace.path)
-  }
-
-  const runWorkspaceRunAction = async (action: WorkspaceRunActionResponse) => {
-    const workspacePath = activeWorkspace?.path
-    if (!workspacePath || runningRunActionId) {
-      return
-    }
-    setRunActionErrorByWorkspacePath((current) => omitRecordKey(current, workspacePath))
-    setRunningRunActionId(action.id)
-    try {
-      if (action.kind === "terminal") {
-        const config = action.config as WorkspaceTerminalRunConfig
-        setIsTerminalPanelOpen(true)
-        terminalHost.createTerminal({
-          command: config.command,
-          cwd: config.cwd,
-          keepOpen: config.keepOpen ?? true,
-          name: action.name,
-          shell: config.shell,
-        })
-        return
-      }
-
-      const config = action.config as WorkspaceChatRunConfig
-      await runChatRunAction(config)
-    } catch (error) {
-      setRunActionErrorByWorkspacePath((current) => ({ ...current, [workspacePath]: readError(error) }))
-      throw error
-    } finally {
-      setRunningRunActionId(null)
-    }
-  }
-
-  const runChatRunAction = async (config: WorkspaceChatRunConfig) => {
-    const forceNewChat = config.target === "new"
-    const targetChat = forceNewChat ? null : activeChat
-    const targetAccount = selectChatAccount(targetChat, chatAccounts, preferredAccountId)
-    if (!targetAccount) {
-      setChatError("Connect a provider account before running a chat action.")
-      setProvidersDialogOpen(true)
-      throw new Error("Connect a provider account before running a chat action.")
-    }
-    const runtimeDefault = (key: string) =>
-      readRecordString(targetAccount.runtimeDefaults, key) || defaultRuntimeDefaultValue(targetAccount.providerId, key) || null
-    await sendChatMessageToTarget({
-      attachments: [],
-      collaborationMode: targetChat?.collaborationMode ?? "default",
-      content: config.message,
-      delivery: targetChat?.status === "RUNNING" ? "queue" : undefined,
-      goalObjective: null,
-      model: targetChat?.model ?? runtimeDefault("model"),
-      permissionMode: readComposerAccessMode(targetChat?.permissionMode ?? runtimeDefault("permissionMode")),
-      reasoningEffort: targetChat?.reasoningEffort ?? runtimeDefault("reasoningEffort"),
-      serviceTier: targetChat?.serviceTier ?? runtimeDefault("serviceTier"),
-    }, { forceNewChat })
-    setMainMode("chat")
-    setMobileDrawer(null)
   }
 
   const deleteQueuedMessage = async (chatId: string, runId: string) => {
@@ -1412,20 +1151,28 @@ function useSessionShellController() {
     }
   }
 
-  const archiveChat = async (chatId: string) => {
+  const archiveChat = async (chatId: string, snapshot?: ChatResponse) => {
+    if (archivingChatIds.current.has(chatId)) return
+    archivingChatIds.current.add(chatId)
+    const original = snapshot ?? chats.find((chat) => chat.id === chatId)
     setChatError(null)
+    setSidebarChatError(null)
+    setArchivedChatIds((current) => ({ ...current, [chatId]: true }))
+    setChats((current) => current.filter((chat) => chat.id !== chatId))
+    setActiveChatId((current) => current === chatId ? null : current)
     try {
       await apiClient.chats.delete(chatId)
-      setChats((current) => {
-        const next = current.filter((chat) => chat.id !== chatId)
-        if (activeChatId === chatId) {
-          setActiveChatId(next[0]?.id ?? null)
-        }
-        return next
-      })
       setMessagesByChatId((current) => omitRecordKey(current, chatId))
     } catch (error) {
+      setArchivedChatIds((current) => { const next = { ...current }; delete next[chatId]; return next })
+      if (original?.workingDirectory && activeWorkspaceRef.current && samePath(original.workingDirectory, activeWorkspaceRef.current.path)) {
+        setChats((current) => upsertChat(current, original))
+      }
       setChatError(readError(error))
+      setSidebarChatError(readError(error))
+    } finally {
+      archivingChatIds.current.delete(chatId)
+      setSidebarChatRevision((current) => current + 1)
     }
   }
 
@@ -1488,6 +1235,8 @@ function useSessionShellController() {
   }
 
   const startNewChat = () => {
+    setActiveAgentId(null)
+    setNavigationView("home")
     setActiveChatId(null)
     setChatError(null)
     setMainMode("chat")
@@ -1519,7 +1268,7 @@ function useSessionShellController() {
       })
       setSchedules((current) => upsertSchedule(current, schedule))
       setActiveScheduleId(schedule.id)
-      setSidebarTab("scheduler")
+      setNavigationView("scheduled")
       setMainMode("schedule")
       setMobileDrawer(null)
       void loadScheduleRuns(schedule.id)
@@ -1530,8 +1279,9 @@ function useSessionShellController() {
   }
 
   const selectSchedule = (scheduleId: string) => {
+    setActiveAgentId(null)
     setActiveScheduleId(scheduleId)
-    setSidebarTab("scheduler")
+    setNavigationView("scheduled")
     setProvidersDialogOpen(false)
     setInstructionsDialogOpen(false)
     setMcpServersDialogOpen(false)
@@ -1578,6 +1328,8 @@ function useSessionShellController() {
   }
 
   const switchToChat = () => {
+    setActiveAgentId(null)
+    setNavigationView("home")
     setProvidersDialogOpen(false)
     setInstructionsDialogOpen(false)
     setMcpServersDialogOpen(false)
@@ -1586,6 +1338,8 @@ function useSessionShellController() {
   }
 
   const switchToEditor = () => {
+    setActiveAgentId(null)
+    setNavigationView("home")
     writeDetachedEditorPreference(false)
     setMainMode("editor")
     setMobileDrawer(null)
@@ -1599,46 +1353,79 @@ function useSessionShellController() {
   }
 
 
+  const selectNavigationView = (view: NavigationView) => {
+    if (view !== "home") setActiveAgentId(null)
+    setNavigationView(view)
+    setProvidersDialogOpen(false)
+    setInstructionsDialogOpen(false)
+    setMcpServersDialogOpen(false)
+    setMobileDrawer(null)
+    if (view === "home") setMainMode("chat")
+    if (view === "scheduled") setMainMode("schedule")
+  }
+
+  const updateUserName = (value: string) => {
+    const name = value.trim().slice(0, 80) || "Local user"
+    window.localStorage.setItem("pockcode-user-name", name)
+    setUserName(name)
+  }
+
+  const selectAgent = (agentId: string) => {
+    setActiveAgentId(agentId)
+    setActiveChatId(null)
+    setNavigationView("home")
+    setMainMode("chat")
+    setProvidersDialogOpen(false)
+    setInstructionsDialogOpen(false)
+    setMcpServersDialogOpen(false)
+    setMobileDrawer(null)
+  }
+
+  const createAgent = async (request: CreateAssistantRequest) => {
+    const agent = await apiClient.assistant.create(request)
+    updateAgent(agent)
+    selectAgent(agent.id)
+  }
+
   return {
+    activeAgentId,
+    agents,
+    sidebarChatRevision,
+    archivedChatIds,
+    sidebarChatError,
+    openSidebarChat,
+    agentError,
+    isAgentsLoading,
+    createAgent,
+    selectAgent,
+    updateAgent,
     activeChat,
     activeChatId,
     activeMessages,
     activeMessagesLoaded,
-    activePanelTab,
     activeSchedule,
     activeScheduleId,
     activeScheduleRuns: activeScheduleId ? scheduleRunsByScheduleId[activeScheduleId] ?? [] : [],
-    activeTerminalId: terminalHost.activeTerminalId,
     activeWorkspace,
     accountSwitchPhase: activeChatId ? accountSwitchByChatId[activeChatId] ?? null : null,
     archiveChat,
     chatAccounts,
     chatError,
-    chats,
+    chats: visibleChats,
     compactChat,
-    closeTerminal: terminalHost.closeTerminal,
     closeFile,
     closeWorkspace,
-    createRunAction,
     createSchedule,
-    createTerminal: terminalHost.createTerminal,
-    deleteRunAction,
     deleteSchedule,
     deleteQueuedMessage,
-    desktopGridColumns,
     editQueuedMessage,
     editorRevealTarget,
-    expandedFolderIds,
-    filesWidth,
     forkChat,
     instructionsDialogOpen,
     isChatsLoading,
-    isFilesPanelOpen,
     isSchedulesLoading,
     isSwitchingAccount,
-    isTerminalPanelOpen,
     isWorkspaceHistoryLoading,
-    loadingFolderIds,
     mainMode,
     mcpServersDialogOpen,
     messagesByChatId,
@@ -1654,45 +1441,33 @@ function useSessionShellController() {
     providersDialogOpen,
     recentWorkspaces,
     refreshChat,
-    refreshRunActions,
     renameChat,
     reorderQueuedMessages,
     reviewChat,
-    runActionError: activeRunActionError,
-    runActions: activeWorkspaceRunActions,
-    runActionsLoading: activeRunActionsLoading,
-    runningRunActionId,
-    runWorkspaceRunAction,
     selectFile,
     selectManagementView,
-    selectRunAction,
     selectSchedule,
     selectWorkspace,
     selectedFile,
     selectedFileContent,
     selectedFileId,
-    selectedRunActionId,
     sendChatMessage,
     setActiveChatId,
-    setActivePanelTab,
     setActiveScheduleId,
-    setActiveTerminalId: terminalHost.setActiveTerminalId,
-    setFilesWidth,
     setInstructionsDialogOpen,
-    setIsFilesPanelOpen,
-    setIsTerminalPanelOpen,
     setMainMode,
     setMcpServersDialogOpen,
     setMobileDrawer,
     setProvidersDialogOpen,
     setSidebarWidth,
-    setSidebarTab,
-    setTerminalHeight,
     setWorkspaceBrowserOpen,
     setWorkspaceLoadError,
     setWorkspaceStartOpen,
     sidebarWidth,
-    sidebarTab,
+    navigationView,
+    selectNavigationView,
+    userName,
+    updateUserName,
     startNewChat,
     steerQueuedMessage,
     stopActiveChat,
@@ -1702,20 +1477,11 @@ function useSessionShellController() {
     openScheduleRunChat,
     scheduleError,
     schedules,
-    terminalConnectionState: terminalHost.connectionState,
-    terminalError: terminalHost.error,
-    terminalHeight,
-    terminalOutputByTerminalId: terminalHost.outputByTerminalId,
-    terminals: terminalHost.terminals,
-    toggleFolder,
     updateChatPermissionMode,
     updateChatRuntimeSettings,
-    updateRunAction,
     updateSchedule,
     updateProviderData,
     updateFileContent,
-    resizeTerminal: terminalHost.resizeTerminal,
-    writeTerminalInput: terminalHost.writeTerminalInput,
     workspaceBrowserOpen,
     workspaceLoadError,
     workspaceStartOpen,
@@ -1725,37 +1491,43 @@ function useSessionShellController() {
 
 function SessionShellView() {
   const shell = useSessionShellState()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [titlebarActions, setTitlebarActions] = useState<HTMLDivElement | null>(null)
 
   return (
-    <div className="app-shell-viewport overflow-hidden bg-background text-foreground">
-      <main className="session-shell-grid grid h-full overflow-hidden bg-background">
-        <TopBar
-          activeWorkspaceId={shell.activeWorkspace?.id ?? null}
-          isFilesPanelOpen={shell.isFilesPanelOpen}
-          isTerminalPanelOpen={shell.isTerminalPanelOpen}
-          workspaces={shell.workspaces}
-          onAddWorkspace={() => {
-            shell.setWorkspaceLoadError(null)
-            shell.setWorkspaceStartOpen(true)
-            shell.setMobileDrawer(null)
-          }}
-          onCloseWorkspace={shell.closeWorkspace}
-          onOpenFilesDrawer={() => shell.setMobileDrawer("files")}
-          onOpenSessionsDrawer={() => shell.setMobileDrawer("sessions")}
-          onSelectWorkspace={shell.selectWorkspace}
-          onToggleFilesPanel={() => shell.setIsFilesPanelOpen((current) => !current)}
-          onToggleTerminalPanel={() => shell.setIsTerminalPanelOpen((current) => !current)}
-        />
-        <SessionWorkspaceContent />
-      </main>
-      <SessionMobileDrawers />
-      <SessionDialogHost />
-    </div>
+    <SessionTitlebarActionsContext.Provider value={titlebarActions}>
+      <div className="app-shell-viewport session-app overflow-hidden text-foreground" style={{ "--session-sidebar-width": `${shell.sidebarWidth}px` } as CSSProperties}>
+        <div className="session-shell" data-sidebar-collapsed={sidebarCollapsed}>
+          <SessionTitleBar shell={shell} sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarCollapsed((current) => !current)} actionsRef={setTitlebarActions} />
+          <div className="session-app-layout grid min-h-0 overflow-hidden">
+            <SessionNavigation shell={shell} />
+            <div className="session-sidebar-column hidden min-h-0 overflow-hidden md:block"><SessionSidebarPanel /></div>
+            <div className="session-sidebar-resizer relative hidden min-h-0 md:block">
+              <ResizeHandle label="sidebar" orientation="vertical" onPointerDown={(event) => startColumnResize(event, {
+                max: 360, min: 240, side: "left", startWidth: shell.sidebarWidth, onResize: shell.setSidebarWidth,
+              })} />
+            </div>
+            <main className="session-shell-grid grid min-h-0 min-w-0 overflow-hidden bg-background">
+              <SessionWorkspaceContent />
+            </main>
+          </div>
+        </div>
+        <SessionMobileDrawers />
+        <SessionDialogHost />
+      </div>
+    </SessionTitlebarActionsContext.Provider>
   )
 }
 
 function SessionWorkspaceContent() {
   const shell = useSessionShellState()
+
+  if (shell.navigationView === "home" && shell.activeAgentId) return <Suspense fallback={<div className="grid place-items-center text-sm text-muted-foreground">Loading agent…</div>}><AssistantPage key={shell.activeAgentId} agentId={shell.activeAgentId} shell={shell} /></Suspense>
+  if (shell.navigationView === "tasks") return <TasksBoardPage shell={shell} />
+  if (shell.navigationView === "projects") return <ProjectsPage shell={shell} />
+  if (shell.navigationView === "usage") return <UsagePage shell={shell} />
+  if (shell.navigationView === "settings") return <SettingsPage shell={shell} />
+  if (shell.navigationView === "scheduled" && (!shell.activeWorkspace || !shell.activeSchedule)) return <ScheduledEmptyPage shell={shell} />
 
   if (!shell.activeWorkspace || shell.workspaceStartOpen) {
     return (
@@ -1770,136 +1542,14 @@ function SessionWorkspaceContent() {
   }
 
   return (
-    <>
-      <SessionDesktopWorkspace />
-      <SessionMobileMain />
-    </>
-  )
-}
-
-function SessionDesktopWorkspace() {
-  const shell = useSessionShellState()
-  const contentColumnEnd = shell.isFilesPanelOpen ? 6 : 4
-
-  return (
-    <div
-      className="hidden min-h-0 overflow-hidden bg-background p-2 pt-0 md:grid"
-      style={{
-        gridTemplateColumns: shell.desktopGridColumns,
-        gridTemplateRows: shell.isTerminalPanelOpen
-          ? `minmax(0, 1fr) ${PANEL_RESIZE_HANDLE_SIZE}px ${shell.terminalHeight}px`
-          : "minmax(0, 1fr)",
-      }}
-    >
-      <div className="min-h-0 overflow-hidden" style={{ gridColumn: "1", gridRow: "1 / -1" }}>
-        <SessionSidebarPanel />
-      </div>
-      <ResizeHandle
-        label="chats panel"
-        orientation="vertical"
-        style={{ gridColumn: "2", gridRow: "1 / -1" }}
-        onPointerDown={(event) =>
-          startColumnResize(event, {
-            max: 440,
-            min: 220,
-            side: "left",
-            startWidth: shell.sidebarWidth,
-            onResize: shell.setSidebarWidth,
-          })
-        }
-      />
-      <div className="min-h-0 overflow-hidden rounded-xl" style={{ gridColumn: "3", gridRow: "1" }}>
-        <SessionMainContent onBackToChat={() => shell.setMainMode("chat")} />
-      </div>
-      {shell.isFilesPanelOpen ? (
-        <>
-          <ResizeHandle
-            label="files panel"
-            orientation="vertical"
-            style={{ gridColumn: "4", gridRow: "1" }}
-            onPointerDown={(event) =>
-              startColumnResize(event, {
-                max: 560,
-                min: 300,
-                side: "right",
-                startWidth: shell.filesWidth,
-                onResize: shell.setFilesWidth,
-              })
-            }
-          />
-          <div className="min-h-0 overflow-hidden" style={{ gridColumn: "5", gridRow: "1" }}>
-            <SessionRightPanel treeId="desktop-files" />
-          </div>
-        </>
-      ) : null}
-      {shell.isTerminalPanelOpen ? (
-        <>
-          <ResizeHandle
-            label="terminal panel"
-            orientation="horizontal"
-            style={{ gridColumn: `3 / ${contentColumnEnd}`, gridRow: "2" }}
-            onPointerDown={(event) =>
-              startTerminalResize(event, {
-                startHeight: shell.terminalHeight,
-                onResize: shell.setTerminalHeight,
-              })
-            }
-          />
-          <div className="min-h-0 overflow-hidden" style={{ gridColumn: `3 / ${contentColumnEnd}`, gridRow: "3" }}>
-            <SessionTerminalPanelHost />
-          </div>
-        </>
-      ) : null}
-    </div>
-  )
-}
-
-function SessionMobileMain() {
-  const shell = useSessionShellState()
-
-  return (
-    <div
-      className={cn(
-        "grid h-full min-h-0 overflow-hidden bg-background md:hidden",
-        shell.isTerminalPanelOpen && "p-2 pt-0",
-      )}
-      style={{
-        gridTemplateRows: shell.isTerminalPanelOpen
-          ? `minmax(0, 1fr) ${PANEL_RESIZE_HANDLE_SIZE}px clamp(${MIN_TERMINAL_HEIGHT}px, ${shell.terminalHeight}px, 46dvh)`
-          : "minmax(0, 1fr)",
-      }}
-    >
-      <div className="min-h-0 overflow-hidden" style={{ gridRow: "1" }}>
-        <SessionMainContent onBackToChat={shell.switchToChat} />
-      </div>
-      {shell.isTerminalPanelOpen ? (
-        <>
-          <ResizeHandle
-            label="terminal panel"
-            orientation="horizontal"
-            style={{ gridColumn: "1", gridRow: "2" }}
-            onPointerDown={(event) =>
-              startTerminalResize(event, {
-                startHeight: shell.terminalHeight,
-                onResize: shell.setTerminalHeight,
-              })
-            }
-          />
-          <div className="min-h-0 overflow-hidden" style={{ gridRow: "3" }}>
-            <SessionTerminalPanelHost />
-          </div>
-        </>
-      ) : null}
+    <div className="min-h-0 min-w-0 overflow-hidden">
+      <SessionMainContent onBackToChat={shell.switchToChat} />
     </div>
   )
 }
 
 function SessionSidebarPanel() {
   const shell = useSessionShellState()
-
-  if (!shell.activeWorkspace) {
-    return null
-  }
 
   return <SessionSidebar shell={shell} />
 }
@@ -1918,77 +1568,13 @@ function SessionMainContent({
   return <MainContentPane onBackToChat={onBackToChat} />
 }
 
-function SessionRightPanel({ treeId }: { treeId: string }) {
-  const shell = useSessionShellState()
-
-  if (!shell.activeWorkspace) {
-    return null
-  }
-
-  return (
-    <RightPanel
-      activeTab={shell.activePanelTab}
-      expandedFolderIds={shell.expandedFolderIds}
-      loadingFolderIds={shell.loadingFolderIds}
-      runActionError={shell.runActionError}
-      runActions={shell.runActions}
-      runningRunActionId={shell.runningRunActionId}
-      selectedRunActionId={shell.selectedRunActionId}
-      selectedFileId={shell.selectedFileId}
-      treeId={treeId}
-      workspace={shell.activeWorkspace}
-      onCreateRunAction={shell.createRunAction}
-      onFileSelect={shell.selectFile}
-      onFolderToggle={shell.toggleFolder}
-      onRunAction={shell.runWorkspaceRunAction}
-      onSelectRunAction={shell.selectRunAction}
-      onTabChange={shell.setActivePanelTab}
-    />
-  )
-}
-
-function SessionTerminalPanelHost() {
-  const shell = useSessionShellState()
-
-  if (!shell.activeWorkspace) {
-    return null
-  }
-
-  return (
-    <SessionTerminalPanel
-      activeTerminalId={shell.activeTerminalId}
-      connectionState={shell.terminalConnectionState}
-      error={shell.terminalError}
-      outputByTerminalId={shell.terminalOutputByTerminalId}
-      terminals={shell.terminals}
-      workspaceName={shell.activeWorkspace.name}
-      workspacePath={shell.activeWorkspace.path}
-      onActivateTerminal={shell.setActiveTerminalId}
-      onCloseTerminal={shell.closeTerminal}
-      onCreateTerminal={shell.createTerminal}
-      onHide={() => shell.setIsTerminalPanelOpen(false)}
-      onInput={shell.writeTerminalInput}
-      onResize={shell.resizeTerminal}
-    />
-  )
-}
-
 function SessionMobileDrawers() {
   const shell = useSessionShellState()
 
-  if (!shell.activeWorkspace) {
-    return null
-  }
-
   return (
-    <>
-      <MobilePanelDrawer side="left" title="Chats" open={shell.mobileDrawer === "sessions"} onClose={() => shell.setMobileDrawer(null)}>
-        <SessionSidebarPanel />
-      </MobilePanelDrawer>
-      <MobilePanelDrawer side="right" title="Files" open={shell.mobileDrawer === "files"} onClose={() => shell.setMobileDrawer(null)}>
-        <SessionRightPanel treeId="mobile-files" />
-      </MobilePanelDrawer>
-    </>
+    <MobilePanelDrawer side="left" title="Agents, projects and chats" open={shell.mobileDrawer === "sessions"} onClose={() => shell.setMobileDrawer(null)}>
+      <SessionSidebarPanel />
+    </MobilePanelDrawer>
   )
 }
 
@@ -1999,7 +1585,7 @@ function SessionDialogHost() {
     : null
 
   return (
-    <>
+    <Suspense fallback={null}>
       {shell.activeWorkspace && shell.selectedFile && shell.mainMode === "dialog" ? (
         <FileDialog
           content={shell.selectedFileContent}
@@ -2014,27 +1600,34 @@ function SessionDialogHost() {
           }}
         />
       ) : null}
+      {shell.workspaceBrowserOpen ? (
       <WorkspaceFolderBrowserDialog
         open={shell.workspaceBrowserOpen}
         openWorkspacePaths={shell.workspaces.map((workspace) => workspace.path)}
         onClose={() => shell.setWorkspaceBrowserOpen(false)}
         onSelect={shell.openWorkspaceFromFolder}
       />
+      ) : null}
+      {shell.instructionsDialogOpen ? (
       <CodexInstructionsDialog
         open={shell.instructionsDialogOpen}
-        providers={shell.providerDefinitions}
         onClose={() => shell.setInstructionsDialogOpen(false)}
       />
+      ) : null}
+      {shell.providersDialogOpen ? (
       <ProvidersManagementDialog
         open={shell.providersDialogOpen}
         onClose={() => shell.setProvidersDialogOpen(false)}
         onProviderDataChange={shell.updateProviderData}
       />
+      ) : null}
+      {shell.mcpServersDialogOpen ? (
       <McpServersManagementDialog
         open={shell.mcpServersDialogOpen}
         onClose={() => shell.setMcpServersDialogOpen(false)}
       />
-    </>
+      ) : null}
+    </Suspense>
   )
 }
 
@@ -2110,16 +1703,6 @@ function upsertRecentWorkspace(current: WorkspaceHistoryResponse[], workspace: W
   ]
 }
 
-function upsertWorkspaceRunAction(
-  current: WorkspaceRunActionResponse[],
-  action: WorkspaceRunActionResponse,
-) {
-  return [
-    action,
-    ...current.filter((item) => item.id !== action.id),
-  ]
-}
-
 function updateRecentWorkspaceOpenState(
   current: WorkspaceHistoryResponse[],
   workspacePath: string,
@@ -2187,7 +1770,7 @@ function MainContentPane({
   }
 
   if (shell.mainMode === "schedule") {
-    return <ScheduleDetailPane shell={shell} />
+    return <Suspense fallback={<div className="grid h-full place-items-center text-[13px] text-muted-foreground">Loading schedule</div>}><ScheduleDetailPane shell={shell} /></Suspense>
   }
 
   return (
@@ -2215,7 +1798,7 @@ function MainContentPane({
       onRefreshChat={shell.refreshChat}
       onRenameChat={shell.renameChat}
       onReviewChat={shell.reviewChat}
-      onToggleMode={shell.switchToEditor}
+      onToggleMode={shell.selectedFile ? shell.switchToEditor : undefined}
       onReorderQueuedMessages={shell.reorderQueuedMessages}
       onPermissionModeChange={shell.updateChatPermissionMode}
       onRuntimeSettingsChange={shell.updateChatRuntimeSettings}
@@ -2243,7 +1826,7 @@ function findFileByAbsolutePath(nodes: FileNode[], targetPath: string): FileNode
 async function loadFilePathIntoWorkspaceTree(
   workspace: Workspace,
   targetPath: string,
-): Promise<{ expandedFolderIds: string[]; file: FileNode; fileTree: FileNode[] } | null> {
+): Promise<{ file: FileNode; fileTree: FileNode[] } | null> {
   const segments = relativePathSegments(workspace.path, targetPath)
   if (!segments?.length) {
     return null
@@ -2251,13 +1834,11 @@ async function loadFilePathIntoWorkspaceTree(
 
   const fileTree = cloneFileTree(workspace.fileTree)
   let current = fileTree[0]
-  const expandedFolderIds: string[] = []
 
   for (const segment of segments.slice(0, -1)) {
     if (!current || current.type !== "folder" || !current.path) {
       return null
     }
-    expandedFolderIds.push(current.id)
     if (!current.children) {
       current.children = await readFileTreeChildren(current)
     }
@@ -2271,14 +1852,13 @@ async function loadFilePathIntoWorkspaceTree(
   if (!current || current.type !== "folder" || !current.path) {
     return null
   }
-  expandedFolderIds.push(current.id)
   if (!current.children) {
     current.children = await readFileTreeChildren(current)
   }
 
   const fileName = segments.at(-1)
   const file = current.children.find((child) => child.type === "file" && child.name === fileName)
-  return file ? { expandedFolderIds, file, fileTree } : null
+  return file ? { file, fileTree } : null
 }
 
 async function readFileTreeChildren(folder: FileNode): Promise<FileNode[]> {
@@ -2334,20 +1914,7 @@ function startColumnResize(
   })
 }
 
-function startTerminalResize(
-  event: ReactPointerEvent<HTMLButtonElement>,
-  options: {
-    onResize: (height: number) => void
-    startHeight: number
-  },
-) {
-  startVerticalResize(event, {
-    initialHeight: options.startHeight,
-    max: typeof window === "undefined"
-      ? MAX_TERMINAL_HEIGHT
-      : Math.min(MAX_TERMINAL_HEIGHT, Math.max(MIN_TERMINAL_HEIGHT, window.innerHeight - 180)),
-    min: MIN_TERMINAL_HEIGHT,
-    onResize: options.onResize,
-    origin: "top",
-  })
+function readNavigationView(): NavigationView {
+  const value = typeof window === "undefined" ? "" : window.location.hash.slice(1)
+  return value === "tasks" || value === "scheduled" || value === "projects" || value === "usage" || value === "settings" ? value : "home"
 }

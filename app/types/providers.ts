@@ -1,7 +1,7 @@
 import type { JsonObject, JsonSerializable } from "./json"
 
 export type ProviderAccountStatus = "DISCONNECTED" | "AUTHENTICATING" | "CONNECTED" | "INVALIDATED" | "ERROR"
-export type AccountAuthMode = "browser" | "device" | "environment" | "local"
+export type AccountAuthMode = "device"
 export type RunStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED"
 export type ChatStatus = "IDLE" | "RUNNING" | "ARCHIVED"
 export type MessageScheduleStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVED"
@@ -198,10 +198,6 @@ export type ProviderInstructionsResponse = CodexInstructionsResponse
 
 export type UpdateProviderInstructionsRequest = UpdateCodexInstructionsRequest
 
-export type CompleteProviderAccountLoginRequest = {
-  redirectUrl: string
-}
-
 export type ProviderModelOption = {
   defaultServiceTier?: string | null
   defaultReasoningEffort?: string | null
@@ -371,6 +367,11 @@ export type ChatResponse = {
   title: string
   updatedAt: string
   workingDirectory?: string | null
+}
+
+export type ChatPageResponse = {
+  data: ChatResponse[]
+  nextCursor: string | null
 }
 
 export type ChatStatsResponse = {

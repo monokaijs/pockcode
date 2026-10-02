@@ -121,6 +121,16 @@ export async function sendTestWebPushNotification(): Promise<PushTestResponse> {
 }
 
 async function sendProviderEventNotification(event: ProviderSocketEvent): Promise<void> {
+  if (event.type === "assistant.message") {
+    const payload = event.payload as { agentId?: unknown; assistantName?: unknown; content?: unknown; proactive?: unknown }
+    if (!payload || payload.proactive !== true || typeof payload.agentId !== "string" || typeof payload.content !== "string") return
+    await sendWebPushNotification({
+      title: typeof payload.assistantName === "string" ? payload.assistantName : "PockCode agent",
+      body: payload.content.slice(0, 240), tag: `pockcode-agent-${payload.agentId}`,
+      data: { url: `/?agent=${encodeURIComponent(payload.agentId)}` },
+    })
+    return
+  }
   if (event.type !== "run.status" || !event.threadId) {
     return
   }

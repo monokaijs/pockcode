@@ -11,6 +11,7 @@ import type {
 } from "../types/providers"
 import type { JsonObject } from "../types/json"
 import { ensureDatabase } from "./database.server"
+import { readCodexAuthMode } from "./providers/codex-auth.server"
 import { HttpError } from "./http.server"
 import { prisma } from "./prisma.server"
 import { getProviderAdapter } from "./providers/registry.server"
@@ -18,7 +19,7 @@ import type { ProviderAdapter } from "./providers/types.server"
 
 export async function listAccounts(): Promise<ProviderAccountResponse[]> {
   await ensureDatabase()
-  const accounts = await prisma.providerAccount.findMany({ orderBy: { createdAt: "asc" } })
+  const accounts = await prisma.providerAccount.findMany({ where: { providerId: "codex" }, orderBy: { createdAt: "asc" } })
   const prepared = await Promise.all(accounts.map(refreshAccountConnection))
   return prepared.map(serializeAccount)
 }
@@ -41,7 +42,7 @@ export async function createAccount(dto: CreateProviderAccountRequest): Promise<
 export async function getAccount(accountId: string): Promise<ProviderAccount> {
   await ensureDatabase()
   const account = await prisma.providerAccount.findUnique({ where: { id: accountId } })
-  if (!account) {
+  if (!account || account.providerId !== "codex") {
     throw new HttpError(404, "Provider account not found.")
   }
   return refreshAccountConnection(account)
@@ -74,7 +75,8 @@ export async function deleteAccount(accountId: string): Promise<ProviderAccountR
   return serializeAccount(deleted)
 }
 
-export async function authenticateAccount(accountId: string, mode: AccountAuthMode = "browser"): Promise<AuthenticateProviderAccountResponse> {
+export async function authenticateAccount(accountId: string, mode: AccountAuthMode = "device"): Promise<AuthenticateProviderAccountResponse> {
+  readCodexAuthMode(mode)
   const account = await getAccount(accountId)
   const adapter = getProviderAdapter(account.providerId)
   await prisma.providerAccount.update({
@@ -88,36 +90,7 @@ export async function authenticateAccount(accountId: string, mode: AccountAuthMo
       lastError: null,
     },
   })
-  const response = await adapter.authenticate(account, mode)
-  await prisma.providerAccount.update({
-    where: { id: accountId },
-    data: await accountAuthData(account, adapter, response),
-  })
-  return response
-}
-
-export async function cancelAuthentication(accountId: string): Promise<ProviderAccountResponse> {
-  const account = await getAccount(accountId)
-  const adapter = getProviderAdapter(account.providerId)
-  await adapter.cancelAuthentication(account)
-  const updated = await prisma.providerAccount.update({
-    where: { id: accountId },
-    data: {
-      status: account.status === "CONNECTED" ? "CONNECTED" : "DISCONNECTED",
-      lastAuthUrl: null,
-      lastAuthMode: null,
-      lastAuthLoginId: null,
-      lastAuthUserCode: null,
-      lastError: null,
-    },
-  })
-  return serializeAccount(updated)
-}
-
-export async function completeAuthentication(accountId: string, redirectUrl: string): Promise<AuthenticateProviderAccountResponse> {
-  const account = await getAccount(accountId)
-  const response = await getProviderAdapter(account.providerId).completeAuthentication(account, redirectUrl)
-  const adapter = getProviderAdapter(account.providerId)
+  const response = await adapter.authenticate(account)
   await prisma.providerAccount.update({
     where: { id: accountId },
     data: await accountAuthData(account, adapter, response),
@@ -139,7 +112,7 @@ export async function readConnectedAccountLimits(): Promise<ProviderAccountLimit
   await ensureDatabase()
   const accounts = await prisma.providerAccount.findMany({
     orderBy: { createdAt: "asc" },
-    where: { status: "CONNECTED" },
+    where: { providerId: "codex", status: "CONNECTED" },
   })
   const data: Record<string, ProviderLimitsResponse> = {}
   const errors: Record<string, string> = {}
@@ -175,7 +148,7 @@ export function serializeAccount(account: ProviderAccount): ProviderAccountRespo
     authState: (account.authState as JsonObject | null) ?? null,
     lastAuthUrl: account.lastAuthUrl,
     lastAuthMode:
-      account.lastAuthMode === "browser" || account.lastAuthMode === "device" || account.lastAuthMode === "environment" || account.lastAuthMode === "local"
+      account.lastAuthMode === "device"
         ? account.lastAuthMode
         : null,
     lastAuthLoginId: account.lastAuthLoginId,
@@ -195,6 +168,9 @@ async function refreshAccountConnection(account: ProviderAccount): Promise<Provi
   }
 
   if (!adapter.isAccountConnected || !(await adapter.isAccountConnected(account))) {
+    if (account.status === "CONNECTED") {
+      return prisma.providerAccount.update({ where: { id: account.id }, data: { status: "DISCONNECTED" } })
+    }
     return account
   }
 

@@ -3,20 +3,19 @@ import type {
   ChatResponse,
   ProviderAccountResponse,
   ProviderDefinitionResponse,
-  ProviderModelListResponse,
 } from "@/lib/api-client"
 import {
   composerReasoningEffortValue,
   composerServiceTierValue,
   defaultRuntimeDefaultValue,
-  mergeProviderModelOptions,
+  defaultProviderModelOption,
   readComposerReasoningEffort,
   readComposerServiceTier,
   readRecordString,
 } from "@/lib/session"
 import type { ChatComposerReasoningEffort, ChatComposerServiceTier } from "@/types/session"
 import type { AcpSessionConfig } from "@/lib/session"
-import { apiClient } from "@/lib/api-client"
+import { useProviderModels } from "./use-provider-models"
 
 type RuntimeSettingsChange = (chatId: string, settings: {
   model?: string | null
@@ -38,7 +37,6 @@ export function useChatPaneRuntimeSettings({
   onRuntimeSettingsChange: RuntimeSettingsChange
 }) {
   const [model, setModel] = useState("")
-  const [modelOptions, setModelOptions] = useState<ProviderModelListResponse["data"]>([])
   const [reasoningEffort, setReasoningEffort] = useState<ChatComposerReasoningEffort>("medium")
   const [serviceTier, setServiceTier] = useState<ChatComposerServiceTier>("standard")
   const supportsModels = Boolean(account && providerDefinition?.capabilities.includes("models"))
@@ -68,29 +66,7 @@ export function useChatPaneRuntimeSettings({
     sessionConfig?.serviceTier,
   ])
 
-  useEffect(() => {
-    let cancelled = false
-    setModelOptions([])
-    if (!account || !supportsModels) {
-      return
-    }
-    apiClient.providerAccounts.models(account.id)
-      .then((response) => {
-        if (!cancelled) {
-          setModelOptions(response.data)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setModelOptions([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [account?.id, supportsModels])
-
-  const mergedModelOptions = mergeProviderModelOptions(account?.providerId, modelOptions)
+  const { modelOptions: mergedModelOptions, refreshModels, modelsLoading, modelsError } = useProviderModels(account, supportsModels)
   const visibleModelOptions = useMemo(
     () => (
       model && !mergedModelOptions.some((option) => option.model === model || option.id === model)
@@ -100,14 +76,24 @@ export function useChatPaneRuntimeSettings({
     [mergedModelOptions, model],
   )
   const selectedModelOption = visibleModelOptions.find((option) => option.model === model || option.id === model) ??
-    visibleModelOptions[0] ??
-    null
+    defaultProviderModelOption(visibleModelOptions)
 
   const changeModel = (value: string) => {
     const previousModel = model
+    const previousEffort = reasoningEffort
+    const nextOption = visibleModelOptions.find((option) => option.model === value || option.id === value) ?? defaultProviderModelOption(visibleModelOptions)
+    const supported = nextOption?.supportedReasoningEfforts
+    const needsEffortChange = supported?.length && !supported.some((effort) => readComposerReasoningEffort(effort.reasoningEffort) === reasoningEffort)
+    const nextEffort = needsEffortChange
+      ? readComposerReasoningEffort(nextOption?.defaultReasoningEffort ?? supported[0].reasoningEffort)
+      : reasoningEffort
     setModel(value)
+    setReasoningEffort(nextEffort)
     if (chat && (chat.model ?? "") !== value) {
-      void onRuntimeSettingsChange(chat.id, { model: value || null }).catch(() => setModel(previousModel))
+      void onRuntimeSettingsChange(chat.id, { model: value || null, ...(needsEffortChange ? { reasoningEffort: composerReasoningEffortValue(nextEffort) } : {}) }).catch(() => {
+        setModel(previousModel)
+        setReasoningEffort(previousEffort)
+      })
     }
   }
 
@@ -140,6 +126,9 @@ export function useChatPaneRuntimeSettings({
     changeReasoningEffort,
     changeServiceTier,
     model,
+    refreshModels,
+    modelsLoading,
+    modelsError,
     reasoningEffort,
     selectedModelOption,
     serviceTier,

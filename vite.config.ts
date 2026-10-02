@@ -6,6 +6,7 @@ import { defineConfig } from "vite"
 import { installApiServer } from "./app/server/api.server"
 import { startChatStatusMonitor } from "./app/server/chat-status-monitor.server"
 import { startMessageScheduleMonitor } from "./app/server/message-schedule-monitor.server"
+import { startAssistantFollowUpMonitor, stopAssistantFollowUpMonitor } from "./app/server/assistant-follow-up-monitor.server"
 import { startPluginRuntimeManager } from "./app/server/plugins/manager.server"
 import { installProviderSocketServer } from "./app/server/socket.server"
 import { startWebPushEventBridge } from "./app/server/web-push.service"
@@ -23,6 +24,8 @@ export default defineConfig({
           installProviderSocketServer(server.httpServer as unknown as HttpServer)
           startChatStatusMonitor()
           startMessageScheduleMonitor()
+          startAssistantFollowUpMonitor()
+          server.httpServer.once("close", stopAssistantFollowUpMonitor)
           startPluginRuntimeManager()
           startWebPushEventBridge()
         }

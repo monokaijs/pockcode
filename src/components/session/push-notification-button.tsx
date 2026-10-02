@@ -122,7 +122,7 @@ export function PushNotificationButton() {
       <Tooltip>
         <TooltipTrigger
           render={
-            <button
+            <Button variant="ghost" size="icon-sm"
               aria-label={blocked ? "Notifications blocked" : "Enable notifications"}
               className={cn(
                 "grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",

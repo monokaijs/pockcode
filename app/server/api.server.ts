@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type {
-  AccountAuthMode,
   ChatAttachmentRequest,
   CompactChatRequest,
   CreateMessageScheduleRequest,
@@ -20,12 +19,6 @@ import type {
 } from "../types/providers"
 import type { PluginSettingsUpdateRequest } from "../types/plugins"
 import type {
-  CreateWorkspaceRunActionRequest,
-  UpdateWorkspaceRunActionRequest,
-  WorkspaceRunActionConfig,
-  WorkspaceRunActionKind,
-} from "../types/run-actions"
-import type {
   CreateMcpServerRequest as CreateMcpServerBody,
   McpServerOauthLoginRequest as McpServerOauthLoginBody,
   SyncMcpServerRequest as SyncMcpServerBody,
@@ -36,9 +29,11 @@ import {
   authenticateAccount,
   createAccount,
   deleteAccount,
+  getAccount,
   listAccountModels,
   listAccounts,
   readConnectedAccountLimits,
+  serializeAccount,
   updateAccount,
 } from "./accounts.service"
 import {
@@ -60,6 +55,7 @@ import {
   updateQueuedChatRun,
   updateChat,
 } from "./chats.service"
+import { listChatPage } from "./chat-pages.server"
 import {
   deleteNamedCloudflaredTunnel,
   readCloudflaredStatus,
@@ -76,6 +72,7 @@ import {
   stageGitPaths,
   unstageGitPaths,
 } from "./git.service"
+import { readCodexAuthMode } from "./providers/codex-auth.server"
 import { HttpError, readBooleanField, readRecordField, readStringField } from "./http.server"
 import {
   archiveMessageSchedule,
@@ -104,13 +101,9 @@ import {
   sendTestWebPushNotification,
 } from "./web-push.service"
 import { closeWorkspaceHistory, listWorkspaceHistory, saveWorkspaceHistory } from "./workspace-history.service"
-import {
-  createWorkspaceRunAction,
-  deleteWorkspaceRunAction,
-  listWorkspaceRunActions,
-  updateWorkspaceRunAction,
-} from "./workspace-run-actions.service"
 import { listWorkspaceDirectory, readWorkspaceResource, readWorkspaceTree } from "./workspaces.server"
+import { cancelAssistantFollowUp, createAssistant, listAssistants, readAssistantState, sendAssistantMessage, stopAssistant, updateAssistantAvatar } from "./assistant.service"
+import { readAssistantAttachments } from "./assistant-attachments.server"
 
 type MiddlewareStack = {
   use(handler: (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void): void
@@ -132,6 +125,72 @@ export function installApiServer(middlewares: MiddlewareStack): void {
 
 export async function handleApiRequest(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const method = req.method ?? "GET"
+
+  if (url.pathname === "/api/assistants") {
+    requireMethod(method, ["GET", "POST"])
+    if (method === "POST") {
+      const body = await readNodeJsonBody(req)
+      sendJson(res, await createAssistant({
+        name: readStringField(body.name, "name", { maxLength: 80 }),
+        personality: readStringField(body.personality, "personality", { maxLength: 2000 }),
+      }), 201)
+    } else {
+      sendJson(res, await listAssistants())
+    }
+    return
+  }
+
+  const assistantMatch = url.pathname.match(/^\/api\/assistants\/([^/]+)(?:\/(messages|stop|avatar|cancel-follow-up))?$/u)
+  if (assistantMatch) {
+    const agentId = decodeURIComponent(assistantMatch[1])
+    const action = assistantMatch[2]
+    requireMethod(method, action ? ["POST"] : ["GET"])
+    if (action === "messages") {
+      const body = await readNodeJsonBody(req)
+      sendJson(res, await sendAssistantMessage({
+        content: readStringField(body.content, "content", { required: true, maxLength: 32_000 }),
+        clientMessageId: readStringField(body.clientMessageId, "clientMessageId", { maxLength: 100 }),
+        accountId: readStringField(body.accountId, "accountId", { maxLength: 200 }),
+        attachments: readAssistantAttachments(body.attachments),
+        timeZone: readStringField(body.timeZone, "timeZone", { maxLength: 100 }),
+      }, agentId), 202)
+    } else if (action === "cancel-follow-up") {
+      const body = await readNodeJsonBody(req)
+      sendJson(res, await cancelAssistantFollowUp(agentId, readStringField(body.followUpId, "followUpId", { required: true, maxLength: 100 })))
+    } else if (action === "avatar") {
+      const body = await readNodeJsonBody(req)
+      sendJson(res, await updateAssistantAvatar(body.avatar, agentId))
+    } else if (action === "stop") {
+      sendJson(res, await stopAssistant(agentId))
+    } else {
+      sendJson(res, await readAssistantState(agentId))
+    }
+    return
+  }
+
+  if (url.pathname === "/api/assistant") {
+    requireMethod(method, ["GET"])
+    sendJson(res, await readAssistantState())
+    return
+  }
+
+  if (url.pathname === "/api/assistant/messages") {
+    requireMethod(method, ["POST"])
+    const body = await readNodeJsonBody(req)
+    sendJson(res, await sendAssistantMessage({
+      content: readStringField(body.content, "content", { required: true, maxLength: 32_000 }),
+      clientMessageId: readStringField(body.clientMessageId, "clientMessageId", { maxLength: 100 }),
+      accountId: readStringField(body.accountId, "accountId", { maxLength: 200 }),
+      attachments: readAssistantAttachments(body.attachments),
+    }), 202)
+    return
+  }
+
+  if (url.pathname === "/api/assistant/stop") {
+    requireMethod(method, ["POST"])
+    sendJson(res, await stopAssistant())
+    return
+  }
 
   if (url.pathname === "/api/providers") {
     requireMethod(method, ["GET"])
@@ -268,6 +327,17 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   if (url.pathname === "/api/provider-accounts/limits") {
     requireMethod(method, ["GET"])
     sendJson(res, await readConnectedAccountLimits())
+    return
+  }
+
+  if (url.pathname === "/api/chats/page") {
+    requireMethod(method, ["GET"])
+    sendJson(res, await listChatPage({
+      workingDirectory: url.searchParams.get("workingDirectory"),
+      cursor: url.searchParams.get("cursor"),
+      limit: url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 4,
+      query: url.searchParams.get("query") ?? "",
+    }))
     return
   }
 
@@ -434,48 +504,32 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   if (accountAuthMatch) {
     requireMethod(method, ["POST"])
     const body = await readNodeJsonBody(req)
-    sendJson(res, await authenticateAccount(decodeURIComponent(accountAuthMatch[1]), readAuthMode(body.mode)))
+    sendJson(res, await authenticateAccount(decodeURIComponent(accountAuthMatch[1]), readCodexAuthMode(body.mode)))
     return
   }
 
   const accountModelsMatch = url.pathname.match(/^\/api\/provider-accounts\/([^/]+)\/models$/)
   if (accountModelsMatch) {
     requireMethod(method, ["GET"])
+    res.setHeader("Cache-Control", "no-store")
     sendJson(res, await listAccountModels(decodeURIComponent(accountModelsMatch[1])))
     return
   }
 
   const accountMatch = url.pathname.match(/^\/api\/provider-accounts\/([^/]+)$/)
   if (accountMatch) {
-    requireMethod(method, ["DELETE", "PATCH"])
+    requireMethod(method, ["GET", "DELETE", "PATCH"])
     const accountId = decodeURIComponent(accountMatch[1])
+    if (method === "GET") {
+      res.setHeader("Cache-Control", "no-store")
+      sendJson(res, serializeAccount(await getAccount(accountId)))
+      return
+    }
     if (method === "DELETE") {
       sendJson(res, await deleteAccount(accountId))
       return
     }
     sendJson(res, await updateAccount(accountId, readUpdateAccountRequest(await readNodeJsonBody(req))))
-    return
-  }
-
-  if (url.pathname === "/api/workspace-run-actions") {
-    requireMethod(method, ["GET", "POST"])
-    if (method === "POST") {
-      sendJson(res, await createWorkspaceRunAction(readCreateWorkspaceRunActionRequest(await readNodeJsonBody(req))), 201)
-      return
-    }
-    sendJson(res, await listWorkspaceRunActions(url.searchParams.get("workspacePath")))
-    return
-  }
-
-  const workspaceRunActionMatch = url.pathname.match(/^\/api\/workspace-run-actions\/([^/]+)$/)
-  if (workspaceRunActionMatch) {
-    const actionId = decodeURIComponent(workspaceRunActionMatch[1])
-    requireMethod(method, ["DELETE", "PATCH"])
-    if (method === "DELETE") {
-      sendJson(res, await deleteWorkspaceRunAction(actionId))
-      return
-    }
-    sendJson(res, await updateWorkspaceRunAction(actionId, readUpdateWorkspaceRunActionRequest(await readNodeJsonBody(req))))
     return
   }
 
@@ -651,34 +705,6 @@ function readPushSubscriptionRequest(body: Record<string, unknown>): PushSubscri
       p256dh: readStringField(keys?.p256dh, "keys.p256dh", { required: true, maxLength: 500 }),
     },
   }
-}
-
-function readCreateWorkspaceRunActionRequest(body: Record<string, unknown>): CreateWorkspaceRunActionRequest {
-  return {
-    config: readWorkspaceRunActionConfig(body.config),
-    kind: readWorkspaceRunActionKind(body.kind),
-    name: readStringField(body.name, "name", { required: true, maxLength: 120 }),
-    workspacePath: readStringField(body.workspacePath, "workspacePath", { required: true }),
-  }
-}
-
-function readUpdateWorkspaceRunActionRequest(body: Record<string, unknown>): UpdateWorkspaceRunActionRequest {
-  return {
-    config: body.config === undefined ? undefined : readWorkspaceRunActionConfig(body.config),
-    kind: body.kind === undefined ? undefined : readWorkspaceRunActionKind(body.kind),
-    name: readStringField(body.name, "name", { maxLength: 120 }),
-  }
-}
-
-function readWorkspaceRunActionKind(value: unknown): WorkspaceRunActionKind {
-  if (value === "chat" || value === "terminal") {
-    return value
-  }
-  throw new HttpError(400, "kind must be chat or terminal.")
-}
-
-function readWorkspaceRunActionConfig(value: unknown): WorkspaceRunActionConfig {
-  return (readRecordField(value, "config") ?? {}) as WorkspaceRunActionConfig
 }
 
 function readCreateChatRequest(body: Partial<CreateChatRequest>): CreateChatRequest {
@@ -946,15 +972,6 @@ function readStringArrayField(value: unknown, field: string): string[] {
   return value.map((item, index) => readStringField(item, `${field}[${index}]`, { required: true }))
 }
 
-function readAuthMode(value: unknown): AccountAuthMode {
-  if (value === undefined || value === null) {
-    return "browser"
-  }
-  if (value === "browser" || value === "device" || value === "environment" || value === "local") {
-    return value
-  }
-  throw new HttpError(400, "mode must be browser, device, environment, or local.")
-}
 
 function readHeader(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) {

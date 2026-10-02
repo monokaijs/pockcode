@@ -123,7 +123,7 @@ async function refreshProviderWatchers(): Promise<void> {
   await ensureDatabase()
   const accounts = await prisma.providerAccount.findMany({
     orderBy: { createdAt: "asc" },
-    where: { status: "CONNECTED" },
+    where: { providerId: "codex", status: "CONNECTED" },
   })
   const paths = new Set<string>()
   for (const adapter of listProviderAdapters()) {

@@ -1,43 +1,44 @@
-import { Brain, Check, ChevronDown, Cpu, FileText, Folder, GripVertical, Pencil, Plus, Route, Shield, SlidersHorizontal, Square, Trash2, X, Zap } from "lucide-react"
+import { ArrowUp, FileText, Folder, GripVertical, Pencil, Plus, Route, Shield, Square, Trash2, X } from "lucide-react"
 import type { DragEvent as ReactDragEvent, ReactNode } from "react"
 import type { ChatMessageResponse } from "@/lib/api-client"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import {
-  composerReasoningEffortLabel,
-  composerReasoningEffortOptions,
-  composerServiceTierLabel,
-  composerServiceTierOptions,
   type ChatSlashCommand,
 } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import type { ChatComposerAccessMode, ChatComposerAttachment, UserInputQuestion } from "@/types/session"
+import { ModelSelector } from "./model-selector"
 import { useChatPane } from "@/components/session/chat-pane-context"
 
 export function ChatComposer() {
   const pane = useChatPane()
 
   return (
-    <footer className="px-3 pb-3">
-      <ChatQueuedMessageList />
-      <div className="mx-auto rounded-lg border border-border bg-secondary p-3 shadow-inner">
-        <ChatErrorNotice />
-        <PendingUserInputPrompt />
-        <ChatAttachmentList attachments={pane.attachments} onRemove={pane.removeAttachment} />
-        <textarea
-          className="min-h-8 w-full resize-none bg-transparent text-[13px] font-medium leading-5 text-foreground outline-none placeholder:text-[13px] placeholder:font-medium placeholder:leading-5 placeholder:text-muted-foreground"
-          placeholder="Describe the outcome you want"
-          ref={pane.textareaRef}
-          value={pane.draft}
-          onChange={(event) => pane.setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault()
-              void pane.submit()
-            }
-          }}
-        />
-        <SlashCommandPalette />
-        <ComposerControls />
+    <footer className="session-composer">
+      <div className="session-conversation-column mx-auto">
+        <ChatQueuedMessageList />
+        <div className="session-composer-input rounded-[22px] border border-border/50 bg-secondary p-3 pb-2">
+          <ChatErrorNotice />
+          <PendingUserInputPrompt />
+          <ChatAttachmentList attachments={pane.attachments} onRemove={pane.removeAttachment} />
+          <textarea
+            aria-label="Message"
+            className="block min-h-10 w-full resize-none bg-transparent text-[14px] leading-5 text-foreground outline-none placeholder:text-muted-foreground"
+            placeholder="Do anything"
+            ref={pane.textareaRef}
+            value={pane.draft}
+            onPaste={(event) => { if (pane.pasteAttachments(event.clipboardData)) event.preventDefault() }}
+            onChange={(event) => pane.setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault()
+                void pane.submit()
+              }
+            }}
+          />
+          <SlashCommandPalette />
+          <ComposerControls />
+        </div>
       </div>
     </footer>
   )
@@ -124,7 +125,7 @@ function ChatQueuedMessageItem({ message }: { message: ChatMessageResponse }) {
         <button
           aria-label="Steer queued message"
           className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!runId}
+          disabled={!runId || !pane.running}
           title="Steer"
           type="button"
           onClick={() => {
@@ -354,13 +355,13 @@ function ComposerControls() {
   const pane = useChatPane()
 
   return (
-    <div className="flex flex-wrap items-center gap-1 text-[12px] font-medium text-muted-foreground -mb-2 -mx-1 sm:gap-1.5 sm:-mx-2">
+    <div className="mt-2 flex flex-wrap items-center gap-1 text-[12px] text-muted-foreground sm:gap-1.5">
       <ComposerContextMenu />
       {pane.supportsAccessMode ? <ComposerAccessModeSelect /> : null}
       <ComposerGoalChip />
       <ComposerPlanChip />
       <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5">
-        {pane.supportsModels || pane.supportsReasoningEffort || pane.supportsServiceTier ? <ComposerRuntimeSettingsMenu /> : null}
+        {pane.supportsModels || pane.supportsReasoningEffort ? <ComposerRuntimeSettingsMenu /> : null}
         <ComposerSendButton />
       </div>
     </div>
@@ -477,121 +478,25 @@ function composerAccessModeLabel(value: ChatComposerAccessMode): string {
 
 function ComposerRuntimeSettingsMenu() {
   const pane = useChatPane()
-  const runtimeLabel = [
-    pane.supportsModels ? pane.selectedModelOption?.displayName ?? pane.model : null,
-    pane.supportsReasoningEffort ? composerReasoningEffortLabel(pane.reasoningEffort) : null,
-    pane.supportsServiceTier ? composerServiceTierLabel(pane.serviceTier) : null,
-  ].filter(Boolean).join(" / ")
-  const compactRuntimeLabel = [
-    pane.supportsModels ? (pane.selectedModelOption?.displayName ?? pane.model).trim().replace(/^gpt[-\s]?/iu, "") : null,
-    pane.supportsReasoningEffort ? ({
-      extraHigh: "XHigh",
-      high: "High",
-      low: "Low",
-      medium: "Med",
-      minimal: "Min",
-      none: "None",
-    }[pane.reasoningEffort]) : null,
-    pane.supportsServiceTier ? (pane.serviceTier === "fast" ? "F" : "S") : null,
-  ].filter(Boolean).join(" / ")
-  const disabled = pane.sending || pane.running || pane.isSwitchingAccount
-
   return (
-    <div className="relative min-w-0" ref={pane.runtimeSettingsRef}>
-      <button
-        aria-expanded={pane.runtimeSettingsOpen}
-        aria-label="Runtime settings"
-        className="flex h-7 max-w-[11rem] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-55 lg:max-w-[16rem]"
-        disabled={disabled}
-        title={runtimeLabel}
-        type="button"
-        onClick={() => pane.setRuntimeSettingsOpen((open) => !open)}
-      >
-        <SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate lg:hidden">{compactRuntimeLabel}</span>
-        <span className="hidden min-w-0 truncate lg:inline">{runtimeLabel}</span>
-        <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", pane.runtimeSettingsOpen && "rotate-180")} />
-      </button>
-      {pane.runtimeSettingsOpen ? (
-        <div className="absolute bottom-9 right-0 z-40 w-64 overflow-hidden rounded-md border border-border bg-popover py-1 text-foreground shadow-xl">
-          {pane.supportsReasoningEffort ? (
-            <ComposerRuntimeMenuSection icon={<Brain className="size-3.5 text-muted-foreground" />} label="Reasoning">
-              {composerReasoningEffortOptions.map((option) => (
-                <ComposerRuntimeMenuItem
-                  key={option.value}
-                  selected={pane.reasoningEffort === option.value}
-                  title={option.label}
-                  onClick={() => pane.changeReasoningEffort(option.value)}
-                />
-              ))}
-            </ComposerRuntimeMenuSection>
-          ) : null}
-          {pane.supportsModels ? (
-            <ComposerRuntimeMenuSection icon={<Cpu className="size-3.5 text-muted-foreground" />} label="Model">
-              {pane.visibleModelOptions.map((option) => (
-                <ComposerRuntimeMenuItem
-                  key={option.id}
-                  selected={(pane.model || pane.selectedModelOption?.model) === option.model || pane.model === option.id}
-                  title={option.displayName}
-                  onClick={() => pane.changeModel(option.model)}
-                />
-              ))}
-            </ComposerRuntimeMenuSection>
-          ) : null}
-          {pane.supportsServiceTier ? (
-            <ComposerRuntimeMenuSection icon={<Zap className="size-3.5 text-muted-foreground" />} label="Speed">
-              {composerServiceTierOptions.map((option) => (
-                <ComposerRuntimeMenuItem
-                  description={option.description}
-                  key={option.value}
-                  selected={pane.serviceTier === option.value}
-                  title={option.label}
-                  onClick={() => pane.changeServiceTier(option.value)}
-                />
-              ))}
-            </ComposerRuntimeMenuSection>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function ComposerRuntimeMenuSection({ children, icon, label }: { children: ReactNode; icon: ReactNode; label: string }) {
-  return (
-    <div className="border-t border-border first:border-t-0">
-      <div className="flex h-7 items-center gap-2 px-2 text-[11px] font-medium text-muted-foreground">
-        {icon}
-        <span>{label}</span>
-      </div>
-      <div className="pb-1">{children}</div>
-    </div>
-  )
-}
-
-function ComposerRuntimeMenuItem({
-  description,
-  selected,
-  title,
-  onClick,
-}: {
-  description?: string
-  selected: boolean
-  title: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      className="flex min-h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-[12px] hover:bg-accent"
-      type="button"
-      onClick={onClick}
-    >
-      <span className="grid min-w-0 flex-1">
-        <span className="truncate">{title}</span>
-        {description ? <span className="truncate text-[11px] font-normal text-muted-foreground">{description}</span> : null}
-      </span>
-      <Check className={cn("size-3.5 shrink-0 text-info", selected ? "opacity-100" : "opacity-0")} />
-    </button>
+    <ModelSelector
+      open={pane.runtimeSettingsOpen}
+      view={pane.runtimeSettingsView}
+      onOpenChange={pane.setRuntimeSettingsOpen}
+      onViewChange={pane.setRuntimeSettingsView}
+      disabled={pane.sending || pane.running || pane.isSwitchingAccount}
+      model={pane.model}
+      modelOptions={pane.visibleModelOptions}
+      selectedModel={pane.selectedModelOption}
+      reasoningEffort={pane.reasoningEffort}
+      supportsModels={pane.supportsModels}
+      supportsReasoningEffort={pane.supportsReasoningEffort}
+      modelsLoading={pane.modelsLoading}
+      modelsError={pane.modelsError}
+      onModelChange={pane.changeModel}
+      onEffortChange={pane.changeReasoningEffort}
+      onRefresh={pane.refreshModels}
+    />
   )
 }
 
@@ -638,21 +543,42 @@ function ComposerPlanChip() {
 
 function ComposerSendButton() {
   const pane = useChatPane()
-
   return (
-    <button
-      className={cn(
-        "grid size-7 shrink-0 place-items-center text-lg disabled:cursor-not-allowed disabled:opacity-45",
-        pane.showStopAction
-          ? "rounded-full bg-foreground text-background hover:bg-foreground/90"
-          : "rounded-md text-foreground hover:bg-accent",
-      )}
-      aria-label={pane.showStopAction ? "Stop chat" : "Send message"}
-      disabled={pane.showStopAction ? false : !pane.canSend}
-      type="button"
-      onClick={() => pane.showStopAction ? void pane.onStopChat() : void pane.submit()}
-    >
-      {pane.showStopAction ? <Square className="size-3 fill-current" /> : "↵"}
-    </button>
+    <div className="flex shrink-0 items-center gap-1">
+      {pane.running && !pane.showStopAction ? (
+        <button
+          aria-label="Stop chat"
+          className="grid size-7 place-items-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:opacity-45"
+          disabled={pane.stopping}
+          title="Stop chat"
+          type="button"
+          onClick={() => void pane.onStopChat()}
+        >
+          <Square className="size-3 fill-current" />
+        </button>
+      ) : null}
+      {pane.running && !pane.showStopAction ? (
+        <button
+          aria-label="Steer message"
+          className="grid size-7 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-45"
+          disabled={!pane.canSend}
+          title="Send to the active turn"
+          type="button"
+          onClick={() => void pane.submit("steer")}
+        >
+          <Route className="size-4" />
+        </button>
+      ) : null}
+      <button
+        className="grid size-7 place-items-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-45"
+        aria-label={pane.showStopAction ? "Stop chat" : pane.running ? "Queue message" : "Send message"}
+        title={pane.showStopAction ? "Stop chat" : pane.running ? "Queue message" : "Send message"}
+        disabled={pane.showStopAction ? pane.stopping : !pane.canSend}
+        type="button"
+        onClick={() => pane.showStopAction ? void pane.onStopChat() : void pane.submit()}
+      >
+        {pane.showStopAction ? <Square className="size-3 fill-current" /> : <ArrowUp className="size-4" />}
+      </button>
+    </div>
   )
 }

@@ -15,11 +15,9 @@ export type MainMode = "chat" | "dialog" | "editor" | "schedule"
 
 export type ManagementView = "instructions" | "mcpServers" | "providers"
 
-export type MobileDrawer = "sessions" | "files" | null
+export type MobileDrawer = "sessions" | null
 
-export type PanelTab = "files" | "git" | "tunnels"
-
-export type SidebarTab = "chats" | "scheduler"
+export type NavigationView = "home" | "tasks" | "scheduled" | "projects" | "usage" | "settings"
 
 export type Workspace = {
   branch: string
@@ -46,7 +44,8 @@ export type ChatFileLinkTarget = FileSelectOptions & {
 
 export type ChatComposerAccessMode = "askForApproval" | "fullAccess"
 
-export type ChatComposerReasoningEffort = "extraHigh" | "high" | "low" | "medium" | "minimal" | "none"
+// Effort values come from the live provider catalog, including future capabilities.
+export type ChatComposerReasoningEffort = string
 
 export type ChatComposerServiceTier = "fast" | "standard"
 

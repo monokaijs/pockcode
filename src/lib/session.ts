@@ -22,9 +22,6 @@ export function readCodexPersonalityValue(value: unknown): "friendly" | "pragmat
 }
 
 export function readCodexHomeValue(account: ProviderAccountResponse, provider: ProviderDefinitionResponse): string {
-  if (readRecordString(account.authState, "codexHomeMode") === "shared") {
-    return readSharedCodexHomeValue(provider)
-  }
   return readRecordString(account.settings, "codexHome") || readDefaultCodexHomeValue(account, provider)
 }
 
@@ -35,15 +32,6 @@ export function readDefaultCodexHomeValue(account: ProviderAccountResponse, prov
 
 export function readSharedCodexHomeValue(provider: ProviderDefinitionResponse): string {
   return readRecordString(provider.defaultSettings, "sharedChatHome") || "~/.codex"
-}
-
-export function readClaudeConfigDirValue(account: ProviderAccountResponse, provider: ProviderDefinitionResponse): string {
-  return readRecordString(account.settings, "claudeConfigDir") || readDefaultClaudeConfigDirValue(account, provider)
-}
-
-export function readDefaultClaudeConfigDirValue(account: ProviderAccountResponse, provider: ProviderDefinitionResponse): string {
-  const accountsHome = readRecordString(provider.defaultSettings, "accountsHome") || "~/.pockcode/providers/claude/accounts"
-  return joinDisplayPath(accountsHome, account.id)
 }
 
 export function joinDisplayPath(parent: string, child: string): string {
@@ -128,81 +116,6 @@ const codexComposerFeatures: ProviderComposerFeature[] = [
   "goal",
   "imageAttachment",
   "planMode",
-]
-const claudeComposerFeatures: ProviderComposerFeature[] = codexComposerFeatures
-export const defaultCodexModel = "gpt-5.5"
-export const defaultClaudeModel = "sonnet"
-
-const codexReasoningEffortOptions = [
-  { description: "None", reasoningEffort: "none" },
-  { description: "Minimal", reasoningEffort: "minimal" },
-  { description: "Low", reasoningEffort: "low" },
-  { description: "Medium", reasoningEffort: "medium" },
-  { description: "High", reasoningEffort: "high" },
-  { description: "Extra High", reasoningEffort: "xhigh" },
-]
-
-const codexModelOptions: ProviderModelListResponse["data"] = [
-  {
-    id: "gpt-5.5",
-    model: "gpt-5.5",
-    displayName: "GPT-5.5",
-    defaultReasoningEffort: "medium",
-    supportedReasoningEfforts: codexReasoningEffortOptions,
-  },
-  {
-    id: "gpt-5.4",
-    model: "gpt-5.4",
-    displayName: "GPT-5.4",
-    defaultReasoningEffort: "medium",
-    supportedReasoningEfforts: codexReasoningEffortOptions,
-  },
-  {
-    id: "gpt-5.4-mini",
-    model: "gpt-5.4-mini",
-    displayName: "GPT-5.4-Mini",
-    defaultReasoningEffort: "medium",
-    supportedReasoningEfforts: codexReasoningEffortOptions,
-  },
-  {
-    id: "gpt-5.3-codex-spark",
-    model: "gpt-5.3-codex-spark",
-    displayName: "GPT-5.3-Codex-Spark",
-    defaultReasoningEffort: "medium",
-    supportedReasoningEfforts: codexReasoningEffortOptions,
-  },
-]
-
-const claudeReasoningEffortOptions = [
-  { description: "Low", reasoningEffort: "low" },
-  { description: "Medium", reasoningEffort: "medium" },
-  { description: "High", reasoningEffort: "high" },
-  { description: "Extra High", reasoningEffort: "xhigh" },
-  { description: "Max", reasoningEffort: "max" },
-]
-
-const claudeModelOptions: ProviderModelListResponse["data"] = [
-  {
-    id: "sonnet",
-    model: "sonnet",
-    displayName: "Sonnet",
-    defaultReasoningEffort: "medium",
-    supportedReasoningEfforts: claudeReasoningEffortOptions,
-  },
-  {
-    id: "opus",
-    model: "opus",
-    displayName: "Opus",
-    defaultReasoningEffort: "medium",
-    supportedReasoningEfforts: claudeReasoningEffortOptions,
-  },
-  {
-    id: "haiku",
-    model: "haiku",
-    displayName: "Haiku",
-    defaultReasoningEffort: "low",
-    supportedReasoningEfforts: claudeReasoningEffortOptions,
-  },
 ]
 
 export const composerReasoningEffortOptions: { label: string; value: ChatComposerReasoningEffort }[] = [
@@ -355,9 +268,6 @@ export function fallbackComposerFeatures(providerId: string | null | undefined):
   if (providerId === "codex") {
     return codexComposerFeatures
   }
-  if (providerId === "claude") {
-    return claudeComposerFeatures
-  }
   return []
 }
 
@@ -373,105 +283,45 @@ export function composerAccessModeValue(value: ChatComposerAccessMode): string {
   return value
 }
 
-export function defaultModelOptionsForProvider(providerId: string | null | undefined): ProviderModelListResponse["data"] {
-  if (providerId === "codex") {
-    return codexModelOptions
-  }
-  if (providerId === "claude") {
-    return claudeModelOptions
-  }
-  return []
-}
-
 export function defaultRuntimeDefaultValue(providerId: string | null | undefined, key: string): string {
-  if (key === "permissionMode" && (providerId === "codex" || providerId === "claude")) {
+  if (key === "permissionMode" && providerId === "codex") {
     return "askForApproval"
   }
-  if (key === "reasoningEffort" && (providerId === "codex" || providerId === "claude")) {
+  if (key === "reasoningEffort" && providerId === "codex") {
     return "medium"
-  }
-  if (providerId === "codex" && key === "model") {
-    return defaultCodexModel
   }
   if (providerId === "codex" && key === "serviceTier") {
     return "standard"
   }
-  if (providerId === "claude" && key === "model") {
-    return defaultClaudeModel
-  }
   return ""
 }
 
-export function mergeProviderModelOptions(
-  providerId: string | null | undefined,
-  options: ProviderModelListResponse["data"],
-): ProviderModelListResponse["data"] {
-  const merged = new Map<string, ProviderModelListResponse["data"][number]>()
-  const addOption = (option: ProviderModelListResponse["data"][number]) => {
-    const key = modelOptionKey(option)
-    const existing = merged.get(key)
-    merged.set(key, existing ? mergeModelOption(existing, option) : option)
-  }
-  defaultModelOptionsForProvider(providerId).forEach(addOption)
-  options.forEach(addOption)
-  return [...merged.values()]
+export function defaultProviderModelOption(options: ProviderModelListResponse["data"]): ProviderModelListResponse["data"][number] | null {
+  return options.find((option) => !option.hidden && option.isDefault) ?? options.find((option) => !option.hidden) ?? null
 }
 
 export function readComposerReasoningEffort(value: string | null | undefined): ChatComposerReasoningEffort {
-  if (value === "none") {
-    return "none"
-  }
-  if (value === "minimal") {
-    return "minimal"
-  }
-  if (value === "low" || value === "fast") {
-    return "low"
-  }
-  if (value === "high" || value === "deep") {
-    return "high"
-  }
-  if (value === "extraHigh" || value === "extra-high" || value === "extra_high" || value === "xhigh") {
-    return "extraHigh"
-  }
-  return "medium"
+  if (value === "fast") return "low"
+  if (value === "deep") return "high"
+  if (value === "extraHigh" || value === "extra-high" || value === "extra_high" || value === "xhigh") return "extraHigh"
+  return value?.trim() || "medium"
 }
 
 export function composerReasoningEffortValue(value: ChatComposerReasoningEffort): string {
-  if (value === "none") {
-    return "none"
-  }
-  if (value === "minimal") {
-    return "minimal"
-  }
-  if (value === "low") {
-    return "low"
-  }
-  if (value === "high") {
-    return "high"
-  }
-  if (value === "extraHigh") {
-    return "xhigh"
-  }
-  return "medium"
+  return value === "extraHigh" ? "xhigh" : value
 }
 
 export function composerReasoningEffortLabel(value: ChatComposerReasoningEffort): string {
-  if (value === "none") {
-    return "None"
-  }
-  if (value === "minimal") {
-    return "Minimal"
-  }
-  if (value === "low") {
-    return "Low"
-  }
-  if (value === "high") {
-    return "High"
-  }
-  if (value === "extraHigh") {
-    return "Extra High"
-  }
-  return "Medium"
+  if (value === "extraHigh") return "Extra High"
+  return value.replace(/[-_]/gu, " ").replace(/\b\w/gu, (letter) => letter.toUpperCase())
+}
+
+export function providerReasoningEffortOptions(model: ProviderModelListResponse["data"][number] | null | undefined): { label: string; value: ChatComposerReasoningEffort }[] {
+  const supported = model?.supportedReasoningEfforts
+  return supported?.length ? supported.map((effort) => {
+    const value = readComposerReasoningEffort(effort.reasoningEffort)
+    return { label: composerReasoningEffortLabel(value), value }
+  }) : composerReasoningEffortOptions
 }
 
 export function readComposerServiceTier(value: string | null | undefined): ChatComposerServiceTier {
@@ -487,24 +337,6 @@ export function composerServiceTierLabel(value: ChatComposerServiceTier): string
     return "Fast"
   }
   return "Standard"
-}
-
-function modelOptionKey(option: ProviderModelListResponse["data"][number]): string {
-  return (option.model || option.id).trim().toLowerCase()
-}
-
-function mergeModelOption(
-  fallback: ProviderModelListResponse["data"][number],
-  option: ProviderModelListResponse["data"][number],
-): ProviderModelListResponse["data"][number] {
-  return {
-    ...fallback,
-    ...option,
-    defaultReasoningEffort: option.defaultReasoningEffort ?? fallback.defaultReasoningEffort,
-    supportedReasoningEfforts: option.supportedReasoningEfforts?.length
-      ? option.supportedReasoningEfforts
-      : fallback.supportedReasoningEfforts,
-  }
 }
 
 export function attachmentOnlyPrompt(attachments: ChatComposerAttachment[]): string {
@@ -601,19 +433,9 @@ export function isToolMessage(message: ChatMessageResponse): boolean {
 export function serverRequestResponseFor(
   message: ChatMessageResponse,
   approved: boolean,
-  options: { allowForSession?: boolean } = {},
 ): ServerRequestResponseRequest {
   const method = readRecordString(readRecord(message.metadata), "serverRequestMethod")
   const normalizedMethod = normalizedServerRequestMethod(method)
-  if (normalizedMethod === "claudecanusetool") {
-    return {
-      kind: "approval",
-      result: {
-        decision: approved ? "accept" : "decline",
-        ...(approved && options.allowForSession ? { updatedPermissions: claudePermissionSuggestionsFromRequest(message) } : {}),
-      } as ServerRequestResponseRequest["result"],
-    }
-  }
   if (normalizedMethod.includes("permissionsrequestapproval")) {
     return {
       kind: "permissions",
@@ -755,16 +577,6 @@ export function grantedPermissionsFromRequest(message: ChatMessageResponse): Rec
     granted.fileSystem = fileSystem
   }
   return granted
-}
-
-export function hasClaudePermissionSuggestions(message: ChatMessageResponse): boolean {
-  const suggestions = readRecord(message.rawPayload).suggestions
-  return Array.isArray(suggestions) && suggestions.length > 0
-}
-
-function claudePermissionSuggestionsFromRequest(message: ChatMessageResponse): unknown[] {
-  const suggestions = readRecord(message.rawPayload).suggestions
-  return Array.isArray(suggestions) ? suggestions : []
 }
 
 export function firstToolAction(content: string): string | null {
@@ -1327,6 +1139,7 @@ export function readSessionRouteTarget(): SessionRouteTarget {
 
 export function writeSessionRouteTarget(workspaceId: string, chatId: string | null): void {
   const url = new URL(window.location.href)
+  url.searchParams.delete("agent")
   url.searchParams.set("workspace", workspaceId)
   if (chatId) {
     url.searchParams.set("chat", chatId)
@@ -1338,6 +1151,25 @@ export function writeSessionRouteTarget(workspaceId: string, chatId: string | nu
   if (nextUrl !== currentUrl) {
     window.history.replaceState(null, "", nextUrl)
   }
+}
+
+export function readAgentRouteTarget(): string | null {
+  if (typeof window === "undefined") return null
+  return new URLSearchParams(window.location.search).get("agent") || (window.location.hash === "#assistant" ? "pock" : null)
+}
+
+export function writeAgentRouteTarget(agentId: string | null): void {
+  const url = new URL(window.location.href)
+  if (agentId) {
+    url.searchParams.set("agent", agentId)
+    url.searchParams.delete("workspace")
+    url.searchParams.delete("chat")
+    url.hash = ""
+  } else {
+    url.searchParams.delete("agent")
+  }
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`
+  if (nextUrl !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(null, "", nextUrl)
 }
 
 export function clearSessionRouteTarget(): void {

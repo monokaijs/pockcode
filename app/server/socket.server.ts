@@ -1,7 +1,6 @@
 import type { Server as HttpServer } from "node:http"
 import type { IncomingMessage } from "node:http"
 import { Server } from "socket.io"
-import { closeAllHostedTerminals, installTerminalSocketHandlers } from "./terminal.server"
 
 export type ProviderSocketEvent = {
   payload: unknown
@@ -35,7 +34,6 @@ export function installProviderSocketServer(
     path: "/socket.io",
   })
   io.on("connection", (socket) => {
-    installTerminalSocketHandlers(socket)
     socket.on("chat.join", (threadId: string) => {
       if (threadId) {
         socket.join(chatRoom(threadId))
@@ -77,7 +75,6 @@ export function installProviderSocketServer(
 }
 
 export function closeProviderSocketServer(): Promise<void> {
-  closeAllHostedTerminals()
   workspacePathsBySocket.clear()
   if (!io) {
     return Promise.resolve()

@@ -1,6 +1,7 @@
 import type { ChangeEvent as ReactChangeEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useProviderQuotas } from "@/components/session/provider-quota-context"
+import { pastedImages } from "@/lib/assistant-attachments"
 import {
   attachmentOnlyPrompt,
   attachmentsFromFiles,
@@ -74,17 +75,21 @@ export function useChatPaneState({
   const [accessMode, setAccessMode] = useState<ChatComposerAccessMode>("askForApproval")
   const [attachments, setAttachments] = useState<ChatComposerAttachment[]>([])
   const [composerMenuOpen, setComposerMenuOpen] = useState(false)
+  const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false)
+  const [runtimeSettingsView, setRuntimeSettingsView] = useState<"effort" | "models">("effort")
   const [goalObjective, setGoalObjective] = useState<string | null>(null)
   const [planMode, setPlanMode] = useState(false)
-  const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false)
   const [sending, setSending] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const sendingRef = useRef(false)
+  const stoppingRef = useRef(false)
   const [threadAction, setThreadAction] = useState<"archive" | "compact" | "fork" | "refresh" | "rename" | "review" | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [dragOverQueuedRunId, setDragOverQueuedRunId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
-  const runtimeSettingsRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const followLatestRef = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { accountLimits } = useProviderQuotas()
   const selectableAccounts = selectableChatAccounts(chat, accounts)
@@ -122,6 +127,9 @@ export function useChatPaneState({
     changeServiceTier,
     model,
     reasoningEffort,
+    refreshModels,
+    modelsLoading,
+    modelsError,
     selectedModelOption,
     serviceTier,
     supportsModels,
@@ -172,30 +180,20 @@ export function useChatPaneState({
     acpSessionConfig.permissionMode,
   ])
 
+
   useEffect(() => {
-    if (!runtimeSettingsOpen) {
-      return
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (!runtimeSettingsRef.current?.contains(target)) {
-        setRuntimeSettingsOpen(false)
-      }
-    }
-    document.addEventListener("pointerdown", onPointerDown)
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown)
-    }
-  }, [runtimeSettingsOpen])
+    followLatestRef.current = true
+  }, [chat?.id])
 
   useEffect(() => {
     const element = scrollRef.current
     if (!element) {
       return
     }
-    window.requestAnimationFrame(() => {
-      element.scrollTop = element.scrollHeight
+    const frame = window.requestAnimationFrame(() => {
+      if (followLatestRef.current) element.scrollTop = element.scrollHeight
     })
+    return () => window.cancelAnimationFrame(frame)
   }, [actionError, chat?.id, messages.length, messages.at(-1)?.id, messages.at(-1)?.content])
 
   useEffect(() => {
@@ -230,26 +228,34 @@ export function useChatPaneState({
       collaborationMode?: string | null
       goalObjective?: string | null
       serviceTier?: string | null
+      delivery?: "queue" | "steer"
     } = {},
   ) => {
+    if (sendingRef.current) return
+    sendingRef.current = true
+    const submittedDraft = draft
+    const submittedAttachments = overrides.attachments ?? attachments
+    const submittedAttachmentIds = new Set(submittedAttachments.map((attachment) => attachment.id))
+    followLatestRef.current = true
     setSending(true)
     setActionError(null)
     try {
       await onSendMessage({
-        attachments: (overrides.attachments ?? attachments).map(({ id: _id, ...attachment }) => attachment),
+        attachments: submittedAttachments.map(({ id: _id, ...attachment }) => attachment),
         collaborationMode: overrides.collaborationMode ?? (supportsPlanMode ? (planMode ? "plan" : "default") : null),
         content,
-        delivery: running ? "queue" : undefined,
+        delivery: running ? overrides.delivery ?? "queue" : undefined,
         goalObjective: "goalObjective" in overrides ? overrides.goalObjective ?? null : goalObjective,
         model: supportsModels ? model || selectedModelOption?.model || null : null,
         permissionMode: accessMode,
         reasoningEffort: supportsReasoningEffort ? composerReasoningEffortValue(reasoningEffort) : null,
         serviceTier: overrides.serviceTier ?? (supportsServiceTier ? composerServiceTierValue(serviceTier) : null),
       })
-      setDraft("")
-      setAttachments([])
+      setDraft((current) => current === submittedDraft ? "" : current)
+      setAttachments((current) => current.filter((attachment) => !submittedAttachmentIds.has(attachment.id)))
       setGoalObjective(null)
     } finally {
+      sendingRef.current = false
       setSending(false)
     }
   }
@@ -312,6 +318,8 @@ export function useChatPaneState({
         if (argument) {
           changeModel(argument)
         } else {
+          refreshModels()
+          setRuntimeSettingsView("models")
           setRuntimeSettingsOpen(true)
         }
         setDraft("")
@@ -396,16 +404,30 @@ export function useChatPaneState({
     }
   }
 
-  const submit = async () => {
-    if (!canSend) {
-      return
+  const submit = async (delivery: "queue" | "steer" = "queue") => {
+    if (!canSend || sendingRef.current) return
+    try {
+      const parsedSlashCommand = parseChatSlashCommand(draft)
+      if (parsedSlashCommand && await runSlashCommand(parsedSlashCommand)) return
+      const content = draft.trim() || attachmentOnlyPrompt(attachments)
+      await sendComposerMessage(content, { delivery })
+    } catch (error) {
+      setActionError(readError(error))
     }
-    const parsedSlashCommand = parseChatSlashCommand(draft)
-    if (parsedSlashCommand && await runSlashCommand(parsedSlashCommand)) {
-      return
+  }
+
+  const stopChat = async () => {
+    if (stoppingRef.current) return
+    stoppingRef.current = true
+    setStopping(true)
+    try {
+      await onStopChat()
+    } catch (error) {
+      setActionError(readError(error))
+    } finally {
+      stoppingRef.current = false
+      setStopping(false)
     }
-    const content = draft.trim() || attachmentOnlyPrompt(attachments)
-    await sendComposerMessage(content)
   }
 
   const changeAccessMode = (value: string) => {
@@ -425,6 +447,17 @@ export function useChatPaneState({
     }
     const nextAttachments = await attachmentsFromFiles(files, supportsImages)
     setAttachments((current) => [...current, ...nextAttachments])
+  }
+
+  const pasteAttachments = (data: DataTransfer): boolean => {
+    const files = pastedImages(data)
+    if (!files.length) return false
+    if (!supportsImages) {
+      setActionError("This provider does not support image attachments.")
+      return true
+    }
+    void attachmentsFromFiles(files, true).then((next) => setAttachments((current) => [...current, ...next])).catch((cause) => setActionError(cause instanceof Error ? cause.message : "Unable to paste image."))
+    return true
   }
 
   const attachFolder = (event: ReactChangeEvent<HTMLInputElement>) => {
@@ -543,7 +576,8 @@ export function useChatPaneState({
     onEditQueuedMessage,
     onOpenProviders,
     onSteerQueuedMessage,
-    onStopChat,
+    onStopChat: stopChat,
+    stopping,
     onSwitchAccount,
     onToggleMode,
     pendingUserInputPrompt,
@@ -565,20 +599,26 @@ export function useChatPaneState({
     renameChat,
     reviewChat,
     running,
+    refreshModels,
+    modelsLoading,
+    modelsError,
     runtimeSettingsOpen,
-    runtimeSettingsRef,
+    runtimeSettingsView,
+    setRuntimeSettingsOpen,
+    setRuntimeSettingsView,
     scrollRef,
+    followLatestRef,
     selectedModelOption,
     selectableAccounts,
     sending,
     serviceTier,
     setAttachments,
+    pasteAttachments,
     setComposerMenuOpen,
     setDraft,
     setDragOverQueuedRunId,
     setGoalObjective,
     setPlanMode,
-    setRuntimeSettingsOpen,
     showStopAction,
     slashMatches,
     submit,

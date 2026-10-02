@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>A local Codex coding workspace for chat, files, terminals, providers, schedules, and remote follow-up.</strong>
+  <strong>A local Codex coding workspace for chat, providers, schedules, and remote follow-up.</strong>
 </p>
 
 <p align="center">
@@ -14,9 +14,9 @@
   <img alt="pnpm 10.17.1" src="https://img.shields.io/badge/pnpm-10.17.1-F69220?style=flat-square&amp;logo=pnpm&amp;logoColor=white" />
 </p>
 
-PockCode runs a password-protected web workspace on your machine and gives Codex a focused interface for real coding work: persistent chats, workspace files, integrated terminals, Git operations, MCP servers, run actions, schedules, web push notifications, Cloudflare Tunnel sharing, and a Telegram companion plugin.
+PockCode runs a password-protected web workspace on your machine and gives Codex a focused interface for real coding work: persistent chats, linked file previews, MCP servers, schedules, web push notifications, and a Telegram companion plugin.
 
-It is designed to stay local-first. The application server, SQLite database, auth file, provider settings, and terminal sessions run on your computer. You decide when to bind it beyond localhost or expose it through a tunnel.
+It is designed to stay local-first. The application server, SQLite database, auth file and provider settings run on your computer. You decide when to bind it beyond localhost or expose it through a tunnel.
 
 ## Contents
 
@@ -36,15 +36,13 @@ It is designed to stay local-first. The application server, SQLite database, aut
 ## Highlights
 
 - **Local Codex workspace**: manage Codex chats, model settings, reasoning effort, service tier, permissions, and collaboration mode from a browser UI.
-- **Provider accounts**: connect Codex accounts through browser auth or an existing local Codex account, then switch between connected accounts per chat.
+- **Provider accounts**: connect Codex accounts through device-code sign-in, then switch between connected accounts per chat.
+- **Pock assistant**: use natural chat to inspect projects and conversations, create or fork chats, send follow-ups, stop work, and move conversations between connected Codex accounts. Conversation history and action receipts stay in your local database.
+- **Quota recovery**: enable automatic account failover per chat. When a run exhausts usage quota, PockCode preserves the conversation, chooses a connected Codex account with verified capacity, and continues the task.
 - **Workspace-aware chat**: attach files, folders, and images; use goals; run review and compaction; approve provider requests from the UI.
-- **File browser and editor**: browse workspaces under your home directory, preview text files, and open code in a Monaco-powered editor.
-- **Integrated terminals**: create persistent workspace terminals backed by `node-pty`, resize them live, and keep output available while you work.
-- **Run actions**: save reusable workspace actions that launch a terminal command or send a chat prompt.
-- **Git panel**: inspect status, initialize repositories, stage and unstage paths, commit, discard, pull, and push.
+- **Linked file previews**: open workspace file links from chat in a Monaco-powered editor.
 - **Scheduler**: create recurring Codex tasks with per-schedule model, permission, collaboration, and recurrence settings.
 - **MCP management**: define MCP servers, configure transports and tool policy, sync them to provider accounts, and start OAuth login flows.
-- **Cloudflare Tunnel support**: inspect named tunnels and start temporary `trycloudflare.com` tunnels when `cloudflared` is available.
 - **Notifications**: receive browser push notifications when runs finish or fail.
 - **Telegram plugin**: pair a Telegram bot to browse workspaces, subscribe to chat updates, and reply remotely.
 - **PWA-ready shell**: install the app as a standalone browser app with first-class mobile viewport handling.
@@ -70,8 +68,7 @@ On the first visit, PockCode asks you to create a local password. After that, si
 ### Requirements
 
 - Node.js `20.0.0` or newer
-- A Codex account or an existing local Codex login for provider-backed chats
-- Git, if you want the Git panel
+- A Codex account with device-code sign-in enabled
 - `cloudflared`, if you want Cloudflare Tunnel features
 - A Telegram bot token, if you enable the Telegram plugin
 
@@ -133,12 +130,11 @@ Use the workspace picker to browse directories under your home folder. PockCode 
 
 ### 3. Connect Codex
 
-Open **Providers**, add or select an OpenAI Codex account, then authenticate with:
-
-- **Browser**: starts the Codex browser login flow.
-- **Local account**: reuses a local Codex account when available.
+Open **Providers**, add or select an OpenAI Codex account, and choose **Sign in with device code**. Open the sign-in link and enter the code shown in the account dialog.
 
 You can configure account defaults such as model, reasoning effort, service tier, permission mode, Codex home, command, arguments, and environment.
+
+Codex model selectors use the connected account's Codex model catalog, including its default and reasoning options. They refresh when opened, when the app regains focus, and every five minutes while visible. Choose **Automatic (Codex default)** in account settings to follow Codex's default model; choosing a specific model keeps that preference. Catalog freshness and availability depend on the installed Codex runtime and account.
 
 ### 4. Work In Chats
 
@@ -152,15 +148,51 @@ From the chat composer you can:
 - Use slash commands for provider actions such as permissions, goals, review, compaction, and MCP management.
 - Respond to provider requests without leaving the workspace.
 
-### 5. Use Files, Git, Terminals, And Actions
+### 5. Open Linked Files
 
-The right panel includes:
+Click a workspace file link in chat to open its text preview in the editor. The workspace interface focuses on chat, with projects and navigation on the left. Project rows use shadcn/ui accordions: expand several projects at once to browse their chats without switching the current project. Projects and Recents also collapse independently. Hover a project row to reveal its new-chat button; it is also available on keyboard focus. Each expanded project initially fetches its four latest chats; use **Load more** for older chats. Recents includes chats across projects, and selecting a chat opens its project. A chat's **… → Archive** action removes it immediately while the API request runs in the background; a failed request restores the row and shows an error.
 
-- **Files**: workspace tree and text file previews.
-- **Git**: status, commits, staging, commit, pull, push, and repository initialization.
-- **Tunnels**: Cloudflare Tunnel status and temporary tunnel controls.
+### Talk To Pock
 
-The terminal panel creates shell sessions in the active workspace. Run actions can save common terminal commands or chat prompts for repeat use.
+Open **Home** and select **Pock** under **Agents** in the left sidebar and use your connected Codex accounts without a separate API key. For example:
+
+- “Start a new chat in PockCode to investigate the failing tests. Enable automatic account failover.”
+- “Review authentication in Project A and fix failing tests in Project B. Start a chat for each.”
+- “Call yourself Nova and be concise and direct.”
+- “What are my running chats working on?”
+- “Send the authentication chat a follow-up asking it to check session expiry.”
+- “Move the test-fix chat to an account that still has quota.”
+- “Enable quota recovery for this chat.”
+
+Use **+** beside **Agents** to create more agents with separate names, personalities, and persistent conversations. Select an agent in the Home sidebar to chat with it. Agents can run at the same time; stopping one leaves the others running. The original Pock profile and conversation are preserved when upgrading.
+
+Agent chat works like a messenger. Before composing each reply, the agent must call `set_typing(true)` separately, then use `send_agent_message` to send a short message immediately. The server rejects sends that skip typing. It can send several separate messages during one turn; there is no automatic “Thinking” bubble or final recap. Sending a message clears typing, and typing also clears when work stops, fails, finishes, or the server restarts. Messages default to 1–3 sentences, with a 1,200-character limit per bubble. A user message keeps its Sent/Read status visible only while it is the last message in the conversation; after a reply, its receipt appears on hover or keyboard focus. Individual timestamps appear on hover or keyboard focus. Waiting messages become Read when included in the agent's next batch, not merely when received by the server.
+
+When an agent starts a Codex task, it automatically saves a watch on that specific run. Completion, failure, or cancellation wakes the agent with the run's result; the agent decides whether to send a useful update. Watches follow account failover and do not confuse later work in the same chat with the original task. The server listens to run events and reconciles saved watches every ten seconds, independently of browser connections. No callback MCP server is required. Requests for quiet work can disable the watch.
+
+Ask for a future reminder, scheduled task, or periodic check in agent chat. The agent uses `schedule_follow_up` with an explicit timestamp and optional repeating interval, interpreting your request in the browser's timezone. Saved commitments appear under **Watches and schedules** in the agent's details, where you can cancel them; the agent can also list and cancel them through chat. Due events wait for a busy agent and combine with its next message batch. Periodic checks can finish silently, and missed intervals produce one check instead of a backlog. Proactive messages use existing desktop notification subscriptions when enabled.
+
+PockCode must be running for watches and schedules to execute. Pending commitments survive server restarts and reconcile on startup. A follow-up interrupted during execution is marked failed for review, preserving sent messages and action receipts rather than automatically repeating possible side effects. Cancelling a watch does not stop its coding task.
+
+Send adds your bubble immediately with a sending indicator, clears and refocuses the composer, and lets you send the next message while delivery is pending. Failed sends remain in the transcript with Retry, using the same message ID to prevent duplicates. You can keep sending messages while an agent works. Follow-ups are saved immediately without interrupting the current turn. When that turn finishes, the agent reads all waiting messages together and decides whether to reply, perform actions, or ask for clarification. Later messages can correct earlier requests within that batch. **Stop** stops the active turn and cancels waiting messages for that agent. If a turn fails or the server restarts, waiting messages remain saved; send another message to continue them. Interrupted turns are not automatically replayed.
+
+In Codex coding chats, Send queues a follow-up while a turn is running. Use Steer to send a draft or queued message to the active turn. Queued messages can be edited, reordered, or deleted before they start. Stop cancels the active turn and preserves the queue, including across server restarts; sending another message resumes the queue in order.
+
+Every agent is global across all saved projects. Opening a project or coding chat does not pin Pock to it or silently select its next target. Name projects in your messages; Pock resolves their chats using live tools and asks for clarification when references are ambiguous. You can direct several projects in one message; their dispatched Codex tasks can run concurrently. Each management operation has an action receipt. New chats retain the normal approval settings, and follow-ups retain each chat's existing permissions. Stopping Pock stops further management actions; coding tasks it already started continue until you stop those chats.
+
+You can set the assistant's name and personality during chat. For example, “Call yourself Nova”, “Be warmer and more conversational”, or “Keep replies short and direct”. These preferences are saved for that agent in the local database and survive reloads, restarts, and account failover. Click the avatar above the conversation to open the profile panel at the top right. Personality controls conversational style; it does not change coding permissions or tool access.
+
+Each agent can have its own avatar. Use **Upload image** in the profile panel to choose a PNG, JPEG, or WebP image; uploads are cropped to a square. **Generate for me**, or a request in chat, lets the agent design and save an original vector avatar with its `generate_avatar` tool. Avatars persist with the agent's profile and appear in the conversation, profile panel, and sidebar.
+
+The agent composer starts as a single line. Use **+** to attach files or images, or paste an image into the input. Previews appear above the composer and can be removed before sending. You can send attachments without additional text. Messages retain their attachments after a restart; recent images remain available for follow-up questions. Images and UTF-8 text/code files are supplied to the agent; other binary files are saved and downloadable but cannot be inspected directly in agent chat. Attach up to 10 files, at most 5 MB each and 10 MB total, per message.
+
+Each agent's **context** consists of its own recent conversation history, its saved profile, completed actions in the current request, and live tool results about projects, chats, and account capacity. There is no dedicated knowledge base yet. A knowledge base would provide long-lived reference facts and documents that can be retrieved when relevant, instead of relying on recent chat history.
+
+Quota recovery is opt-in per chat and runs on the server, including with the browser closed. It switches **Codex accounts**, preserving the provider thread and workspace; other provider types are currently unsupported. It skips exhausted, disconnected, already attempted, and unverifiable accounts. Temporary rate throttling, authentication failures, and network errors do not trigger migration. If every eligible account is unavailable, the run fails with an explanation. Continuation prompts ask Codex to inspect completed work before proceeding; already executed external actions cannot be rolled back automatically.
+
+The assistant itself can switch to another connected account if its quota runs out. Its management runtime uses read-only filesystem access, disables configured MCP servers and shell tools, and exposes a bounded set of chat-management tools. History and completed action receipts survive restarts, but in-flight assistant requests are not automatically replayed. PockCode must remain running for background work and account recovery.
+
+The persistent conversation and visible action lifecycle are inspired by [OpenDots](https://github.com/CopilotKit/OpenDots) and [OpenAI Dots](https://learn.chatgpt.com/docs/dots), implemented using PockCode's existing local services and Codex app-server protocol.
 
 ### 6. Schedule Work
 
@@ -169,7 +201,6 @@ The scheduler can run Codex prompts later or on a recurrence. Each schedule stor
 ### 7. Optional Remote Workflows
 
 - Enable browser push notifications to get completion and failure alerts.
-- Start a temporary Cloudflare Tunnel when you need secure remote browser access.
 - Enable the Telegram plugin with a bot token to receive chat updates and reply from Telegram.
 
 ## Configuration
@@ -266,7 +297,7 @@ PockCode is split between a browser client, a Node.js app server, and a local SQ
 .
 |-- app/
 |   |-- routes/          React Router routes and route-level API helpers
-|   |-- server/          API handlers, auth, database setup, providers, plugins, Git, terminals, MCP, push, tunnels
+|   |-- server/          API handlers, auth, database setup, providers, plugins, Git, MCP, push, tunnels
 |   `-- types/           Shared server/client contracts
 |-- bin/
 |   `-- pockcode.ts      Production CLI and HTTP server
@@ -276,7 +307,7 @@ PockCode is split between a browser client, a Node.js app server, and a local SQ
 |-- scripts/             Smoke-test utilities
 |-- server/              Install-time SQLite/Prisma setup helpers
 |-- src/
-|   |-- components/      Session UI, editor, terminal, provider, MCP, Git, and design-system components
+|   |-- components/      Session UI, editor, provider, MCP, and design-system components
 |   |-- lib/             Client utilities, API client, Codex/session helpers, Monaco setup
 |   `-- types/           Client-side TypeScript types
 `-- vite*.config.ts      Development, client build, and CLI build configuration
@@ -292,7 +323,6 @@ Core runtime pieces:
 | SQLite setup | `app/server/database.server.ts`, `app/server/prisma.server.ts`, `prisma/schema.prisma` |
 | Codex provider | `app/server/providers/codex.server.ts` |
 | Provider sockets | `app/server/socket.server.ts` |
-| Terminals | `app/server/terminal.server.ts` |
 | Git operations | `app/server/git.service.ts` |
 | MCP servers | `app/server/mcp.service.ts` |
 | Schedules | `app/server/message-schedules.service.ts`, `app/server/message-schedule-monitor.server.ts` |
@@ -313,7 +343,6 @@ Important behavior:
 - Session cookies are HTTP-only and scoped to the PockCode server.
 - Basic auth is also accepted for API-style access after a password is configured.
 - Workspace browsing is constrained to paths under the current user's home directory.
-- Terminal sessions execute real shell commands on your machine.
 - Git operations mutate real repositories.
 - Temporary Cloudflare tunnels expose your local PockCode server through a public URL while running.
 
@@ -344,15 +373,6 @@ pnpm install
 pnpm exec prisma generate --schema=prisma/schema.prisma
 ```
 
-### Native Terminal Module Fails To Load
-
-`node-pty` is native. Use a supported Node.js version and reinstall dependencies:
-
-```sh
-node --version
-pnpm install
-```
-
 ### Cloudflare Tunnel Is Unavailable
 
 Install `cloudflared` and make sure it is on `PATH`:
@@ -378,10 +398,7 @@ Check that:
 
 ### Codex Authentication Does Not Complete
 
-Try the alternative auth mode in the provider account dialog:
-
-- Browser auth for a fresh login.
-- Local account auth if you already have Codex configured locally.
+Use **Re-authenticate** to request a fresh device code, open the sign-in link, and enter the displayed code. Device-code sign-in must be enabled for your ChatGPT account.
 
 ## Publishing
 

@@ -19,7 +19,6 @@ export function ProvidersManagementDialog({
   const [accounts, setAccounts] = useState<ProviderAccountResponse[]>([])
   const [accountDialogId, setAccountDialogId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [pickerOpen, setPickerOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderDefinitionResponse[]>([])
   const { accountLimits } = useProviderQuotas()
@@ -60,7 +59,6 @@ export function ProvidersManagementDialog({
       setAccounts(nextAccounts)
       onProviderDataChange(providers, nextAccounts)
       setAccountDialogId(account.id)
-      setPickerOpen(false)
     } catch (error) {
       setLoadError(readError(error))
     }
@@ -95,7 +93,7 @@ export function ProvidersManagementDialog({
             className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             title="Add"
             type="button"
-            onClick={() => setPickerOpen(true)}
+            onClick={() => void createAccount("codex")}
           >
             <Plus className="size-4" />
           </button>
@@ -162,12 +160,6 @@ export function ProvidersManagementDialog({
         </div>
       </section>
 
-      <ProviderPickerDialog
-        open={pickerOpen}
-        providers={providers}
-        onClose={() => setPickerOpen(false)}
-        onSelect={(providerId) => void createAccount(providerId)}
-      />
       <ProviderAccountDialog
         account={selectedAccount}
         provider={selectedProvider}
@@ -176,58 +168,6 @@ export function ProvidersManagementDialog({
         onClose={() => setAccountDialogId(null)}
         onReload={loadProviderData}
       />
-    </div>
-  )
-}
-
-function ProviderPickerDialog({
-  open,
-  providers,
-  onClose,
-  onSelect,
-}: {
-  open: boolean
-  providers: ProviderDefinitionResponse[]
-  onClose: () => void
-  onSelect: (providerId: string) => void
-}) {
-  if (!open) {
-    return null
-  }
-
-  return (
-    <div className="safe-area-overlay fixed inset-0 z-[60] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
-      <button aria-label="Close provider picker" className="absolute inset-0 cursor-default" type="button" onClick={onClose} />
-      <section className="relative w-full max-w-sm overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
-        <header className="flex h-11 items-center gap-2 border-b border-border px-3">
-          <Plus className="size-4 text-info" />
-          <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">Add provider</h2>
-          <button
-            aria-label="Close provider picker"
-            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            type="button"
-            onClick={onClose}
-          >
-            <X className="size-4" />
-          </button>
-        </header>
-        <div className="p-2">
-          {providers.map((provider) => (
-            <button
-              className="flex h-12 w-full min-w-0 items-center gap-3 rounded-md px-2 text-left hover:bg-accent"
-              key={provider.id}
-              type="button"
-              onClick={() => onSelect(provider.id)}
-            >
-              <ProviderGlyph icon={provider.icon} />
-              <span className="min-w-0">
-                <span className="block truncate text-[13px] font-medium text-foreground">{provider.label}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{provider.id}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
     </div>
   )
 }

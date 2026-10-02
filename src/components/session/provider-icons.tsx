@@ -1,10 +1,9 @@
 import { Bot } from "lucide-react"
-import claudeCodeIconUrl from "@/assets/icons/claude-code.svg"
 import type { ProviderAccountStatus } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 
 export function ProviderGlyph({ icon }: { icon: string }) {
-  if (icon === "codex" || isClaudeCodeIcon(icon)) {
+  if (icon === "codex") {
     return (
       <span className="grid size-9 shrink-0 place-items-center rounded-md bg-foreground text-background">
         <ProviderMark icon={icon} className="size-5" />
@@ -23,10 +22,6 @@ export function ProviderMark({ className, icon }: { className?: string; icon?: s
   if (icon === "codex") {
     return <CodexIcon className={cn("shrink-0", className)} />
   }
-  if (isClaudeCodeIcon(icon)) {
-    return <img alt="" aria-hidden="true" className={cn("shrink-0", className)} draggable={false} src={claudeCodeIconUrl} />
-  }
-
   return <Bot className={cn("shrink-0", className)} />
 }
 
@@ -46,10 +41,6 @@ export function CodexIcon({ className }: { className?: string }) {
       />
     </svg>
   )
-}
-
-function isClaudeCodeIcon(icon: string | null | undefined): boolean {
-  return icon === "claude" || icon === "claude-code"
 }
 
 export function ProviderStatusBadge({ status }: { status: ProviderAccountStatus }) {

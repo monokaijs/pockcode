@@ -7,12 +7,10 @@ import { copyFile, cp, mkdir, open as openFile, readFile, readdir, rm, stat, wri
 import { dirname, join, relative, resolve } from "node:path"
 import { parse, stringify } from "smol-toml"
 import type {
-  AccountAuthMode,
   AuthenticateProviderAccountResponse,
   CodexInstructionsResponse,
   MessageRole,
   ProviderLimitsResponse,
-  ProviderModelListResponse,
 } from "../../types/providers"
 import type { JsonObject, JsonSerializable } from "../../types/json"
 import { ensureDatabase } from "../database.server"
@@ -20,6 +18,8 @@ import { asJsonObject, normalizeJsonObject, readNumber, readString } from "../js
 import { prisma } from "../prisma.server"
 import { resolveHomePath, resolveProviderDataHome } from "../runtime-paths.server"
 import { codexAcpRuntimeForAccount, codexAcpRuntimeService } from "./codex-acp.server"
+import { listCodexModels } from "./codex-models.server"
+import { startCodexDeviceLogin } from "./codex-auth.server"
 import { codexMcpConfigForInstallation } from "./mcp-config.server"
 import type {
   ProviderAdapter,
@@ -41,56 +41,14 @@ const codexMessageReadTimeoutMs = 5_000
 const codexStoredRunningFreshnessMs = 30 * 60 * 1000
 type CodexPersonality = "friendly" | "pragmatic"
 
-const codexDefaultModel = "gpt-5.5"
 const codexDefaultReasoningEffort = "medium"
 const codexDefaultServiceTier = "standard"
-const codexSupportedReasoningEfforts = [
-  { description: "None", reasoningEffort: "none" },
-  { description: "Minimal", reasoningEffort: "minimal" },
-  { description: "Low", reasoningEffort: "low" },
-  { description: "Medium", reasoningEffort: "medium" },
-  { description: "High", reasoningEffort: "high" },
-  { description: "Extra High", reasoningEffort: "xhigh" },
-]
-const codexDefaultModelOptions: ProviderModelListResponse["data"] = [
-  {
-    id: "gpt-5.5",
-    model: "gpt-5.5",
-    displayName: "GPT-5.5",
-    defaultReasoningEffort: codexDefaultReasoningEffort,
-    supportedReasoningEfforts: codexSupportedReasoningEfforts,
-  },
-  {
-    id: "gpt-5.4",
-    model: "gpt-5.4",
-    displayName: "GPT-5.4",
-    defaultReasoningEffort: codexDefaultReasoningEffort,
-    supportedReasoningEfforts: codexSupportedReasoningEfforts,
-  },
-  {
-    id: "gpt-5.4-mini",
-    model: "gpt-5.4-mini",
-    displayName: "GPT-5.4-Mini",
-    defaultReasoningEffort: codexDefaultReasoningEffort,
-    supportedReasoningEfforts: codexSupportedReasoningEfforts,
-  },
-  {
-    id: "gpt-5.3-codex-spark",
-    model: "gpt-5.3-codex-spark",
-    displayName: "GPT-5.3-Codex-Spark",
-    defaultReasoningEffort: codexDefaultReasoningEffort,
-    supportedReasoningEfforts: codexSupportedReasoningEfforts,
-  },
-]
-
 const definition: ProviderDefinition = {
   id: "codex",
   label: "OpenAI Codex",
   icon: "codex",
   authModes: [
-    { mode: "browser", label: "Browser", description: "Authenticate with ChatGPT in a browser." },
     { mode: "device", label: "Device code", description: "Authenticate with a device code." },
-    { mode: "local", label: "Local account", description: "Reuse the local Codex account from the shared Codex home." },
   ],
   capabilities: [
     "auth",
@@ -148,7 +106,6 @@ export const codexProviderAdapter: ProviderAdapter = {
     personality: "pragmatic",
   }),
   defaultRuntimeDefaults: () => ({
-    model: codexDefaultModel,
     permissionMode: "askForApproval",
     reasoningEffort: codexDefaultReasoningEffort,
     serviceTier: codexDefaultServiceTier,
@@ -158,51 +115,18 @@ export const codexProviderAdapter: ProviderAdapter = {
     ensureCodexHome(codexHome)
     await syncCodexInstructionsToHome(codexHome)
   },
-  async authenticate(account, mode = "browser") {
+  async authenticate(account) {
     try {
-      if (mode === "local") {
-        await connectLocalCodexAccount()
-        stopCodexAccountRuntimes(account.id)
-        return connectedAuthResponse(account.id, "Local Codex account is connected.", localCodexAuthState())
-      }
-
       const runtime = runtimeForAccount(account)
       if (hasAccountAuthFile(account)) {
-        stopCodexAccountRuntimes(account.id)
-        return connectedAuthResponse(account.id, "Codex account is connected.")
+        await runtime.request("account/logout", undefined, 30_000)
       }
-
-      const response = await runtime.request(
-        "account/login/start",
-        mode === "device"
-          ? { type: "chatgptDeviceCode" }
-          : { type: "chatgpt", codexStreamlinedLogin: true },
-        30_000,
-      )
-      const result = asJsonObject(response.result)
-      const responseMode = readString(result?.type) === "chatgptDeviceCode" ? "device" : mode
-      const authUrl = readLoginAuthUrl(result, responseMode)
-      const loginId = readString(result?.loginId) ?? null
-      const userCode = responseMode === "device" ? readString(result?.userCode) ?? readString(result?.user_code) ?? null : null
-      return {
-        accountId: account.id,
-        status: authUrl ? "AUTHENTICATING" : "CONNECTED",
-        authMode: authUrl ? responseMode : null,
-        authUrl,
-        verificationUrl: responseMode === "device" ? authUrl : null,
-        userCode,
-        loginId,
-        message: authUrl
-          ? responseMode === "device"
-            ? "Open the verification URL and enter the device code to finish Codex authentication."
-            : "Complete Codex authentication in the opened browser."
-          : "Codex account is connected.",
-      }
+      return await startCodexDeviceLogin(account.id, (params) => runtime.request("account/login/start", params, 30_000))
     } catch (error) {
       return {
         accountId: account.id,
         status: "ERROR",
-        authMode: mode,
+        authMode: "device",
         authUrl: null,
         verificationUrl: null,
         userCode: null,
@@ -210,33 +134,9 @@ export const codexProviderAdapter: ProviderAdapter = {
       }
     }
   },
-  async cancelAuthentication(account) {
-    stopCodexAccountRuntimes(account.id)
-  },
-  async completeAuthentication(account, redirectUrl) {
-    const callbackUrl = parseLoopbackCallbackUrl(redirectUrl)
-    const response = await fetch(callbackUrl)
-    if (response.status >= 400) {
-      throw new Error(`Codex login callback returned HTTP ${response.status}.`)
-    }
-    if (hasAccountAuthFile(account)) {
-      stopCodexAccountRuntimes(account.id)
-      return connectedAuthResponse(account.id, "Codex account is connected.")
-    }
-    return {
-      accountId: account.id,
-      status: "AUTHENTICATING",
-      authMode: readAuthMode(account.lastAuthMode),
-      authUrl: account.lastAuthUrl,
-      verificationUrl: account.lastAuthMode === "device" ? account.lastAuthUrl : null,
-      userCode: account.lastAuthUserCode,
-      message: "Callback accepted. Codex is still finishing authentication.",
-    }
-  },
   async listModels(account) {
     try {
-      const response = await runtimeForAccount(account).request("model/list", { includeHidden: false, limit: 100 }, 30_000)
-      return normalizeModelList(response.result)
+      return await listCodexModels((params) => runtimeForAccount(account).request("model/list", params, 30_000))
     } catch (error) {
       await maybeMarkInvalidated(account.id, error)
       throw error
@@ -256,6 +156,9 @@ export const codexProviderAdapter: ProviderAdapter = {
   },
   loadChatMessages(account, externalThreadId) {
     return loadCodexChatMessages(account, externalThreadId)
+  },
+  loadLocalChatMessages(externalThreadId) {
+    return loadCodexStoredChatMessagesFromHome(resolveSharedCodexHome(), externalThreadId)
   },
   readChatStatus(account, externalThreadId) {
     return readCodexChatStatus(account, externalThreadId)
@@ -352,6 +255,7 @@ export const codexProviderAdapter: ProviderAdapter = {
   readInstructions: readCodexInstructions,
   readThreadIdFromHistoryChange: readCodexThreadIdFromHistoryChange,
   async sendMessage(account, input) {
+    input.signal?.throwIfAborted()
     if (input.threadId) {
       await hydrateKnownCodexThreadToAccount(input.threadId, account)
     }
@@ -364,9 +268,23 @@ export const codexProviderAdapter: ProviderAdapter = {
       const threadReady = new Promise<string>((resolve) => {
         resolveThreadReady = resolve
       })
-      const resultPromise = acpRuntimeForAccount(account, input.workingDirectory).sendMessage({
+      let lastStartedTurnId = previousTurnId
+      let activeThreadId = input.threadId ?? null
+      const acpRuntime = acpRuntimeForAccount(account, input.workingDirectory)
+      const resultPromise = acpRuntime.sendMessage({
         ...input,
+        waitForSteeringTurn: async () => {
+          const turnId = await waitForCodexTurnId(appServerRuntime, activeThreadId!, lastStartedTurnId, input.signal)
+          if (!turnId) {
+            acpRuntime.shutdown()
+            throw new Error("Unable to track the new Codex steering turn.")
+          }
+          lastStartedTurnId = turnId
+          await input.onTurnStarted?.(turnId)
+          await waitForCodexTurnCompletion(appServerRuntime, activeThreadId!, turnId, input.signal)
+        },
         onThreadReady: async (threadId) => {
+          activeThreadId = threadId
           await input.onThreadReady?.(threadId)
           resolveThreadReady(threadId)
         },
@@ -376,37 +294,42 @@ export const codexProviderAdapter: ProviderAdapter = {
         resultPromise.then((result) => result.threadId),
       ])
       const turnWait = new AbortController()
-      const turnIdPromise = waitForCodexTurnId(appServerRuntime, threadId, previousTurnId, turnWait.signal)
-      const first = await Promise.race([
-        resultPromise.then((result) => ({ result, type: "result" as const })),
-        turnIdPromise.then((turnId) => ({ turnId, type: "turn" as const })),
-      ])
-      let result
-      let turnId: string | null
-      if (first.type === "turn") {
-        turnId = first.turnId
-        if (turnId) {
-          await input.onTurnStarted?.(turnId)
-        }
-        result = await resultPromise
-        turnWait.abort()
-        if (!turnId) {
+      const turnIdPromise = waitForCodexTurnId(appServerRuntime, threadId, previousTurnId, input.signal ? AbortSignal.any([input.signal, turnWait.signal]) : turnWait.signal)
+      try {
+        const first = await Promise.race([
+          resultPromise.then((result) => ({ result, type: "result" as const })),
+          turnIdPromise.then((turnId) => ({ turnId, type: "turn" as const })),
+        ])
+        let result
+        let turnId: string | null
+        if (first.type === "turn") {
+          turnId = first.turnId
+          if (turnId) {
+            lastStartedTurnId = turnId
+            await input.onTurnStarted?.(turnId)
+          }
+          result = await resultPromise
+          turnWait.abort()
+          if (!turnId) {
+            const thread = await readCodexAppServerThread(appServerRuntime, result.threadId).catch(() => null)
+            turnId = readLastCodexTurnId(thread)
+            if (turnId && turnId !== previousTurnId) {
+              await input.onTurnStarted?.(turnId)
+            }
+          }
+        } else {
+          turnWait.abort()
+          result = first.result
           const thread = await readCodexAppServerThread(appServerRuntime, result.threadId).catch(() => null)
           turnId = readLastCodexTurnId(thread)
           if (turnId && turnId !== previousTurnId) {
             await input.onTurnStarted?.(turnId)
           }
         }
-      } else {
+        return { ...result, turnId: lastStartedTurnId && lastStartedTurnId !== previousTurnId ? lastStartedTurnId : turnId }
+      } finally {
         turnWait.abort()
-        result = first.result
-        const thread = await readCodexAppServerThread(appServerRuntime, result.threadId).catch(() => null)
-        turnId = readLastCodexTurnId(thread)
-        if (turnId && turnId !== previousTurnId) {
-          await input.onTurnStarted?.(turnId)
-        }
       }
-      return { ...result, turnId }
     } catch (error) {
       await maybeMarkInvalidated(account.id, error)
       throw error
@@ -483,6 +406,31 @@ async function waitForCodexTurnId(
   return null
 }
 
+async function waitForCodexTurnCompletion(
+  runtime: Pick<CodexRuntime, "request">,
+  threadId: string,
+  turnId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const deadline = Date.now() + codexTurnCompletionTimeoutMs
+  let cancellationDeadline: number | null = null
+  while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      cancellationDeadline ??= Date.now() + 10_000
+      if (Date.now() >= cancellationDeadline) throw new Error("Timed out settling the cancelled Codex steering turn.")
+    }
+    const thread = await readCodexAppServerThread(runtime, threadId, 2_000)
+    const turn = Array.isArray(thread?.turns)
+      ? thread.turns.map((value) => asJsonObject(value)).find((value) => readString(value?.id) === turnId)
+      : null
+    const status = readString(turn?.status)
+    if (status === "failed") throw new Error(readString(asJsonObject(turn?.error)?.message) ?? "Codex steering turn failed.")
+    if (status === "completed" || status === "interrupted") return
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error("Timed out waiting for Codex steering turn.")
+}
+
 export function isCodexAccountInvalidated(accountId: string): boolean {
   return invalidatedAccountIds.has(accountId)
 }
@@ -505,6 +453,11 @@ function defaultCodexSettings(): JsonObject {
 
 function runtimeForAccount(account: ProviderAccount, workingDirectory?: string | null): CodexRuntime {
   return runtimeService.getRuntime(runtimeConfigForAccount(account, workingDirectory))
+}
+
+// The management assistant has a separate, ephemeral runtime and no coding workspace.
+export function createCodexAssistantRuntime(account: ProviderAccount, workingDirectory: string) {
+  return new CodexRuntime(runtimeConfigForAccount(account, workingDirectory))
 }
 
 function acpRuntimeForAccount(account: ProviderAccount, workingDirectory?: string | null) {
@@ -554,9 +507,6 @@ function mergedProviderSettings(): JsonObject {
 }
 
 function resolveAccountCodexHome(account: ProviderAccount): string {
-  if (usesSharedCodexHome(account)) {
-    return resolveSharedCodexHome()
-  }
   const settings = normalizeJsonObject(account.settings)
   const explicitHome = readString(settings.codexHome)
   if (explicitHome && !sameFilesystemPath(resolveHomePath(explicitHome), resolveSharedCodexHome())) {
@@ -763,8 +713,13 @@ async function readLatestExistingCodexInstructions(homes: string[]): Promise<str
 }
 
 async function writeCodexInstructions(codexHome: string, instructions: string): Promise<void> {
+  const path = codexInstructionsPath(codexHome)
+  const content = instructions ? `${instructions}\n` : ""
+  if (await readFile(path, "utf8").catch(() => null) === content) {
+    return
+  }
   await mkdir(codexHome, { recursive: true, mode: 0o700 })
-  await writeFile(codexInstructionsPath(codexHome), instructions ? `${instructions}\n` : "", "utf8")
+  await writeFile(path, content, "utf8")
 }
 
 function codexInstructionsPath(codexHome: string): string {
@@ -786,15 +741,6 @@ function uniquePaths(paths: string[]): string[] {
   return [...new Set(paths.map((path) => resolve(path)))]
 }
 
-async function connectLocalCodexAccount(): Promise<void> {
-  const source = resolveSharedCodexHome()
-  const authPath = join(source, "auth.json")
-  const authStats = await stat(authPath).catch(() => null)
-  if (!authStats?.isFile()) {
-    throw new Error(`No local Codex auth found at ${authPath}.`)
-  }
-}
-
 async function syncAccountHistoryToCanonical(account: ProviderAccount): Promise<boolean> {
   const source = resolveAccountCodexHome(account)
   const target = resolveCanonicalHistoryHome()
@@ -802,9 +748,6 @@ async function syncAccountHistoryToCanonical(account: ProviderAccount): Promise<
 }
 
 async function hydrateCanonicalHistoryToAccount(account: ProviderAccount): Promise<boolean> {
-  if (usesSharedCodexHome(account)) {
-    return true
-  }
   const source = resolveCanonicalHistoryHome()
   const target = resolveAccountCodexHome(account)
   ensureCodexHome(target)
@@ -816,9 +759,6 @@ async function syncAccountThreadToCanonical(threadId: string, account: ProviderA
 }
 
 async function hydrateCanonicalThreadToAccount(threadId: string, account: ProviderAccount): Promise<boolean> {
-  if (usesSharedCodexHome(account)) {
-    return true
-  }
   const target = resolveAccountCodexHome(account)
   ensureCodexHome(target)
   return copyCodexThread(resolveCanonicalHistoryHome(), target, threadId, { preserveExistingTarget: true })
@@ -826,9 +766,6 @@ async function hydrateCanonicalThreadToAccount(threadId: string, account: Provid
 
 async function hydrateKnownCodexThreadToAccount(threadId: string, account: ProviderAccount): Promise<boolean> {
   if (await hydrateCanonicalThreadToAccount(threadId, account)) {
-    return true
-  }
-  if (usesSharedCodexHome(account)) {
     return true
   }
   const target = resolveAccountCodexHome(account)
@@ -841,9 +778,6 @@ async function hydrateKnownCodexThreadToAccount(threadId: string, account: Provi
 }
 
 async function removeAccountThread(threadId: string, account: ProviderAccount): Promise<boolean> {
-  if (usesSharedCodexHome(account)) {
-    return true
-  }
   return removeCodexThread(resolveAccountCodexHome(account), threadId)
 }
 
@@ -995,7 +929,13 @@ async function loadCodexStoredChatMessages(
   account: ProviderAccount,
   externalThreadId: string,
 ): Promise<ProviderChatMessageItem[]> {
-  const codexHome = resolveAccountCodexHome(account)
+  return loadCodexStoredChatMessagesFromHome(resolveAccountCodexHome(account), externalThreadId)
+}
+
+async function loadCodexStoredChatMessagesFromHome(
+  codexHome: string,
+  externalThreadId: string,
+): Promise<ProviderChatMessageItem[]> {
   const sessionFile = await findCodexSessionFile(codexHome, externalThreadId)
   const sessionMessages = sessionFile ? await readCodexSessionMessages(sessionFile) : []
   const logMessages = await readCodexLogMessages(codexHome, externalThreadId)
@@ -3233,11 +3173,6 @@ function readAuthJson(account: ProviderAccount): JsonObject | null {
   }
 }
 
-function usesSharedCodexHome(account: ProviderAccount): boolean {
-  const authState = normalizeJsonObject(account.authState)
-  return readString(authState.codexHomeMode) === "shared"
-}
-
 function decodeJwtPayload(token: string): JsonObject | null {
   const [, payload] = token.split(".")
   if (!payload) {
@@ -3259,165 +3194,8 @@ function statSyncSafe(pathname: string) {
   }
 }
 
-function readLoginAuthUrl(result: JsonObject | undefined, mode: AccountAuthMode): string | null {
-  if (!result) {
-    return null
-  }
-  if (mode === "device") {
-    return (
-      readString(result.verificationUrl) ??
-      readString(result.verification_uri) ??
-      readString(result.verification_uri_complete) ??
-      readString(result.authUrl) ??
-      null
-    )
-  }
-  return readString(result.authUrl) ?? readString(result.url) ?? null
-}
-
-function parseLoopbackCallbackUrl(value: string): string {
-  const url = new URL(value)
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Callback URL must be HTTP or HTTPS.")
-  }
-  if (!["127.0.0.1", "localhost", "[::1]", "::1"].includes(url.hostname)) {
-    throw new Error("Callback URL must point at localhost.")
-  }
-  return url.toString()
-}
-
-function readAuthMode(value: string | null): AccountAuthMode | null {
-  return value === "browser" || value === "device" || value === "local" ? value : null
-}
-
 function sameFilesystemPath(left: string, right: string): boolean {
   return resolve(left) === resolve(right)
-}
-
-function connectedAuthResponse(
-  accountId: string,
-  message: string,
-  authState?: JsonObject,
-): AuthenticateProviderAccountResponse {
-  return {
-    accountId,
-    status: "CONNECTED",
-    authMode: null,
-    ...(authState === undefined ? {} : { authState }),
-    authUrl: null,
-    verificationUrl: null,
-    userCode: null,
-    message,
-  }
-}
-
-function localCodexAuthState(): JsonObject {
-  return {
-    codexHome: resolveSharedCodexHome(),
-    codexHomeMode: "shared",
-  }
-}
-
-function normalizeModelList(value: unknown): ProviderModelListResponse {
-  const result = asJsonObject(value)
-  const rows = Array.isArray(result?.data) ? result.data : []
-  const models = rows.map((row) => {
-    const object = asJsonObject(row) ?? {}
-    const id = readString(object.id) ?? readString(object.model) ?? "unknown"
-    const upgrade = readString(object.upgrade)
-    return {
-      id,
-      model: readString(object.model) ?? id,
-      displayName: readString(object.displayName) ?? readString(object.display_name) ?? id,
-      hidden: Boolean(object.hidden),
-      defaultReasoningEffort: readString(object.defaultReasoningEffort) ?? readString(object.default_reasoning_effort) ?? null,
-      defaultServiceTier: readString(object.defaultServiceTier) ?? readString(object.default_service_tier) ?? null,
-      inputModalities: readStringList(object.inputModalities) ?? readStringList(object.input_modalities) ?? [],
-      isDefault: readBooleanValue(object.isDefault) ?? readBooleanValue(object.is_default) ?? false,
-      serviceTiers: readModelServiceTiers(object.serviceTiers) ?? readModelServiceTiers(object.service_tiers) ?? [],
-      supportsPersonality: readBooleanValue(object.supportsPersonality) ?? readBooleanValue(object.supports_personality) ?? false,
-      supportedReasoningEfforts: readSupportedReasoningEfforts(object.supportedReasoningEfforts)
-        ?? readSupportedReasoningEfforts(object.supported_reasoning_efforts)
-        ?? [],
-      upgradeInfo: readModelUpgradeInfo(object.upgradeInfo) ?? readModelUpgradeInfo(object.upgrade_info) ?? (upgrade ? { upgrade } : null),
-    }
-  })
-  return {
-    data: mergeCodexModelOptions(models),
-    nextCursor: readString(result?.nextCursor) ?? readString(result?.next_cursor) ?? null,
-  }
-}
-
-function readSupportedReasoningEfforts(value: unknown): ProviderModelListResponse["data"][number]["supportedReasoningEfforts"] | null {
-  if (!Array.isArray(value)) {
-    return null
-  }
-  const efforts = value
-    .map((entry) => {
-      if (typeof entry === "string") {
-        return { reasoningEffort: entry }
-      }
-      const object = asJsonObject(entry)
-      const reasoningEffort = readString(object?.reasoningEffort) ?? readString(object?.reasoning_effort)
-      return reasoningEffort
-        ? { reasoningEffort, description: readString(object?.description) }
-        : null
-    })
-    .filter((entry): entry is { description?: string; reasoningEffort: string } => Boolean(entry))
-  return efforts.length ? efforts : null
-}
-
-function readModelServiceTiers(value: unknown): ProviderModelListResponse["data"][number]["serviceTiers"] | null {
-  if (!Array.isArray(value)) {
-    return null
-  }
-  const tiers = value
-    .map((entry) => {
-      const object = asJsonObject(entry)
-      const id = readString(object?.id)
-      if (!id) {
-        return null
-      }
-      return {
-        id,
-        name: readString(object?.name) ?? id,
-        description: readString(object?.description) ?? "",
-      }
-    })
-    .filter((entry): entry is { description: string; id: string; name: string } => Boolean(entry))
-  return tiers.length ? tiers : null
-}
-
-function readModelUpgradeInfo(value: unknown): JsonSerializable | null {
-  if (value === undefined || value === null) {
-    return null
-  }
-  const object = asJsonObject(value)
-  return object ? jsonFromUnknown(object) : null
-}
-
-function mergeCodexModelOptions(options: ProviderModelListResponse["data"]): ProviderModelListResponse["data"] {
-  const merged = new Map<string, ProviderModelListResponse["data"][number]>()
-  for (const option of [...codexDefaultModelOptions, ...options]) {
-    const key = (option.model || option.id).trim().toLowerCase()
-    const existing = merged.get(key)
-    merged.set(key, existing ? mergeCodexModelOption(existing, option) : option)
-  }
-  return [...merged.values()]
-}
-
-function mergeCodexModelOption(
-  fallback: ProviderModelListResponse["data"][number],
-  option: ProviderModelListResponse["data"][number],
-): ProviderModelListResponse["data"][number] {
-  return {
-    ...fallback,
-    ...option,
-    defaultReasoningEffort: option.defaultReasoningEffort ?? fallback.defaultReasoningEffort,
-    supportedReasoningEfforts: option.supportedReasoningEfforts?.length
-      ? option.supportedReasoningEfforts
-      : fallback.supportedReasoningEfforts,
-  }
 }
 
 function normalizeLimits(value: unknown): ProviderLimitsResponse {
@@ -3619,14 +3397,6 @@ function readStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string") ? value : undefined
 }
 
-function readStringList(value: unknown): string[] | null {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string") ? value : null
-}
-
-function readBooleanValue(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null
-}
-
 function readStringRecord(value: unknown): Record<string, string> {
   const object = asJsonObject(value)
   if (!object) {
@@ -3689,7 +3459,7 @@ class CodexRuntime {
     return this.ensureStarted().then(() => this.requestStarted(method, params, timeoutMs))
   }
 
-  respondToServerRequest(requestId: string, result: JsonSerializable): Promise<void> {
+  respondToServerRequest(requestId: string | number, result: JsonSerializable): Promise<void> {
     return this.ensureStarted().then(() => {
       this.child?.stdin.write(`${JSON.stringify({ id: requestId, result })}\n`)
     })
@@ -3824,6 +3594,23 @@ class CodexRuntime {
       return
     }
     if (message.id === undefined || message.id === null) {
+      if (message.method === "account/login/completed") {
+        const params = asJsonObject(message.params)
+        const loginId = readString(params?.loginId)
+        if (loginId && params?.success === false) {
+          void prisma.providerAccount.updateMany({
+            where: { id: this.config.accountId, status: "AUTHENTICATING", lastAuthLoginId: loginId },
+            data: {
+              status: "ERROR",
+              lastError: readString(params.error) ?? "Device sign-in failed. Request a new code and try again.",
+              lastAuthUrl: null,
+              lastAuthUserCode: null,
+              lastAuthLoginId: null,
+              lastAuthMode: null,
+            },
+          }).catch(() => undefined)
+        }
+      }
       for (const handler of this.eventHandlers) {
         handler(message)
       }
